@@ -33,6 +33,9 @@ def get_object_list(fname):
 
 def parse_ignore_file(fname):
     """ Sometimes we can't grasp objects due to geometry. Specify object to skip in an ignore.txt file. """
+    if not os.path.exists(fname):
+        return [], []
+
     with open(fname, 'r') as handle:
         lines = [l.strip().split(',') for l in handle.readlines()]
 
