@@ -162,9 +162,9 @@ if __name__ == '__main__':
     with open(val_dataset_fname, 'rb') as handle:
         val_data_small = pickle.load(handle)
 
-    train_dataset = CustomGNPGraspDataset(data=train_data_large)
-    train_dataset_val = CustomGNPGraspDataset(data=train_data_large, context_data=train_data_large)
-    val_dataset_val = CustomGNPGraspDataset(data=val_data_large, context_data=train_data_large)
+    train_dataset = CustomGNPGraspDataset(data=train_data_small)
+    train_dataset_val = CustomGNPGraspDataset(data=train_data_small, context_data=train_data_small)
+    val_dataset_val = CustomGNPGraspDataset(data=val_data_small, context_data=train_data_small)
     print(len(train_dataset), len(train_dataset_val), len(val_dataset_val))
     # import IPython; IPython.embed(); import sys; sys.exit()
     train_dataloader = DataLoader(
