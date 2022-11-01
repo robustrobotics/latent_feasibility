@@ -163,8 +163,13 @@ if __name__ == '__main__':
     training_phase_path = os.path.join(grasps_path, 'training_phase')
     if not os.path.exists(training_phase_path):
         os.mkdir(training_phase_path)
-    
-    TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(os.path.join(data_root_path, 'ignore.txt'))
+
+    try:
+        TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(os.path.join(data_root_path, 'ignore.txt'))
+    except FileNotFoundError as e: # in case the ignore files don't exist
+        print('[Warning] Could not find .ignore files. Will use all data...')
+        TRAIN_IGNORE, TEST_IGNORE = [], []
+
     train_dataset_tasks, train_dataset_paths = [], []
 
     print('[Grasps] Generating train grasps for training phase.')
