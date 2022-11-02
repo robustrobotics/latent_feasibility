@@ -351,7 +351,18 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
 
     The prior distribution for this belief is N(0, 1). 
     """
-    def __init__(self, object_set, D, N, likelihood=None, resample=False, plot=False):
+    def __init__(self, object_set, d_latents, n_particles, likelihood=None, resample=False, plot=False):
+        """
+        Maintain a particle distribution over the latent properties for an object.
+
+        :param object_set: A dictionary of form: {'object_names': [...], 'object_properties': [...]}
+            where the last element in each list correponds to the fitting object.
+        :param d_latents: Dimensionality of belief space.
+        :param n_particles: Number of particles to represent belief.
+        :param likelihood: Model that predicts Bernoulli likelihood of data.
+        :param resample: If True, sample particles after each interaction.
+        :param plot: If True, plot first 3 dimensions of latent space during interactions.
+        """
         object_name, object_properties, object_ix = get_fit_object(object_set)
         self.object_name = object_name
         self.object_properties = object_properties
@@ -359,8 +370,8 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         self.resample = resample
         self.plot = plot                        # plot the particles
 
-        self.N = N        # number of particles
-        self.D = D        # dimensions of a single particle
+        self.N = n_particles        # number of particles
+        self.D = d_latents        # dimensions of a single particle
         self.likelihood = likelihood    # LatentEnsemble object that outputs [0, 1]
 
         self.setup()
@@ -572,6 +583,15 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         self.estimated_coms.append(mean)
 
         return self.particles, self.estimated_coms
+
+class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikelihoodParticleBelief):
+    """
+    A ParticleBelief that is compatible with a GraspNeuralProcess object. 
+    """
+    def get_particle_likelihoods(self, particles, observation):
+        pass
+        
+
 
 # =============================================================
 """
