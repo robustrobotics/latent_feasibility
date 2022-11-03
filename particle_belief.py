@@ -620,7 +620,7 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
         latent_samples = torch.Tensor(particles)
         if torch.cuda.is_available():
             latent_samples = latent_samples.cuda()
-        
+
         for (_, target_data, meshes) in dataloader:
             t_grasp_geoms, t_midpoints, _ = target_data
             if torch.cuda.is_available():

@@ -171,7 +171,7 @@ def run(args):
     # save model
     logger.save_dataset(dataset=train_dataset, tx=0)
     logger.save_val_dataset(val_dataset=val_dataset_eval, tx=0)
-    logger.save_neural_process(gnp=model, tx=0)
+    logger.save_neural_process(gnp=model, tx=0, symlink_tx0=False)
 
 if __name__ == '__main__':
 

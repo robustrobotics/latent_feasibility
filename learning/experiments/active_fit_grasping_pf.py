@@ -53,10 +53,9 @@ def find_informative_tower(pf, object_set, logger, args):
 
 def particle_filter_loop(pf, object_set, logger, strategy, args):
     if args.likelihood == 'nn':
-        logger.save_ensemble(pf.likelihood, 0, symlink_tx0=True)
+        logger.save_ensemble(pf.likelihood, 0, symlink_tx0=False)
     elif args.likelihood == 'gnp':
-        pass
-        # TODO: Saved a symlinked GNP decoder.
+        logger.save_neural_process(pf.likelihood, 0, symlink_tx0=False)
     logger.save_particles(pf.particles, 0)
 
     for tx in range(0, args.max_acquisitions):
@@ -86,8 +85,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
         if args.likelihood == 'nn':
             logger.save_ensemble(pf.likelihood, tx+1, symlink_tx0=True)
         elif args.likelihood == 'gnp':
-            # TODO: Saved a symlinked GNP decoder.
-            pass
+            logger.save_neural_process(pf.likelihood, tx+1, symlink_tx0=True)
         logger.save_acquisition_data(grasp_dataset, None, tx+1)
         logger.save_particles(particles, tx+1)
 
