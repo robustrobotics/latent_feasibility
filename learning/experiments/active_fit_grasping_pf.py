@@ -1,6 +1,5 @@
 import argparse
 
-from matplotlib.pyplot import get
 from learning.active import acquire
 import torch
 import numpy as np
@@ -58,6 +57,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
     if args.likelihood == 'nn':
         logger.save_ensemble(pf.likelihood, 0, symlink_tx0=True)
     elif args.likelihood == 'gnp':
+        pass
         # TODO: Saved a symlinked GNP decoder.
     logger.save_particles(pf.particles, 0)
 
@@ -89,6 +89,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
             logger.save_ensemble(pf.likelihood, tx+1, symlink_tx0=True)
         elif args.likelihood == 'gnp':
             # TODO: Saved a symlinked GNP decoder.
+            pass
         logger.save_acquisition_data(grasp_dataset, None, tx+1)
         logger.save_particles(particles, tx+1)
 
@@ -120,8 +121,13 @@ def run_particle_filter_fitting(args):
         likelihood_model = latent_ensemble
         d_latents = latent_ensemble.d_latents
     elif args.likelihood == 'gnp':
-        # TODO: Get GNP decoder from experiment logger.
-
+        train_logger = ActiveExperimentLogger(exp_path=args.pretrained_ensemble_exp_path, use_latents=False)
+        gnp = train_logger.get_neural_process(tx=0)
+        likelihood_model = gnp.decoder
+        if torch.cuda.is_available():
+            likelihood_model.cuda()
+        likelihood_model.eval()
+        d_latents = gnp.d_latents
     elif args.likelihood == 'pb':
         likelihood_model = PBLikelihood(object_name=object_set['object_names'][-1], n_samples=5, batch_size=50)   
         d_latents = 5
@@ -163,7 +169,7 @@ if __name__ == '__main__':
     parser.add_argument('--eval-object-ix', type=int, default=0, help='Index of which eval object to use.')
     parser.add_argument('--strategy', type=str, choices=['bald', 'random', 'task'], default='bald')
     parser.add_argument('--n-particles', type=int, default=100)
-    parser.add_argument('--likelihood', choices=['nn', 'pb'], default='nn')
+    parser.add_argument('--likelihood', choices=['nn', 'pb', 'gnp'], default='nn')
     args = parser.parse_args()
     
     run_particle_filter_fitting(args)

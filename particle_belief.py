@@ -25,7 +25,7 @@ from base_class import BeliefBase
 from block_utils import get_adversarial_blocks, get_com_ranges, \
                         Environment, ParticleDistribution
 from learning.domains.grasping.active_utils import get_fit_object
-from learning.models.grasp_np.create_gnp_dataset import process_geometry
+from learning.models.grasp_np.create_gnp_data import process_geometry
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 from filter_utils import create_uniform_particles, create_gaussian_particles, sample_and_wiggle, sample_particle_distribution
 
