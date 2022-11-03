@@ -601,7 +601,8 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
         gnp_observation = process_geometry(
             observation,
             radius=0.03,
-            skip=1
+            skip=1,
+            verbose=False
         )
         # Note the context data is irrelevant here as we are only using the decoder.
         dataset = CustomGNPGraspDataset(

@@ -55,7 +55,7 @@ def transform_points(points, finger1, finger2, ee, viz_data=False):
     return new_points.astype('float32')
 
 
-def process_geometry(train_dataset, radius=0.02, skip=1):
+def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     object_names = train_dataset['object_data']['object_names']
     object_properties = train_dataset['object_data']['object_properties']
 
@@ -80,7 +80,8 @@ def process_geometry(train_dataset, radius=0.02, skip=1):
     new_meshes_dict = defaultdict(list)
 
     for grasp_vector, object_id, label in zip(all_grasps, all_ids, all_labels):
-        print(f'Coverting grasp {gx}/{len(all_ids)}...')
+        if verbose:
+            print(f'Coverting grasp {gx}/{len(all_ids)}...')
         gx += 1
 
         object_name = object_names[object_id]
@@ -100,7 +101,8 @@ def process_geometry(train_dataset, radius=0.02, skip=1):
         to_keep = np.logical_or(d1 < radius, d2 < radius)
         points = candidate_points[to_keep][:512]
         n_found = points.shape[0]
-        print(f'{n_found} points found for grasp {gx}, object {object_id}')
+        if verbose:
+            print(f'{n_found} points found for grasp {gx}, object {object_id}')
 
         # Put everything in grasp point ref frame for better generalization. (Including grasp points)
         if gx % 200 == 0:

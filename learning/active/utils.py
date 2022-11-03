@@ -38,7 +38,7 @@ class ActiveExperimentLogger:
             return
         max_aq = np.max([int(s.split('_')[-1].split('.')[0]) for s in aq_files if '_' in s]) + 1
         if max_aq < self.args.max_acquisitions:
-            print('[WARNING] Only %d acquisition steps have been executed so far.' % max_aq)
+            print(f'[WARNING] Only {max_aq} acquisition steps have been executed so far.')
             self.args.max_acquisitions = max_aq
 
     def get_acquisition_params(self):
@@ -77,11 +77,12 @@ class ActiveExperimentLogger:
         and parameters relating to an experiment.
         """
         root = 'learning/experiments/logs'
-        if not os.path.exists(root): os.makedirs(root)
+        if not os.path.exists(root):
+            os.makedirs(root)
 
         exp_name = args.exp_name if len(args.exp_name) > 0 else 'exp'
-        ts = time.strftime('%Y%m%d-%H%M%S')
-        exp_dir = '%s-%s' % (exp_name, ts)
+        timestamp = time.strftime('%Y%m%d-%H%M%S')
+        exp_dir = f'{exp_name}-{timestamp}'
         exp_path = os.path.join(root, exp_dir)
 
         os.mkdir(exp_path)
@@ -98,17 +99,17 @@ class ActiveExperimentLogger:
         return ActiveExperimentLogger(exp_path, use_latents=args.use_latents)
 
     def save_dataset(self, dataset, tx):
-        fname = 'active_%d.pkl' % tx
+        fname = f'active_{tx}.pkl'
         with open(os.path.join(self.exp_path, 'datasets', fname), 'wb') as handle:
             pickle.dump(dataset, handle)
 
     def save_particles(self, particles, tx):
-        fname = 'particles_%d.pkl' % tx
+        fname = f'particles_{tx}.pkl'
         with open(os.path.join(self.exp_path, 'models', fname), 'wb') as handle:
             pickle.dump(particles, handle)
 
     def load_particles(self, tx):
-        fname = 'particles_%d.pkl' % tx
+        fname = f'particles_{tx}.pkl'
         path = os.path.join(self.exp_path, 'models', fname)
         if not os.path.exists(path):
             return None
@@ -117,30 +118,30 @@ class ActiveExperimentLogger:
         return particles
 
     def save_val_dataset(self, val_dataset, tx):
-        fname = 'val_active_%d.pkl' % tx
+        fname = f'val_active_{tx}.pkl'
         with open(os.path.join(self.exp_path, 'val_datasets', fname), 'wb') as handle:
             pickle.dump(val_dataset, handle)
 
     def load_dataset(self, tx):
-        fname = 'active_%d.pkl' % tx
+        fname = f'active_{tx}.pkl'
         path = os.path.join(self.exp_path, 'datasets', fname)
         try:
             with open(path, 'rb') as handle:
                 dataset = pickle.load(handle)
             return dataset
         except:
-            print('active_%d.pkl not found on path' % tx)
+            print(f'active_{tx}.pkl not found on path')
             return None
 
     def load_val_dataset(self, tx):
-        fname = 'val_active_%d.pkl' % tx
+        fname = f'val_active_{tx}.pkl'
         path = os.path.join(self.exp_path, 'val_datasets', fname)
         try:
             with open(path, 'rb') as handle:
                 val_dataset = pickle.load(handle)
             return val_dataset
         except:
-            print('val_active_%d.pkl not found on path' % tx)
+            print(f'val_active_{tx}.pkl not found on path')
             return None
 
     def get_figure_path(self, fname):
@@ -174,19 +175,19 @@ class ActiveExperimentLogger:
                                       d_latents=metadata['d_latents'])
 
         # Load ensemble weights.
-        path = os.path.join(self.exp_path, 'models', 'ensemble_%d.pt' % tx)
+        path = os.path.join(self.exp_path, 'models', f'ensemble_{tx}.pt')
         try:
             ensemble.load_state_dict(torch.load(path, map_location='cpu'))
             return ensemble
         except:
-            print('ensemble_%d.pt not found on path: %s' % (tx, path))
+            print(f'ensemble_{tx}.pt not found on path: {path}')
             return None
 
     def save_ensemble(self, ensemble, tx, symlink_tx0=False):
-        """ Save an ensemble within the logging directory. The weights
-        will be saved to <exp_name>/models/ensemble_<tx>.pt. Model metadata that
-        is needed to initialize the Ensemble class while loading is 
-        save to <exp_name>/models/metadata.pkl.
+        """ Save an ensemble within the logging directory. The weights will
+        be saved to <exp_name>/models/ensemble_<tx>.pt. Model metadata that
+        is needed to initialize the Ensemble class while loading is saved
+        to <exp_name>/models/metadata.pkl.
 
         :ensemble: A learning.model.Ensemble object.
         :tx: The active learning timestep these models represent.
@@ -204,7 +205,7 @@ class ActiveExperimentLogger:
             pickle.dump(metadata, handle)
 
         # Save ensemble weights.
-        path = os.path.join(self.exp_path, 'models', 'ensemble_%d.pt' % tx)
+        path = os.path.join(self.exp_path, 'models', f'ensemble_{tx}.pt')
         torch.save(ensemble.state_dict(), os.path.join(path))
 
     def get_neural_process(self, tx):
@@ -218,20 +219,19 @@ class ActiveExperimentLogger:
         # load in the encoder, mesh_encoder subroutine, and decoder weights
         # and insert them into the main np
         try:
-            path = os.path.join(self.exp_path, 'models', 'mesh_encoder_%d.pt' % tx)
+            path = os.path.join(self.exp_path, 'models', f'mesh_encoder_{tx}.pt')
             gnp.mesh_encoder.load_state_dict(torch.load(path, map_location='cpu'))
 
-            path = os.path.join(self.exp_path, 'models', 'np_encoder_%d.pt' % tx)
+            path = os.path.join(self.exp_path, 'models', f'np_encoder_{tx}.pt')
             gnp.encoder.load_state_dict(torch.load(path, map_location='cpu'))
 
-            path = os.path.join(self.exp_path, 'models', 'np_decoder_%d.pt' % tx)
+            path = os.path.join(self.exp_path, 'models', f'np_decoder_{tx}.pt')
             gnp.decoder.load_state_dict(torch.load(path, map_location='cpu'))
             return gnp
 
         except FileNotFoundError:
             print('model not found on path: ' + path)
             return None
-
 
     def save_neural_process(self, gnp, tx):
         # save neural process data (for now, it's just number of latent dimensions)
@@ -241,15 +241,14 @@ class ActiveExperimentLogger:
             pickle.dump(metadata, handle)
 
         # save the np encoder (and mesh encoder subroutine) and the decoder separately
-        path = os.path.join(self.exp_path, 'models', 'mesh_encoder_%d.pt' % tx)
+        path = os.path.join(self.exp_path, 'models', f'mesh_encoder_{tx}.pt')
         torch.save(gnp.mesh_encoder.state_dict(), os.path.join(path))
 
-        path = os.path.join(self.exp_path, 'models', 'np_encoder_%d.pt' % tx)
+        path = os.path.join(self.exp_path, 'models', f'np_encoder_{tx}.pt')
         torch.save(gnp.encoder.state_dict(), os.path.join(path))
 
-        path = os.path.join(self.exp_path, 'models', 'np_decoder_%d.pt' % tx)
+        path = os.path.join(self.exp_path, 'models', f'np_decoder_{tx}.pt')
         torch.save(gnp.decoder.state_dict(), os.path.join(path))
-
 
     def save_latent_ensemble(self, latent_ensemble, tx, symlink_tx0):
         metadata = {'base_model': latent_ensemble.ensemble.base_model,
@@ -262,7 +261,7 @@ class ActiveExperimentLogger:
             pickle.dump(metadata, handle)
 
         # Save ensemble weights.
-        path = os.path.join(self.exp_path, 'models', 'ensemble_%d.pt' % tx)
+        path = os.path.join(self.exp_path, 'models', f'ensemble_{tx}.pt')
         if tx > 0 and symlink_tx0:
             src = 'ensemble_0.pt'
             os.symlink(src, path)
@@ -299,7 +298,7 @@ class ActiveExperimentLogger:
             'acquired_data': new_data,
             'samples': samples
         }
-        path = os.path.join(self.exp_path, 'acquisition_data', 'acquired_%d.pkl' % tx)
+        path = os.path.join(self.exp_path, 'acquisition_data', f'acquired_{tx}.pkl')
         with open(path, 'wb') as handle:
             pickle.dump(data, handle)
         # self.acquisition_step = tx+1
@@ -336,22 +335,22 @@ class ActiveExperimentLogger:
             pickle.dump(block_placement_data, handle)
 
     def load_acquisition_data(self, tx):
-        path = os.path.join(self.exp_path, 'acquisition_data', 'acquired_%d.pkl' % tx)
+        path = os.path.join(self.exp_path, 'acquisition_data', f'acquired_{tx}.pkl')
         try:
             with open(path, 'rb') as handle:
                 data = pickle.load(handle)
             return data['acquired_data'], data['samples']
         except:
-            print('acquired_%d.pkl not found on path' % tx)
+            print(f'acquired_{tx}.pkl not found on path')
             return None, None
 
     def save_evaluation_tower(self, tower, reward, max_reward, tx, planning_model, task, noise=None):
         if noise:
-            tower_file = 'towers_%d_%f.pkl' % (tx, noise)
+            tower_file = f'towers_{tx}_{noise}.pkl'
         else:
-            tower_file = 'towers_%d.pkl' % tx
+            tower_file = f'towers_{tx}.pkl'
         tower_height = len(tower)
-        tower_key = '%dblock' % tower_height
+        tower_key = f'{tower_height}block'
         tower_path = os.path.join(self.exp_path, 'evaluation_towers', task, planning_model)
         if not os.path.exists(tower_path):
             os.makedirs(tower_path)
