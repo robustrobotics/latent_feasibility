@@ -105,7 +105,6 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                 y_probs, q_z = model.forward((c_grasp_geoms, c_midpoints, c_labels), (t_grasp_geoms, t_midpoints),
                                              meshes)
                 y_probs = y_probs.squeeze()
-
                 val_loss += get_loss(y_probs, t_labels, q_z)[0].item()
 
                 val_probs.append(y_probs.flatten())
