@@ -69,4 +69,3 @@ def get_labels(grasp_dataset):
         grasp_dataset['grasp_data']['labels'][gx] = label
     labeler.disconnect()
     return grasp_dataset
-

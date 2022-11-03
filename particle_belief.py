@@ -25,6 +25,8 @@ from base_class import BeliefBase
 from block_utils import get_adversarial_blocks, get_com_ranges, \
                         Environment, ParticleDistribution
 from learning.domains.grasping.active_utils import get_fit_object
+from learning.models.grasp_np.create_gnp_dataset import process_geometry
+from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 from filter_utils import create_uniform_particles, create_gaussian_particles, sample_and_wiggle, sample_particle_distribution
 
 
@@ -589,7 +591,21 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
     A ParticleBelief that is compatible with a GraspNeuralProcess object. 
     """
     def get_particle_likelihoods(self, particles, observation):
-        pass
+        """
+        Compute the likelihood of an obervation for each particle.
+
+        :param particles: NxD matrix of particles.
+        :param observation: 
+        """
+        gnp_observation = process_geometry(
+            observation,
+            radius=0.03,
+            skip=1
+        )
+        # TODO: Load CustomGNPDataset/Datalaoder
+
+
+
         
 
 
@@ -663,6 +679,4 @@ if __name__ == '__main__':
             print('Estimated CoM:', est)
             print('True:', true)  
             print('Error:', error)
-
-        
 
