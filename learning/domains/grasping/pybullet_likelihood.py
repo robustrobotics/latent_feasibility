@@ -5,7 +5,7 @@ import pickle
 from block_utils import ParticleDistribution
 from learning.domains.grasping.active_utils import sample_unlabeled_data
 from learning.domains.grasping.generate_grasp_datasets import vector_from_graspablebody
-from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspableBodySampler, ParallelGraspStabilityChecker
+from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspableBodySampler, GraspStabilityChecker
 
 
 
@@ -48,12 +48,12 @@ class PBLikelihood:
                 grasps.append(g)
 
             batch_labels = []
-            labeler = ParallelGraspStabilityChecker(bodies, grasp_noise=0.0025)
-            for sx in range(self.n_samples):
-                batch_labels.append(labeler.get_labels(grasps))
+            for body, grawsp in zip(bodies, grasp): # TODO: check with Mike to see that this is reasonable
+                labeler = GraspStabilityChecker(body, grasp_noise=0.0025)
+                batch_labels.append(labeler.get_label(grasp))
+                labeler.disconnect()
             batch_labels = np.array(batch_labels).mean(axis=0).tolist()
             labels += batch_labels
-            labeler.disconnect()
 
         return np.array(labels)
 
