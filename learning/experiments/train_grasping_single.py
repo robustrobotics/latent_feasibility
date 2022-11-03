@@ -13,6 +13,7 @@ from learning.models.pointnet import PointNetClassifier
 from torch.utils.data import DataLoader
 from torch.nn import functional as F
 from torch.optim import Adam
+from sklearn.metrics import f1_score
 
 
 def load_datasets(args):
