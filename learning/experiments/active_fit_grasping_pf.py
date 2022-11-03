@@ -122,12 +122,11 @@ def run_particle_filter_fitting(args):
         d_latents = latent_ensemble.d_latents
     elif args.likelihood == 'gnp':
         train_logger = ActiveExperimentLogger(exp_path=args.pretrained_ensemble_exp_path, use_latents=False)
-        gnp = train_logger.get_neural_process(tx=0)
-        likelihood_model = gnp.decoder
+        likelihood_model = train_logger.get_neural_process(tx=0)
         if torch.cuda.is_available():
             likelihood_model.cuda()
         likelihood_model.eval()
-        d_latents = gnp.d_latents
+        d_latents = likelihood_model.d_latents
     elif args.likelihood == 'pb':
         likelihood_model = PBLikelihood(object_name=object_set['object_names'][-1], n_samples=5, batch_size=50)   
         d_latents = 5

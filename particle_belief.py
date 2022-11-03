@@ -8,15 +8,13 @@ from learning.domains.grasping.grasp_data import GraspDataset, GraspParallelData
 from learning.domains.towers.tower_data import ParallelDataLoader, TowerDataset
 import matplotlib.pyplot as plt
 import numpy as np
-import os
-import random
-import shutil
 import torch
 import torch.nn as nn
 
 from copy import deepcopy
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.stats import multivariate_normal
+from torch.utils.data import DataLoader
 
 from actions import make_platform_world, plan_action
 from agents.panda_agent import PandaAgent
@@ -590,23 +588,56 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
     """
     A ParticleBelief that is compatible with a GraspNeuralProcess object. 
     """
-    def get_particle_likelihoods(self, particles, observation):
+    def get_particle_likelihoods(self, particles, observation, batch_size=100):
         """
         Compute the likelihood of an obervation for each particle.
 
         :param particles: NxD matrix of particles.
-        :param observation: 
+        :param observation: A grasp dictionary containing a single datapoint/grasp.
+            { 'grasp_data': {} , 'object_data: {} , 'metadata': {} }
         """
+        self.likelihood.eval()
+
         gnp_observation = process_geometry(
             observation,
             radius=0.03,
             skip=1
         )
-        # TODO: Load CustomGNPDataset/Datalaoder
+        # Note the context data is irrelevant here as we are only using the decoder.
+        dataset = CustomGNPGraspDataset(
+            data=gnp_observation,
+            context_data=gnp_observation
+        )
+        dataloader = DataLoader(
+            dataset=dataset,
+            collate_fn=custom_collate_fn,
+            batch_size=1,
+            shuffle=False
+        )
 
-
-
+        bernoulli_probs = []
+        latent_samples = torch.Tensor(particles)
+        if torch.cuda.is_available():
+            latent_samples = latent_samples.cuda()
         
+        for (_, target_data, meshes) in dataloader:
+            t_grasp_geoms, t_midpoints, _ = target_data
+            if torch.cuda.is_available():
+                meshes = meshes.cuda()
+                t_grasp_geoms = t_grasp_geoms.cuda()
+                t_midpoints = t_midpoints.cuda()
+            t_grasp_geoms = t_grasp_geoms.expand(batch_size, -1, -1, -1)
+            t_midpoints = t_midpoints.expand(batch_size, -1, -1)
+
+            for ix in range(0, latent_samples.shape[0]//batch_size):
+                preds = self.likelihood.conditional_forward(
+                    target_xs = (t_grasp_geoms, t_midpoints),
+                    meshes=meshes,
+                    zs=latent_samples[ix*batch_size:(ix+1)*batch_size]
+                ).squeeze()
+                bernoulli_probs.append(preds.cpu().detach().numpy())
+
+        return np.concatenate(bernoulli_probs)
 
 
 # =============================================================
