@@ -2,6 +2,7 @@ import argparse
 from email.policy import default
 from re import T
 import matplotlib.pyplot as plt
+import multiprocessing
 import numpy as np
 import os
 import pickle
@@ -12,6 +13,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector
 from learning.domains.grasping.grasp_data import GraspParallelDataLoader
 from pb_robot.planners.antipodalGraspPlanner import GraspSimulationClient, GraspableBody
+from types import SimpleNamespace
 
 
 def transform_points(points, finger1, finger2, ee, viz_data=False):
@@ -129,12 +131,27 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     }
     return dataset
 
+def process_and_save(func_args):
+    with open(func_args.dataset_path, 'rb') as handle:
+        dataset = pickle.load(handle)
+
+    new_dataset = process_geometry(
+        dataset,
+        radius=func_args.radius,
+        skip=1
+    )
+
+    with open(func_args.out_path, 'wb') as handle:
+        pickle.dump(new_dataset, handle)
+    
+
 DATA_ROOT = 'learning/data/grasping'
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--in-dataset-fname', type=str, required=True)
     parser.add_argument('--out-dataset-fname', type=str, required=True)
     parser.add_argument('--radius', type=float, default=0.03)
+    parser.add_argument('--n-processes', type=int, default=1)
     args = parser.parse_args()
     print(args)
 
@@ -224,16 +241,20 @@ if __name__ == '__main__':
             pickle.dump(new_val_dataset, handle)
 
     # ----- Fitting phase grasps -----
+    fitting_tasks = []
     for fitting_fname in os.listdir(in_fitting_phase_path):
         out_fitting_data_path = os.path.join(out_fitting_phase_path, fitting_fname)
         if not os.path.exists(out_fitting_data_path):
             fitting_data_path = os.path.join(in_fitting_phase_path, fitting_fname)
-            with open(fitting_data_path, 'rb') as handle:
-                fitting_dataset = pickle.load(handle)
-            new_fitting_dataset = process_geometry(
-                fitting_dataset,
+            fitting_task = SimpleNamespace(
+                dataset_path=fitting_data_path,
                 radius=args.radius,
-                skip=1
+                out_path=out_fitting_data_path
             )
-            with open(out_fitting_data_path, 'wb') as handle:
-                pickle.dump(new_fitting_dataset, handle)
+            fitting_tasks.append(fitting_task)
+
+    worker_pool = multiprocessing.Pool(
+        processes=args.n_processes,
+        maxtasksperchild=1
+    )
+    worker_pool.map(process_and_save, fitting_tasks)
