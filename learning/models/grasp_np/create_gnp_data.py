@@ -258,3 +258,4 @@ if __name__ == '__main__':
         maxtasksperchild=1
     )
     worker_pool.map(process_and_save, fitting_tasks)
+    worker_pool.close()

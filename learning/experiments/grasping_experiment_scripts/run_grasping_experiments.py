@@ -145,7 +145,7 @@ def run_fitting_phase(args):
             fitting_args.exp_name = fitting_exp_name
             fitting_args.max_acquisitions = 10
             fitting_args.objects_fname = objects_fname
-            fitting_args.n_samples = 100
+            fitting_args.n_samples = 20
             fitting_args.pretrained_ensemble_exp_path = pretrained_model_path
             fitting_args.ensemble_tx = 0
             fitting_args.eval_object_ix = ox
@@ -177,10 +177,12 @@ def run_fitting_phase(args):
             print(f'Evaluating fitting phase: {fitting_exp_name}')
             fit_logger = ActiveExperimentLogger(fit_log_path, use_latents=True)
             val_dataset_fname = f'fit_grasps_{geo_type}_object{ox}.pkl'
-            val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase',
-                                            val_dataset_fname)
+            val_dataset_path = os.path.join(
+                DATA_ROOT, exp_args.dataset_name,
+                'grasps', 'fitting_phase', val_dataset_fname
+            )
 
-            get_pf_validation_accuracy(fit_logger, val_dataset_path)
+            get_pf_validation_accuracy(fit_logger, val_dataset_path, args.amortize)
 
 
 def run_training_phase(args):
@@ -324,9 +326,6 @@ def run_testing_phase(args):
             logs_lookup_by_object['train_geo']['random']['all'].append(random_log_fname)
             logs_lookup_by_object['train_geo']['random'][object_name].append(random_log_fname)
 
-            # TO REMVOE (2 lines)
-            # fit_logger = ActiveExperimentLogger(random_log_fname, use_latents=True) 
-            # get_pf_validation_accuracy(fit_logger, val_dataset_path)
 
         constrained_random_log_key = f'grasp_{exp_args.exp_name}_fit_constrained_random_train_geo_object{ox}'
         if constrained_random_log_key in logs_lookup['fitting_phase']['constrained_random']:
@@ -343,9 +342,6 @@ def run_testing_phase(args):
             logs_lookup_by_object['train_geo']['bald']['all'].append(bald_log_fname)
             logs_lookup_by_object['train_geo']['bald'][object_name].append(bald_log_fname)
 
-            # TO REMOVE (2 lines)
-            # fit_logger = ActiveExperimentLogger(bald_log_fname, use_latents=True) 
-            # get_pf_validation_accuracy(fit_logger, val_dataset_path)
 
     print(f'{n_found} train geo objects included.')
     n_found = 0
@@ -375,9 +371,6 @@ def run_testing_phase(args):
             logs_lookup_by_object['test_geo']['random']['all'].append(random_log_fname)
             logs_lookup_by_object['test_geo']['random'][object_name].append(random_log_fname)
 
-            # TO REMVOE (2 lines)
-            # fit_logger = ActiveExperimentLogger(random_log_fname, use_latents=True) 
-            # get_pf_validation_accuracy(fit_logger, val_dataset_path)
 
         constrained_random_log_key = f'grasp_{exp_args.exp_name}_fit_constrained_random_test_geo_object{ox}'
         if constrained_random_log_key in logs_lookup['fitting_phase']['constrained_random']:
