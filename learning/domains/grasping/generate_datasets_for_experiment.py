@@ -101,17 +101,21 @@ if __name__ == '__main__':
     # Directory setup.
     data_root_path = os.path.join('learning', 'data', 'grasping', new_args.data_root_name)
     args_path = os.path.join(data_root_path, 'args.pkl')
+    choice = 'no'
     if os.path.exists(data_root_path):
-        input('[Warning] Data root directory already exists. Continue using initial args?')
+        choice = input('[Warning] Data root directory already exists. Overwrite initial args?')
+    else:
+        os.mkdir(data_root_path)
+
+    if choice == 'yes':
+        with open(args_path, 'wb') as handle:
+            pickle.dump(new_args, handle)
+        args = new_args
+    else:
         with open(args_path, 'rb') as handle:
             args = pickle.load(handle)
             args.n_processes = new_args.n_processes
             args.merge = new_args.merge
-    else:
-        os.mkdir(data_root_path)
-        with open(args_path, 'wb') as handle:
-            pickle.dump(new_args, handle)
-        args = new_args
 
     worker_pool = multiprocessing.Pool(
         processes=args.n_processes,
