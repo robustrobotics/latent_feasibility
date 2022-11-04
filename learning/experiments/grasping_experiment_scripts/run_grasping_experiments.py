@@ -106,23 +106,27 @@ def run_fitting_phase(args):
     with open(args_path, 'rb') as handle:
         exp_args = pickle.load(handle)
 
-    train_geo_fname, test_geo_fname, n_train_geo, n_test_geo = get_fitting_phase_dataset_args(exp_args.dataset_name)
+    train_geo_fname, test_geo_fname, n_train_geo, n_test_geo = \
+        get_fitting_phase_dataset_args(exp_args.dataset_name)
 
-    # Run fitting phase for all objects that have not yet been evaluated (each has a standard name in the experiment logs).
+    # Run fitting phase for all objects that have not yet been fitted
+    # (each has a standard name in the experiment logs).
+    for geo_type, objects_fname, n_objects in zip(
+        ['train_geo', 'test_geo'],
+        [train_geo_fname, test_geo_fname],
+        [n_train_geo, n_test_geo]
+    ):
+        # Uncomment to temporarily skip train_geo.
+        # if geo_type == 'train_geo':
+        #     continue
 
-    for geo_type, objects_fname, n_objects in zip(['train_geo', 'test_geo'], [train_geo_fname, test_geo_fname],
-                                                  [n_train_geo, n_test_geo]):
-        if geo_type == 'train_geo': continue
-        for ox in range(n_objects):
-            if ox > 99:
-                print(ox)
-                break
-
-            if args.constrained and geo_type == 'test_geo' and ox in [15, 16, 17, 18, 19]:
-                continue
-            if args.constrained and geo_type == 'train_geo' and (ox >= 85 and ox < 90):
-                continue
-
+        for ox in range(min(n_objects, 100)):
+            # Some geometries have trouble when considering IK (e.g., always close to table).
+            # TODO: Make this more modular when we use constraints again.
+            # if args.constrained and geo_type == 'test_geo' and ox in [15, 16, 17, 18, 19]:
+            #     continue
+            # if args.constrained and geo_type == 'train_geo' and (ox >= 85 and ox < 90):
+            #     continue
             if args.constrained:
                 mode = f'constrained_{args.strategy}'
             else:
@@ -147,6 +151,10 @@ def run_fitting_phase(args):
             fitting_args.eval_object_ix = ox
             fitting_args.strategy = args.strategy
             fitting_args.n_particles = 1000
+            if args.amortize:
+                fitting_args.likelihood = 'gnp'
+            else:
+                fitting_args.likelihood = 'nn'
 
             print(f'Running fitting phase: {fitting_exp_name}')
             if args.constrained:
@@ -158,9 +166,9 @@ def run_fitting_phase(args):
             with open(logs_path, 'r') as handle:
                 logs_lookup = json.load(handle)
 
-            if len(logs_lookup['fitting_phase']) == 0:
-                logs_lookup['fitting_phase'] = {'random': {}, 'bald': {}, 'constrained_random': {},
-                                                'constrained_bald': {}}
+            # if len(logs_lookup['fitting_phase']) == 0:
+            #     logs_lookup['fitting_phase'] = {'random': {}, 'bald': {}, 'constrained_random': {},
+            #                                     'constrained_bald': {}}
             logs_lookup['fitting_phase'][mode][fitting_exp_name] = fit_log_path
             with open(logs_path, 'w') as handle:
                 json.dump(logs_lookup, handle)
@@ -192,14 +200,15 @@ def run_training_phase(args):
         print('[ERROR] Model already trained.')
         sys.exit()
 
-    train_data_fname, val_data_fname, n_objs = get_training_phase_dataset_args(exp_args.dataset_name)
+    train_data_fname, val_data_fname, n_objs = \
+        get_training_phase_dataset_args(exp_args.dataset_name)
 
     if args.amortize:
         training_args = argparse.Namespace()
         training_args.exp_name = f'grasp_{exp_args.exp_name}_train'
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
-        training_args.n_epochs = 20
+        training_args.n_epochs = 100
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 32
         training_args.use_latents = False # NOTE: this is a workaround for pointnet + latents,

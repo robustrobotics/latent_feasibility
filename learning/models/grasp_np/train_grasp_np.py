@@ -173,6 +173,9 @@ def run(args):
     logger.save_val_dataset(val_dataset=val_dataset_eval, tx=0)
     logger.save_neural_process(gnp=model, tx=0, symlink_tx0=False)
 
+    return logger.exp_path
+    
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()

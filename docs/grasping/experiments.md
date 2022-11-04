@@ -53,7 +53,7 @@ learning/experiments/metadata/<EXP_NAME>
 
 ## Training Phase
 
-`python -m learning.experiments.grasping_experiment_scripts.run_grasping_experiments --phase training --exp-name <EXP_NAME>`
+`python -m learning.experiments.grasping_experiment_scripts.run_grasping_experiments --phase training --exp-name <EXP_NAME> --amortize`
 
 ## Fitting Phase
 
