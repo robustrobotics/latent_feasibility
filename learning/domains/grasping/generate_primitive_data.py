@@ -12,11 +12,11 @@ import os
 # should do less work
 
 # directory structure is /SOURCE_ROOT/urdf (there are no visual models since we're using primitives, so that's it)
-# urdf filename structure is ObjectName_SomethingThatLoocksHashlike.urdf
+# urdf filename structure is ObjectName_SomethingThatLooksHashlike.urdf
 
 # sample file:
 
-PRIMITIVES = ['cylinder', 'cube', 'sphere']
+PRIMITIVES = ['cylinder', 'box', 'sphere']
 URDF_TEMPLATE = '''<?xml version="1.0"?>
 <robot  name="UNNAMED_%i" >
  <link  name="UNNAMED_%i" >
@@ -59,33 +59,44 @@ def main(args):
 
     if 'cylinder' in args.primitives:
         for i in range(args.n_prim):
-            side_len = random.uniform(args.min_len, args.max_len)
+            min_len, min_rad = args.cylinder_min_len_rad
+            max_len, max_rad = args.cylinder_max_len_rad
+
+            side_len = random.uniform(min_len, max_len)
+            rad = random.uniform(min_rad, max_rad)
+
             urdf_text = URDF_TEMPLATE % (2 * i,
                                          2 * i + 1,
-                                         'cylinder length=\"%f\" radius=\"%f\"' % (side_len, side_len / 2),
-                                         'cylinder length=\"%f\" radius=\"%f\"' % (side_len, side_len / 2))
+                                         'cylinder length=\"%f\" radius=\"%f\"' % (side_len, rad),
+                                         'cylinder length=\"%f\" radius=\"%f\"' % (side_len, rad))
             f = open(data_dir + 'Cylinder_%i.urdf' % hash(random.uniform(0, 1)), 'w')
             f.write(urdf_text)
             f.close()
 
-    if 'cube' in args.primitives:
+    if 'box' in args.primitives:
         for i in range(args.n_prim):
-            side_len = random.uniform(args.min_len, args.max_len)
+            side_min1, side_min2, side_min3 = args.box_min_size
+            side_max1, side_max2, side_max3 = args.box_max_size
+
+            side_len1 = random.uniform(side_min1, side_max1)
+            side_len2 = random.uniform(side_min2, side_max2)
+            side_len3 = random.uniform(side_min3, side_max3)
+
             urdf_text = URDF_TEMPLATE % (2 * i,
                                          2 * i + 1,
-                                         'box size=\"%f %f %f\"' % (side_len, side_len, side_len),
-                                         'box size=\"%f %f %f\"' % (side_len, side_len, side_len))
+                                         'box size=\"%f %f %f\"' % (side_len1, side_len2, side_len3),
+                                         'box size=\"%f %f %f\"' % (side_len1, side_len2, side_len3))
             f = open(data_dir + 'Box_%i.urdf' % hash(random.uniform(0, 1)), 'w')
             f.write(urdf_text)
             f.close()
 
     if 'sphere' in args.primitives:
         for i in range(args.n_prim):
-            side_len = random.uniform(args.min_len, args.max_len)
+            rad = random.uniform(args.circle_min_rad, args.circle_max_rad)
             urdf_text = URDF_TEMPLATE % (2 * i,
                                          2 * i + 1,
-                                         'sphere radius=\"%f\"' % (side_len / 2),
-                                         'sphere radius=\"%f\"' % (side_len / 2))
+                                         'sphere radius=\"%f\"' % (rad),
+                                         'sphere radius=\"%f\"' % (rad))
             f = open(data_dir + 'Sphere_%i.urdf' % hash(random.uniform(0, 1)), 'w')
             f.write(urdf_text)
             f.close()
@@ -96,13 +107,15 @@ if __name__ == '__main__':
     parser.add_argument('--directory', '-d', type=str, required=True,
                         help='path and name of directory to store primitive data')
     parser.add_argument('--primitives', '-p', type=str, nargs='+', required=True,
-                        help='primitives to generate in set. options are: cylinder, cube, and sphere.')
+                        help='primitives to generate in set. options are: cylinder, box, and sphere.')
     parser.add_argument('--n_prim', '-n', type=int, required=True,
                         help='number of objects to generate (this is done per primitive)')
-    parser.add_argument('--min_len', '-mil', type=float, default=0.01,
-                        help='minimum side length of bounding volume on object')
-    parser.add_argument('--max_len', '-mal', type=float, default=0.03,
-                        help='maximum side length of bounding volume on object')
+    parser.add_argument('--circle-min-rad', type=float, default=0.01)
+    parser.add_argument('--circle-max-rad', type=float, default=0.03)
+    parser.add_argument('--box-min-size', type=float, nargs=3, default=[0.01, 0.01, 0.01])
+    parser.add_argument('--box-max-size', type=float, nargs=3, default=[0.07, 0.07, 0.07])
+    parser.add_argument('--cylinder-min-len-rad', type=float, nargs=2, default=[0.01, 0.01])
+    parser.add_argument('--cylinder-max-len-rad', type=float, nargs=2, default=[0.07, 0.03])
 
     args = parser.parse_args()
     main(args)
