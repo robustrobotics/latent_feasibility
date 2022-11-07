@@ -9,7 +9,7 @@ def get_train_and_fit_objects(pretrained_ensemble_path, use_latents, fit_objects
     train_logger = ActiveExperimentLogger(exp_path=pretrained_ensemble_path)
     with open(train_logger.args.train_dataset_fname, 'rb') as handle:
         train_dataset = pickle.load(handle)
-    
+
     train_objects = train_dataset['object_data']
     with open(fit_objects_fname, 'rb') as handle:
         fit_objects = pickle.load(handle)['object_data']
@@ -19,7 +19,7 @@ def get_train_and_fit_objects(pretrained_ensemble_path, use_latents, fit_objects
 
     train_objects['object_names'].append(fit_object_name)
     train_objects['object_properties'].append(fit_object_props)
-    
+
     return train_objects
 
 
@@ -38,7 +38,7 @@ def sample_unlabeled_data(n_samples, object_set):
     raw_grasps = []  
     for nx in range(n_samples):
         grasp, X = sample_grasp_X(graspable_body, object_properties, n_points_per_object=512)
-        
+
         raw_grasps.append(grasp)
         object_grasp_data.append(X)
         object_grasp_ids.append(object_ix)
@@ -69,4 +69,3 @@ def get_labels(grasp_dataset):
         grasp_dataset['grasp_data']['labels'][gx] = label
     labeler.disconnect()
     return grasp_dataset
-

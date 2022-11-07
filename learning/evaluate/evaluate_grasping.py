@@ -19,6 +19,7 @@ from filter_utils import sample_particle_distribution
 from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.grasp_data import GraspDataset, GraspParallelDataLoader
 from learning.domains.grasping.explore_dataset import visualize_grasp_dataset
+from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief
 
 
@@ -154,6 +155,55 @@ def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_s
             # if (len(preds)*16) > 200: break
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
 
+def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_samples=10):
+    preds, labels = [], []
+    dataset = CustomGNPGraspDataset(
+        data=grasp_data,
+        context_data=grasp_data
+    )
+    dataloader = DataLoader(
+        dataset=dataset,
+        collate_fn=custom_collate_fn,
+        batch_size=1,
+        shuffle=False
+    )
+
+    latent_samples = torch.Tensor(particles)
+    gnp.eval()
+    for (_, target_data, meshes) in dataloader:
+        t_grasp_geoms, t_midpoints, t_labels = target_data
+
+        # TODO: Currently there are too many grasps (500 requires too much memory).
+        # TODO: Implement better way to batch a lot of evaluation grasps.
+        t_grasp_geoms = t_grasp_geoms[:, :100, :, :]
+        t_midpoints = t_midpoints[:, :100, :]
+        t_labels = t_labels[:, :100].squeeze()
+
+        if torch.cuda.is_available():
+            meshes = meshes.cuda()
+            t_grasp_geoms = t_grasp_geoms.cuda()
+            t_midpoints = t_midpoints.cuda()
+        t_grasp_geoms = t_grasp_geoms.expand(n_particle_samples, -1, -1, -1)
+        t_midpoints = t_midpoints.expand(n_particle_samples, -1, -1)
+        
+        # Sample particles and ensembles models to use to speed up evaluation. Might hurt performance.
+        latents_ix = np.arange(latent_samples.shape[0])
+        np.random.shuffle(latents_ix)
+        latents_ix = latents_ix[:n_particle_samples]
+
+        latents = latent_samples[latents_ix, :]
+        if torch.cuda.is_available():
+            latents = latents.cuda()
+        pred = gnp.conditional_forward(
+            target_xs = (t_grasp_geoms, t_midpoints),
+            meshes=meshes,
+            zs=latents
+        ).squeeze().cpu().detach()
+
+        preds.append(pred.mean(dim=0))
+        labels.append(t_labels)
+
+    return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
 
 def get_pf_task_performance(logger, fname):
     with open(fname, 'rb') as handle:
@@ -215,27 +265,46 @@ def get_pf_task_performance(logger, fname):
         # import IPython
         # IPython.embed()
 
-        
 
-def get_pf_validation_accuracy(logger, fname):
+def get_pf_validation_accuracy(logger, fname, amortize):
     accs, precisions, recalls, f1s, balanced_accs = [], [], [], [], []
     confusions = []
-    
+
     with open(fname, 'rb') as handle:
         val_grasp_data = pickle.load(handle)
 
     eval_range = range(0, logger.args.max_acquisitions, 1)
     for tx in eval_range:
         print('Eval timestep, ', tx)
-        ensemble = logger.get_ensemble(tx)
-        if torch.cuda.is_available():
-            ensemble = ensemble.cuda()
-
         particles = logger.load_particles(tx)
 
-        sampling_dist = ParticleDistribution(particles.particles, particles.weights/np.sum(particles.weights))
+        # This is necessary if we're using a weighted particle filter.
+        sampling_dist = ParticleDistribution(
+            particles.particles,
+            particles.weights/np.sum(particles.weights)
+        )
         resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
-        probs, labels = get_predictions_with_particles(resampled_parts, val_grasp_data, ensemble, n_particle_samples=50)
+        if amortize:
+            gnp = logger.get_neural_process(tx)
+            if torch.cuda.is_available():
+                gnp = gnp.cuda()
+            probs, labels = get_gnp_predictions_with_particles(
+                resampled_parts,
+                val_grasp_data,
+                gnp,
+                n_particle_samples=32
+            )
+        else:
+            ensemble = logger.get_ensemble(tx)
+            if torch.cuda.is_available():
+                ensemble = ensemble.cuda()
+            probs, labels = get_predictions_with_particles(
+                resampled_parts,
+                val_grasp_data,
+                ensemble,
+                n_particle_samples=50
+            )
+
         preds = (probs > 0.5).float()
 
         acc = accuracy_score(labels, preds)
@@ -273,10 +342,12 @@ def get_acquired_preditctions_pf(logger):
     if torch.cuda.is_available():
         latent_ensemble.cuda()
 
-    object_set = get_train_and_fit_objects(pretrained_ensemble_path=pf_args.pretrained_ensemble_exp_path,
-                                           use_latents=True,
-                                           fit_objects_fname=pf_args.objects_fname,
-                                           fit_object_ix=pf_args.eval_object_ix)
+    object_set = get_train_and_fit_objects(
+        pretrained_ensemble_path=pf_args.pretrained_ensemble_exp_path,
+        use_latents=True,
+        fit_objects_fname=pf_args.objects_fname,
+        fit_object_ix=pf_args.eval_object_ix
+    )
     print('Total objects:', len(object_set['object_names']))
     pf_args.num_eval_objects = 1
     pf_args.num_train_objects = len(object_set['object_names']) - pf_args.num_eval_objects
@@ -286,7 +357,8 @@ def get_acquired_preditctions_pf(logger):
         D=latent_ensemble.d_latents,
         N=pf_args.n_particles,
         likelihood=latent_ensemble,
-        plot=True)
+        plot=True
+    )
 
     for tx in range(1, 11):
         particles = logger.load_particles(tx)

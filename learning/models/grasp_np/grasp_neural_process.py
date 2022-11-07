@@ -31,6 +31,14 @@ class CustomGraspNeuralProcess(nn.Module):
         y_pred = self.decoder(target_geoms, target_mids, z, mesh_enc)
         return y_pred, q_z
 
+    def conditional_forward(self, target_xs, meshes, zs):
+        """ Forward function that specifies the latents (i.e., no encoder is used). """
+        mesh_enc = self.mesh_encoder(meshes)
+        # mesh_enc = torch.zeros_like(mesh_enc)
+        target_geoms, target_mids = target_xs
+                
+        y_pred = self.decoder(target_geoms, target_mids, zs, mesh_enc)
+        return y_pred
 
 class CustomGNPDecoder(nn.Module):
 
@@ -86,4 +94,4 @@ class CustomGNPEncoder(nn.Module):
         mu, log_sigma = x[..., :self.d_latents], x[..., self.d_latents:]
         sigma = 0.01 + 0.99 * torch.sigmoid(log_sigma)
         #sigma = 0.01 + torch.exp(log_sigma)
-        return mu, sigma   
+        return mu, sigma

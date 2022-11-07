@@ -1,17 +1,15 @@
 import argparse
-
-from matplotlib.pyplot import get
-from learning.active import acquire
-import torch
 import numpy as np
+import torch
+
+from learning.active import acquire
 from learning.models import latent_ensemble
 from learning.active.utils import ActiveExperimentLogger
-from particle_belief import GraspingDiscreteLikelihoodParticleBelief
 from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, get_train_and_fit_objects
 from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.active.acquire import bald
-# from learning.evaluate.planner import EnsemblePlanner
-import sys
+from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
+
 
 def particle_bald(predictions, weights, eps=1e-5):
     """ Get the BALD score for each example.
@@ -45,9 +43,8 @@ def find_informative_tower(pf, object_set, logger, args):
         preds = pf.get_particle_likelihoods(pf.particles.particles, grasp_data)
         all_preds.append(preds)
         all_grasps.append(grasp_data)
-    
+
     pred_vec = torch.Tensor(np.stack(all_preds))
-    # scores = bald(pred_vec).cpu().numpy()
     scores = particle_bald(pred_vec, pf.particles.weights)
     print('Scores:', scores)
     acquire_ix = np.argsort(scores)[::-1][0]
@@ -56,12 +53,14 @@ def find_informative_tower(pf, object_set, logger, args):
 
 def particle_filter_loop(pf, object_set, logger, strategy, args):
     if args.likelihood == 'nn':
-        logger.save_ensemble(pf.likelihood, 0, symlink_tx0=True)
+        logger.save_ensemble(pf.likelihood, 0, symlink_tx0=False)
+    elif args.likelihood == 'gnp':
+        logger.save_neural_process(pf.likelihood, 0, symlink_tx0=False)
     logger.save_particles(pf.particles, 0)
 
     for tx in range(0, args.max_acquisitions):
         print('[ParticleFilter] Interaction Number', tx)
-        
+
         # Choose a tower to build that includes the new block.
         if strategy == 'random':
             data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
@@ -73,7 +72,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
 
         # Get the observation for the chosen tower.
         grasp_dataset = get_labels(grasp_dataset)
-        
+
         # Update the particle belief.
         particles, means = pf.update(grasp_dataset)
         print('[ParticleFilter] Particle Statistics')
@@ -82,9 +81,11 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
         print(f'Sum Weights: {np.sum(pf.particles.weights)}')
 
 
-        # TODO: Save the model and particle distribution at each step.
+        # Save the model and particle distribution at each step.
         if args.likelihood == 'nn':
             logger.save_ensemble(pf.likelihood, tx+1, symlink_tx0=True)
+        elif args.likelihood == 'gnp':
+            logger.save_neural_process(pf.likelihood, tx+1, symlink_tx0=True)
         logger.save_acquisition_data(grasp_dataset, None, tx+1)
         logger.save_particles(particles, tx+1)
 
@@ -93,46 +94,75 @@ def run_particle_filter_fitting(args):
     print(args)
     args.use_latents = True
     args.fit_pf = True
-    
+
     logger = ActiveExperimentLogger.setup_experiment_directory(args)
 
     # ----- Load the block set -----
     print('Loading objects:', args.objects_fname)
-    object_set = get_train_and_fit_objects(pretrained_ensemble_path=args.pretrained_ensemble_exp_path,
-                                           use_latents=True,
-                                           fit_objects_fname=args.objects_fname,
-                                           fit_object_ix=args.eval_object_ix)
+    object_set = get_train_and_fit_objects(
+        pretrained_ensemble_path=args.pretrained_ensemble_exp_path,
+        use_latents=True,
+        fit_objects_fname=args.objects_fname,
+        fit_object_ix=args.eval_object_ix
+    )
     print('Total objects:', len(object_set['object_names']))
     args.num_eval_objects = 1
     args.num_train_objects = len(object_set['object_names']) - args.num_eval_objects
 
     # ----- Likelihood Model -----
     if args.likelihood == 'nn':
-        train_logger = ActiveExperimentLogger(exp_path=args.pretrained_ensemble_exp_path, use_latents=True)
+        train_logger = ActiveExperimentLogger(
+            exp_path=args.pretrained_ensemble_exp_path,
+            use_latents=True
+        )
         latent_ensemble = train_logger.get_ensemble(args.ensemble_tx)
         if torch.cuda.is_available():
             latent_ensemble.cuda()
         latent_ensemble.add_latents(1)
         likelihood_model = latent_ensemble
         d_latents = latent_ensemble.d_latents
+    elif args.likelihood == 'gnp':
+        train_logger = ActiveExperimentLogger(
+            exp_path=args.pretrained_ensemble_exp_path,
+            use_latents=False
+        )
+        likelihood_model = train_logger.get_neural_process(tx=0)
+        if torch.cuda.is_available():
+            likelihood_model.cuda()
+        likelihood_model.eval()
+        d_latents = likelihood_model.d_latents
     elif args.likelihood == 'pb':
-        likelihood_model = PBLikelihood(object_name=object_set['object_names'][-1], n_samples=5, batch_size=50)   
+        likelihood_model = PBLikelihood(
+            object_name=object_set['object_names'][-1],
+            n_samples=5,
+            batch_size=50
+        )
         d_latents = 5
 
     # ----- Initialize particle filter from prior -----
-    pf = GraspingDiscreteLikelihoodParticleBelief(
-        object_set=object_set,
-        D=d_latents,
-        N=args.n_particles,
-        likelihood=likelihood_model,
-        resample=False,
-        plot=True)
+    if args.likelihood == 'gnp':
+        pf = AmortizedGraspingDiscreteLikelihoodParticleBelief(
+            object_set=object_set,
+            d_latents=d_latents,
+            n_particles=args.n_particles,
+            likelihood=likelihood_model,
+            resample=False,
+            plot=True
+        )
+    else:
+        pf = GraspingDiscreteLikelihoodParticleBelief(
+            object_set=object_set,
+            D=d_latents,
+            N=args.n_particles,
+            likelihood=likelihood_model,
+            resample=False,
+            plot=True)
     if args.likelihood == 'pb':
         pf.particles = likelihood_model.init_particles(args.n_particles)
 
     # ----- Run particle filter loop -----
     particle_filter_loop(pf, object_set, logger, args.strategy, args)
-    
+
     return logger.exp_path
 
 if __name__ == '__main__':
@@ -146,8 +176,7 @@ if __name__ == '__main__':
     parser.add_argument('--eval-object-ix', type=int, default=0, help='Index of which eval object to use.')
     parser.add_argument('--strategy', type=str, choices=['bald', 'random', 'task'], default='bald')
     parser.add_argument('--n-particles', type=int, default=100)
-    parser.add_argument('--likelihood', choices=['nn', 'pb'], default='nn')
+    parser.add_argument('--likelihood', choices=['nn', 'pb', 'gnp'], default='nn')
     args = parser.parse_args()
-    
+
     run_particle_filter_fitting(args)
-    

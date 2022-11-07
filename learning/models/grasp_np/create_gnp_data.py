@@ -2,6 +2,7 @@ import argparse
 from email.policy import default
 from re import T
 import matplotlib.pyplot as plt
+import multiprocessing
 import numpy as np
 import os
 import pickle
@@ -12,6 +13,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector
 from learning.domains.grasping.grasp_data import GraspParallelDataLoader
 from pb_robot.planners.antipodalGraspPlanner import GraspSimulationClient, GraspableBody
+from types import SimpleNamespace
 
 
 def transform_points(points, finger1, finger2, ee, viz_data=False):
@@ -55,7 +57,7 @@ def transform_points(points, finger1, finger2, ee, viz_data=False):
     return new_points.astype('float32')
 
 
-def process_geometry(train_dataset, radius=0.02, skip=1):
+def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     object_names = train_dataset['object_data']['object_names']
     object_properties = train_dataset['object_data']['object_properties']
 
@@ -80,14 +82,15 @@ def process_geometry(train_dataset, radius=0.02, skip=1):
     new_meshes_dict = defaultdict(list)
 
     for grasp_vector, object_id, label in zip(all_grasps, all_ids, all_labels):
-        print(f'Coverting grasp {gx}/{len(all_ids)}...')
+        if verbose:
+            print(f'Coverting grasp {gx}/{len(all_ids)}...')
         gx += 1
 
         object_name = object_names[object_id]
         object_property = object_properties[object_id]
 
         graspable_body = graspablebody_from_vector(object_name, object_property)
-        
+
         finger1 = grasp_vector[0, 0:3]
         finger2 = grasp_vector[1, 0:3]
         ee = grasp_vector[2, 0:3]
@@ -100,7 +103,8 @@ def process_geometry(train_dataset, radius=0.02, skip=1):
         to_keep = np.logical_or(d1 < radius, d2 < radius)
         points = candidate_points[to_keep][:512]
         n_found = points.shape[0]
-        print(f'{n_found} points found for grasp {gx}, object {object_id}')
+        if verbose:
+            print(f'{n_found} points found for grasp {gx}, object {object_id}')
 
         # Put everything in grasp point ref frame for better generalization. (Including grasp points)
         if gx % 200 == 0:
@@ -127,47 +131,46 @@ def process_geometry(train_dataset, radius=0.02, skip=1):
     }
     return dataset
 
+def process_and_save(func_args):
+    with open(func_args.dataset_path, 'rb') as handle:
+        dataset = pickle.load(handle)
+
+    new_dataset = process_geometry(
+        dataset,
+        radius=func_args.radius,
+        skip=1
+    )
+
+    with open(func_args.out_path, 'wb') as handle:
+        pickle.dump(new_dataset, handle)
+    
+
 DATA_ROOT = 'learning/data/grasping'
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--in-dataset-fname', type=str, required=True)
     parser.add_argument('--out-dataset-fname', type=str, required=True)
+    parser.add_argument('--radius', type=float, default=0.03)
+    parser.add_argument('--n-processes', type=int, default=1)
     args = parser.parse_args()
     print(args)
 
-    in_data_path = os.path.join(DATA_ROOT, args.in_dataset_fname)
-
-    train_data_path = os.path.join(in_data_path, 'grasps', 'training_phase', 'train_grasps.pkl')
-    with open(train_data_path, 'rb') as handle:
-        train_dataset = pickle.load(handle) 
-
-    new_train_dataset = process_geometry(
-        train_dataset,
-        radius=0.03,
-        skip=1,
-    )
-
-    val_data_path = os.path.join(in_data_path, 'grasps', 'training_phase', 'val_grasps.pkl')
-    with open(val_data_path, 'rb') as handle:
-        val_dataset = pickle.load(handle) 
-
-    new_val_dataset = process_geometry(
-        val_dataset,
-        radius=0.03,
-        skip=1
-    )
-
+    # ----- Top-level dataset files -----
     in_data_root_path = os.path.join(DATA_ROOT, args.in_dataset_fname)
     out_data_root_path = os.path.join(DATA_ROOT, args.out_dataset_fname)
-    os.mkdir(out_data_root_path)
+    if not os.path.exists(out_data_root_path):
+        os.mkdir(out_data_root_path)
 
     in_args_path = os.path.join(in_data_root_path, 'args.pkl')
     out_args_path = os.path.join(out_data_root_path, 'args.pkl')
-    shutil.copy(in_args_path, out_args_path)
-    
+    if not os.path.exists(out_args_path):
+        shutil.copy(in_args_path, out_args_path)
+
+    # ----- Object files -----
     in_objects_path = os.path.join(in_data_root_path, 'objects')
     out_objects_path = os.path.join(out_data_root_path, 'objects')
-    os.mkdir(out_objects_path)
+    if not os.path.exists(out_objects_path):
+        os.mkdir(out_objects_path)
 
     in_train_geo_train_props = os.path.join(in_objects_path, 'train_geo_train_props.pkl')
     in_train_geo_test_props = os.path.join(in_objects_path, 'train_geo_test_props.pkl')
@@ -175,19 +178,84 @@ if __name__ == '__main__':
     out_train_geo_train_props = os.path.join(out_objects_path, 'train_geo_train_props.pkl')
     out_train_geo_test_props = os.path.join(out_objects_path, 'train_geo_test_props.pkl')
     out_test_geo_test_props = os.path.join(out_objects_path, 'test_geo_test_props.pkl')
-    shutil.copy(in_train_geo_train_props, out_train_geo_train_props)
-    shutil.copy(in_train_geo_test_props, out_train_geo_test_props)
-    shutil.copy(in_test_geo_test_props, out_test_geo_test_props)
+    if not os.path.exists(out_train_geo_train_props):
+        shutil.copy(in_train_geo_train_props, out_train_geo_train_props)
+    if not os.path.exists(out_train_geo_test_props):
+        shutil.copy(in_train_geo_test_props, out_train_geo_test_props)
+    if not os.path.exists(out_test_geo_test_props):
+        shutil.copy(in_test_geo_test_props, out_test_geo_test_props)
 
+    # ----- Grasp paths -----
     out_grasps_path = os.path.join(out_data_root_path, 'grasps')
-    os.mkdir(out_grasps_path)
+    if not os.path.exists(out_grasps_path):
+        os.mkdir(out_grasps_path)
 
     out_training_phase_path = os.path.join(out_grasps_path, 'training_phase')
-    os.mkdir(out_training_phase_path)
+    if not os.path.exists(out_training_phase_path):
+        os.mkdir(out_training_phase_path)
 
-    train_grasps_path = os.path.join(out_training_phase_path, 'train_grasps.pkl') 
+    in_fitting_phase_path = os.path.join(in_data_root_path, 'grasps', 'fitting_phase')
+    out_fitting_phase_path = os.path.join(out_grasps_path, 'fitting_phase')
+    if not os.path.exists(out_fitting_phase_path):
+        os.mkdir(out_fitting_phase_path)
+
+    # ----- Training phase grasps -----
+    train_grasps_path = os.path.join(out_training_phase_path, 'train_grasps.pkl')
+    if not os.path.exists(train_grasps_path):
+        train_data_path = os.path.join(
+            in_data_root_path,
+            'grasps',
+            'training_phase',
+            'train_grasps.pkl'
+        )
+        with open(train_data_path, 'rb') as handle:
+            train_dataset = pickle.load(handle)
+
+        new_train_dataset = process_geometry(
+            train_dataset,
+            radius=args.radius,
+            skip=1,
+        )
+
+        with open(train_grasps_path, 'wb') as handle:
+            pickle.dump(new_train_dataset, handle)
+
     val_grasps_path = os.path.join(out_training_phase_path, 'val_grasps.pkl')
-    with open(train_grasps_path, 'wb') as handle:
-        pickle.dump(new_train_dataset, handle)
-    with open(val_grasps_path, 'wb') as handle:
-        pickle.dump(new_val_dataset, handle)
+    if not os.path.exists(val_grasps_path):
+        val_data_path = os.path.join(
+            in_data_root_path,
+            'grasps',
+            'training_phase',
+            'val_grasps.pkl'
+        )
+        with open(val_data_path, 'rb') as handle:
+            val_dataset = pickle.load(handle)
+
+        new_val_dataset = process_geometry(
+            val_dataset,
+            radius=args.radius,
+            skip=1
+        )
+
+        with open(val_grasps_path, 'wb') as handle:
+            pickle.dump(new_val_dataset, handle)
+
+    # ----- Fitting phase grasps -----
+    fitting_tasks = []
+    for fitting_fname in os.listdir(in_fitting_phase_path):
+        out_fitting_data_path = os.path.join(out_fitting_phase_path, fitting_fname)
+        if not os.path.exists(out_fitting_data_path):
+            fitting_data_path = os.path.join(in_fitting_phase_path, fitting_fname)
+            fitting_task = SimpleNamespace(
+                dataset_path=fitting_data_path,
+                radius=args.radius,
+                out_path=out_fitting_data_path
+            )
+            fitting_tasks.append(fitting_task)
+
+    worker_pool = multiprocessing.Pool(
+        processes=args.n_processes,
+        maxtasksperchild=1
+    )
+    worker_pool.map(process_and_save, fitting_tasks)
+    worker_pool.close()

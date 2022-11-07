@@ -8,15 +8,13 @@ from learning.domains.grasping.grasp_data import GraspDataset, GraspParallelData
 from learning.domains.towers.tower_data import ParallelDataLoader, TowerDataset
 import matplotlib.pyplot as plt
 import numpy as np
-import os
-import random
-import shutil
 import torch
 import torch.nn as nn
 
 from copy import deepcopy
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.stats import multivariate_normal
+from torch.utils.data import DataLoader
 
 from actions import make_platform_world, plan_action
 from agents.panda_agent import PandaAgent
@@ -25,6 +23,8 @@ from base_class import BeliefBase
 from block_utils import get_adversarial_blocks, get_com_ranges, \
                         Environment, ParticleDistribution
 from learning.domains.grasping.active_utils import get_fit_object
+from learning.models.grasp_np.create_gnp_data import process_geometry
+from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 from filter_utils import create_uniform_particles, create_gaussian_particles, sample_and_wiggle, sample_particle_distribution
 
 
@@ -351,7 +351,18 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
 
     The prior distribution for this belief is N(0, 1). 
     """
-    def __init__(self, object_set, D, N, likelihood=None, resample=False, plot=False):
+    def __init__(self, object_set, d_latents, n_particles, likelihood=None, resample=False, plot=False):
+        """
+        Maintain a particle distribution over the latent properties for an object.
+
+        :param object_set: A dictionary of form: {'object_names': [...], 'object_properties': [...]}
+            where the last element in each list correponds to the fitting object.
+        :param d_latents: Dimensionality of belief space.
+        :param n_particles: Number of particles to represent belief.
+        :param likelihood: Model that predicts Bernoulli likelihood of data.
+        :param resample: If True, sample particles after each interaction.
+        :param plot: If True, plot first 3 dimensions of latent space during interactions.
+        """
         object_name, object_properties, object_ix = get_fit_object(object_set)
         self.object_name = object_name
         self.object_properties = object_properties
@@ -359,8 +370,8 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         self.resample = resample
         self.plot = plot                        # plot the particles
 
-        self.N = N        # number of particles
-        self.D = D        # dimensions of a single particle
+        self.N = n_particles        # number of particles
+        self.D = d_latents        # dimensions of a single particle
         self.likelihood = likelihood    # LatentEnsemble object that outputs [0, 1]
 
         self.setup()
@@ -573,6 +584,63 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
 
         return self.particles, self.estimated_coms
 
+class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikelihoodParticleBelief):
+    """
+    A ParticleBelief that is compatible with a GraspNeuralProcess object. 
+    """
+    def get_particle_likelihoods(self, particles, observation, batch_size=500):
+        """
+        Compute the likelihood of an obervation for each particle.
+
+        :param particles: NxD matrix of particles.
+        :param observation: A grasp dictionary containing a single datapoint/grasp.
+            { 'grasp_data': {} , 'object_data: {} , 'metadata': {} }
+        """
+        self.likelihood.eval()
+
+        gnp_observation = process_geometry(
+            observation,
+            radius=0.03,
+            skip=1,
+            verbose=False
+        )
+        # Note the context data is irrelevant here as we are only using the decoder.
+        dataset = CustomGNPGraspDataset(
+            data=gnp_observation,
+            context_data=gnp_observation
+        )
+        dataloader = DataLoader(
+            dataset=dataset,
+            collate_fn=custom_collate_fn,
+            batch_size=1,
+            shuffle=False
+        )
+
+        bernoulli_probs = []
+        latent_samples = torch.Tensor(particles)
+        if torch.cuda.is_available():
+            latent_samples = latent_samples.cuda()
+
+        for (_, target_data, meshes) in dataloader:
+            t_grasp_geoms, t_midpoints, _ = target_data
+            if torch.cuda.is_available():
+                meshes = meshes.cuda()
+                t_grasp_geoms = t_grasp_geoms.cuda()
+                t_midpoints = t_midpoints.cuda()
+            t_grasp_geoms = t_grasp_geoms.expand(batch_size, -1, -1, -1)
+            t_midpoints = t_midpoints.expand(batch_size, -1, -1)
+
+            for ix in range(0, latent_samples.shape[0]//batch_size):
+                preds = self.likelihood.conditional_forward(
+                    target_xs = (t_grasp_geoms, t_midpoints),
+                    meshes=meshes,
+                    zs=latent_samples[ix*batch_size:(ix+1)*batch_size]
+                ).squeeze()
+                bernoulli_probs.append(preds.cpu().detach().numpy())
+
+        return np.concatenate(bernoulli_probs)
+
+
 # =============================================================
 """
 A script that tests the particle filter by reporting the error on
@@ -590,7 +658,7 @@ def plot_com_error(errors_random, errors_var):
             err_rand += np.linalg.norm(true-guess_rand)
         plt.scatter(tx, err_rand/len(errors_var), c='r')
         plt.scatter(tx, err_var/len(errors_var), c='b')
-    plt.show()    
+    plt.show()
 
 """
 Notes on tuning the particle filter.
@@ -643,6 +711,4 @@ if __name__ == '__main__':
             print('Estimated CoM:', est)
             print('True:', true)  
             print('Error:', error)
-
-        
 
