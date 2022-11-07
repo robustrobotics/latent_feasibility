@@ -41,7 +41,7 @@ def get_loss(y_probs, target_ys, q_z, alpha=1):
     bce_loss = F.binary_cross_entropy(y_probs.squeeze(), target_ys.squeeze(), reduction='sum')
 
     beta = min(alpha / 100., 1)
-    beta = 1. / (1 + np.exp(-0.05 * (alpha - 50)))
+    beta = 1. / (1 + np.exp(-0.05 * (alpha - 50)))  # TODO: Is this still necessary? 
     p_z = torch.distributions.normal.Normal(torch.zeros_like(q_z.loc), torch.ones_like(q_z.scale))
     kld_loss = beta * torch.distributions.kl_divergence(q_z, p_z).sum()
     # kld_loss = 0

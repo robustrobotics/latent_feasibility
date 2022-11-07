@@ -1,6 +1,5 @@
 import argparse
 import json
-from selectors import EpollSelector
 import numpy as np
 import os
 import pickle
@@ -143,7 +142,7 @@ def run_fitting_phase(args):
 
             fitting_args = argparse.Namespace()
             fitting_args.exp_name = fitting_exp_name
-            fitting_args.max_acquisitions = 10
+            fitting_args.max_acquisitions = 25
             fitting_args.objects_fname = objects_fname
             fitting_args.n_samples = 20
             fitting_args.pretrained_ensemble_exp_path = pretrained_model_path
@@ -291,8 +290,10 @@ def run_testing_phase(args):
     }
 
     n_found = 0
-    p_stable_low, p_stable_high = 0., 2.
+    p_stable_low, p_stable_high = 0.2, 0.8
+    print('train_objects_fname', train_objects_fname)
     for ox, object_name in enumerate(train_objects['object_data']['object_names']):
+        import IPython; IPython.embed()
         # break
         if ox > 99:
             break
@@ -302,14 +303,16 @@ def run_testing_phase(args):
         #    print('Skipping')
         #    break
 
-        val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
+        p_stable = 1
+        # val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
+        # with open(val_dataset_path, 'rb') as handle:
+        #     data = pickle.load(handle)
+        #     p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+        #     if p_stable < p_stable_low or p_stable > p_stable_high:
+        #         continue
+        #     n_found += 1
+        n_found += 1
 
-        with open(val_dataset_path, 'rb') as handle:
-            data = pickle.load(handle)
-            p_stable = np.mean(data['grasp_data']['labels'])
-            if p_stable < p_stable_low or p_stable > p_stable_high:
-                continue
-            n_found += 1
         print(f'{object_name} in range ({p_stable_low}, {p_stable_high}) ({p_stable})')
 
         if object_name not in logs_lookup_by_object['train_geo']['random']:
@@ -336,7 +339,7 @@ def run_testing_phase(args):
             logs_lookup_by_object['train_geo']['constrained_random'][object_name].append(constrained_random_log_fname)
 
         bald_log_key = f'grasp_{args.exp_name}_fit_bald_train_geo_object{ox}'
-        if bald_log_key in logs_lookup['fitting_phase']['bald']:
+        if 'bald' in logs_lookup['fitting_phase'] and bald_log_key in logs_lookup['fitting_phase']['bald']:
             bald_log_fname = logs_lookup['fitting_phase']['bald'][bald_log_key]
 
             logs_lookup_by_object['train_geo']['bald']['all'].append(bald_log_fname)
@@ -346,16 +349,21 @@ def run_testing_phase(args):
     print(f'{n_found} train geo objects included.')
     n_found = 0
     for ox, object_name in enumerate(test_objects['object_data']['object_names']):
-        # TO REMOVE. (2 lines)
-        val_dataset_fname = f'fit_grasps_test_geo_object{ox}.pkl'
-        val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
+        if ox > 99: 
+            break
 
-        with open(val_dataset_path, 'rb') as handle:
-            data = pickle.load(handle)
-            p_stable = np.mean(data['grasp_data']['labels'])
-            if p_stable < p_stable_low or p_stable > p_stable_high:
-                continue
-            n_found += 1
+        p_stable = 1
+        # val_dataset_fname = f'fit_grasps_test_geo_object{ox}.pkl'
+        # val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
+
+        # with open(val_dataset_path, 'rb') as handle:
+        #     data = pickle.load(handle)
+        #     # p_stable = np.mean(data['grasp_data']['labels'])
+        #     p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+        #     if p_stable < p_stable_low or p_stable > p_stable_high:
+        #         continue
+        #     n_found += 1
+        n_found += 1
 
         if object_name not in logs_lookup_by_object['test_geo']['random']:
             logs_lookup_by_object['test_geo']['random'][object_name] = []
@@ -381,7 +389,7 @@ def run_testing_phase(args):
             logs_lookup_by_object['test_geo']['constrained_random'][object_name].append(constrained_random_log_fname)
 
         bald_log_key = f'grasp_{args.exp_name}_fit_bald_test_geo_object{ox}'
-        if bald_log_key in logs_lookup['fitting_phase']['bald']:
+        if 'bald' in logs_lookup['fitting_phase'] and bald_log_key in logs_lookup['fitting_phase']['bald']:
             bald_log_fname = logs_lookup['fitting_phase']['bald'][bald_log_key]
 
             logs_lookup_by_object['test_geo']['bald']['all'].append(bald_log_fname)

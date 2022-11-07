@@ -588,7 +588,7 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
     """
     A ParticleBelief that is compatible with a GraspNeuralProcess object. 
     """
-    def get_particle_likelihoods(self, particles, observation, batch_size=100):
+    def get_particle_likelihoods(self, particles, observation, batch_size=500):
         """
         Compute the likelihood of an obervation for each particle.
 
@@ -658,7 +658,7 @@ def plot_com_error(errors_random, errors_var):
             err_rand += np.linalg.norm(true-guess_rand)
         plt.scatter(tx, err_rand/len(errors_var), c='r')
         plt.scatter(tx, err_var/len(errors_var), c='b')
-    plt.show()    
+    plt.show()
 
 """
 Notes on tuning the particle filter.
