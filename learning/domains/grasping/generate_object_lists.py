@@ -101,8 +101,7 @@ def get_object_volume(object_name):
     return volume
 
 
-def filter_by_volume(object_list, min_volume=0.001, max_volume=0.008, n_processes=1):
-    
+def filter_by_volume(object_list, min_volume=0.001, max_volume=0.008, n_processes=1):   
     worker_pool = mp.Pool(processes=n_processes)
     volumes = worker_pool.map(get_object_volume, object_list)
     worker_pool.close()
@@ -138,9 +137,10 @@ if __name__ == '__main__':
     all_ycb_objects = get_ycb_models()
 
     all_shapenet_objects = get_shapenet_models(os.path.join(shapenet_root, 'urdfs'))
-    print(f'Before length: {len(all_shapenet_objects)}')
-    all_shapenet_objects = filter_by_volume(all_shapenet_objects, n_processes=args.n_processes)
-    print(f'After length: {len(all_shapenet_objects)}')
+    if 'ShapeNet' in args.train_objects_datasets + args.test_objects_datasets:
+        print(f'Before length: {len(all_shapenet_objects)}')
+        all_shapenet_objects = filter_by_volume(all_shapenet_objects, n_processes=args.n_processes)
+        print(f'After length: {len(all_shapenet_objects)}')
 
     # then use train_object_datasets and then lookup with try except and then just inform
     # user if the set name passed as an argument does not exist
