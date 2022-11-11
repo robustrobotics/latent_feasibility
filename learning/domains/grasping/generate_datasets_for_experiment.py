@@ -80,32 +80,31 @@ def merge_datasets(dataset_paths, merged_fname):
         pickle.dump(merged_dataset, handle)
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--train-objects-fname', type=str, required=True)
-parser.add_argument('--test-objects-fname', type=str, required=True)
-parser.add_argument('--data-root-name', type=str, required=True)
-parser.add_argument('--n-property-samples-train', type=int, required=True)
-parser.add_argument('--n-property-samples-test', type=int, required=True)
-parser.add_argument('--n-grasps-per-object', type=int, required=True)
-parser.add_argument('--n-points-per-object', type=int, required=True)
-parser.add_argument('--n-fit-grasps', type=int, required=True)
-parser.add_argument('--grasp-noise', type=float, required=True)
-parser.add_argument('--n-processes', type=int, default=1)
-parser.add_argument('--merge', action='store_true', default=False)
-new_args = parser.parse_args()
-print(new_args)
-
-
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--train-objects-fname', type=str, required=True)
+    parser.add_argument('--test-objects-fname', type=str, required=True)
+    parser.add_argument('--data-root-name', type=str, required=True)
+    parser.add_argument('--n-property-samples-train', type=int, required=True)
+    parser.add_argument('--n-property-samples-test', type=int, required=True)
+    parser.add_argument('--n-grasps-per-object', type=int, required=True)
+    parser.add_argument('--n-points-per-object', type=int, required=True)
+    parser.add_argument('--n-fit-grasps', type=int, required=True)
+    parser.add_argument('--grasp-noise', type=float, required=True)
+    parser.add_argument('--n-processes', type=int, default=1)
+    parser.add_argument('--merge', action='store_true', default=False)
+    new_args = parser.parse_args()
+    print(new_args)
 
     # Directory setup.
     data_root_path = os.path.join('learning', 'data', 'grasping', new_args.data_root_name)
     args_path = os.path.join(data_root_path, 'args.pkl')
-    choice = 'no'
+
     if os.path.exists(data_root_path):
-        choice = input('[Warning] Data root directory already exists. Overwrite initial args?')
+        choice = input('[Warning] Data root directory already exists. Overwrite initial args? (yes/no)')
     else:
         os.mkdir(data_root_path)
+        choice = 'yes'
 
     if choice == 'yes':
         with open(args_path, 'wb') as handle:
@@ -216,7 +215,7 @@ if __name__ == '__main__':
             val_dataset_tasks.append(val_grasps_args)
 
     worker_pool.map(generate_datasets, val_dataset_tasks)
-    
+
     if args.merge:
         print('[Grasps] Merging all validation grasps for training phase.')
         val_grasps_path = os.path.join(training_phase_path, 'val_grasps.pkl')

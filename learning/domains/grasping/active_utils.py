@@ -35,9 +35,9 @@ def sample_unlabeled_data(n_samples, object_set):
     graspable_body = graspablebody_from_vector(object_name, object_properties)
 
     object_grasp_data, object_grasp_ids, object_grasp_labels = [], [], []  
-    raw_grasps = []  
+    raw_grasps = []
     for nx in range(n_samples):
-        grasp, X = sample_grasp_X(graspable_body, object_properties, n_points_per_object=512)
+        grasp, X = sample_grasp_X(graspable_body, object_properties, n_points_per_object=10000)
 
         raw_grasps.append(grasp)
         object_grasp_data.append(X)
@@ -62,7 +62,7 @@ def sample_unlabeled_data(n_samples, object_set):
 def get_labels(grasp_dataset):
     raw_grasps = grasp_dataset['grasp_data']['raw_grasps']
     graspable_body = raw_grasps[0].graspable_body
-    labeler = GraspStabilityChecker(graspable_body, stability_direction='all', label_type='relpose')
+    labeler = GraspStabilityChecker(graspable_body, stability_direction='all', label_type='relpose', recompute_inertia=True)
     for gx in range(0, len(raw_grasps)):
         label = labeler.get_label(raw_grasps[gx])
         print('Label', label)

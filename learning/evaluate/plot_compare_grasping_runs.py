@@ -67,6 +67,7 @@ def plot_val_loss(loggers, output_path):
     plt.clf()
     fig, axes = plt.subplots(1, sharex=False, figsize=(20,10))
     val_fname = 'val_accuracies.pkl'
+    # val_fname = 'val_recalls.pkl'
     # val_fname = 'val_precisions.pkl'
     # val_fname = 'val_f1s.pkl'
     for name, group_loggers in loggers.items():
