@@ -158,10 +158,10 @@ class DiscreteLikelihoodParticleBelief(BeliefBase):
 
 
     def setup(self):
-        self.particles = create_gaussian_particles(N=self.N, 
-                                                   D=self.D, 
+        self.particles = create_gaussian_particles(N=self.N,
+                                                   D=self.D,
                                                    means=[0.]*self.D,
-                                                   stds=[1.]*self.D)
+                                                   stds=[2.]*self.D)
         self.experience = []
         self.estimated_coms = []
 
@@ -202,7 +202,7 @@ class DiscreteLikelihoodParticleBelief(BeliefBase):
 
         mean = np.mean(particles, axis=0)
         proposed_particles = np.random.multivariate_normal(mean=mean, cov=cov, size=N)
-        
+
         # TODO: Update M-H update to be compatible with our model.
         # The commented out code block does M-H update. 
         if True:
@@ -213,7 +213,7 @@ class DiscreteLikelihoodParticleBelief(BeliefBase):
             for observation in experience:
                 bern_probs_particles = self.get_particle_likelihoods(particles, observation)
                 bern_probs_proposed = self.get_particle_likelihoods(proposed_particles, observation)
-                
+
                 # sim_poses = simulate(np.concatenate([particles, proposed_particles], axis=0),
                 #                     action,
                 #                     T,
@@ -291,7 +291,7 @@ class DiscreteLikelihoodParticleBelief(BeliefBase):
                 pred = self.likelihood.forward(towers=towers[:, :, 4:],
                                                block_ids=block_ids.long(),
                                                N_samples=10,
-                                               collapse_latents=True, 
+                                               collapse_latents=True,
                                                collapse_ensemble=True,
                                                keep_latent_ix=self.block_id,
                                                latent_samples=latent_samples[ix*10:(ix+1)*10,:]).squeeze()
@@ -364,6 +364,7 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         :param plot: If True, plot first 3 dimensions of latent space during interactions.
         """
         object_name, object_properties, object_ix = get_fit_object(object_set)
+        print(f'Fitting: {object_name} {object_properties}')
         self.object_name = object_name
         self.object_properties = object_properties
         self.object_ix = object_ix
@@ -388,7 +389,7 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         self.particles = create_gaussian_particles(N=self.N, 
                                                    D=self.D, 
                                                    means=[0.]*self.D,
-                                                   stds=[1.]*self.D)
+                                                   stds=[2.]*self.D)
         if not self.resample:
             self.particles = ParticleDistribution(self.particles.particles, np.ones(self.N))
         
@@ -586,12 +587,11 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
 
 class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikelihoodParticleBelief):
     """
-    A ParticleBelief that is compatible with a GraspNeuralProcess object. 
+    A ParticleBelief that is compatible with a GraspNeuralProcess object.
     """
-    def get_particle_likelihoods(self, particles, observation, batch_size=500):
+    def get_particle_likelihoods(self, particles, observation, batch_size=1000):
         """
         Compute the likelihood of an obervation for each particle.
-
         :param particles: NxD matrix of particles.
         :param observation: A grasp dictionary containing a single datapoint/grasp.
             { 'grasp_data': {} , 'object_data: {} , 'metadata': {} }
