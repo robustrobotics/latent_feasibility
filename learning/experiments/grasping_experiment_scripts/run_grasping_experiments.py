@@ -84,7 +84,6 @@ def get_fitting_phase_dataset_args(dataset_fname):
     return train_geo_fname, test_geo_fname, n_train_geo, n_test_geo
 
 
-# TODO: implement amortized flag here
 def run_fitting_phase(args):
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
     if not os.path.exists(exp_path):
@@ -150,7 +149,10 @@ def run_fitting_phase(args):
             fitting_args.eval_object_ix = ox
             fitting_args.strategy = args.strategy
             fitting_args.n_particles = 1000
-            if args.amortize:
+
+            if args.debug:
+                fitting_args.likelihood = 'pb'
+            elif args.amortize:
                 fitting_args.likelihood = 'gnp'
             else:
                 fitting_args.likelihood = 'nn'
@@ -432,6 +434,7 @@ if __name__ == '__main__':
     parser.add_argument('--strategy', type=str, choices=['bald', 'random'], default='random')
     parser.add_argument('--constrained', action='store_true', default=False)
     parser.add_argument('--amortize', action='store_true', default=False)
+    parser.add_argument('--debug', action='store_true', default=False)
     args = parser.parse_args()
 
     if args.phase == 'create':
