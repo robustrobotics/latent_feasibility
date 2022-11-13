@@ -1,6 +1,7 @@
 from learning.domains.grasping.active_utils import sample_unlabeled_data
 import numpy as np
 import pickle
+import multiprocessing
 
 from block_utils import ParticleDistribution
 from learning.domains.grasping.active_utils import sample_unlabeled_data
@@ -8,14 +9,23 @@ from learning.domains.grasping.generate_grasp_datasets import vector_from_graspa
 from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspableBodySampler, GraspStabilityChecker
 
 
+# this is a helper function to verify grasp stability from a single pybullet instance
+# (and will be parallelized)
+def get_label(body, cand_grasp):
+    labeler = GraspStabilityChecker(body, grasp_noise=0.0025)
+    label = labeler.get_label(cand_grasp)
+    labeler.disconnect()
+    return label
+
 
 class PBLikelihood:
 
-    def __init__(self, object_name, n_samples, batch_size):
+    def __init__(self, object_name, n_samples, batch_size, n_processes=24):
         self.object_name = object_name
         self.n_samples = n_samples
         self.batch_size = batch_size
         self.bodies_for_particles = None
+        self.n_processes = n_processes
 
     def eval(self):
         pass
@@ -32,6 +42,8 @@ class PBLikelihood:
         return particle_dist
 
     def get_particle_likelihoods(self, particles, observation):
+        worker_pool = multiprocessing.Pool(self.n_processes, maxtasksperchild=1)
+
         if self.bodies_for_particles is None:
             print('[ERROR] Need to initialize particles first.')
             return
@@ -49,12 +61,11 @@ class PBLikelihood:
 
             batch_labels = []
             for sx in range(self.n_samples):
-                object_labels = []
-                for body, grasp in zip(bodies, grasps):
-                    labeler = GraspStabilityChecker(body, grasp_noise=0.0025)
-                    object_labels.append(labeler.get_label(grasp))
-                    labeler.disconnect()
+
+                # parallelizing labeling process for all grasps for one object
+                object_labels = worker_pool.starmap(get_label, zip(bodies, grasps))
                 batch_labels.append(object_labels)
+
             batch_labels = np.array(batch_labels).mean(axis=0).tolist()
             labels += batch_labels
 
