@@ -8,7 +8,8 @@ from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, get_train_and_fit_objects
 from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.active.acquire import bald
-from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
+from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief, \
+    ParticleBelief
 
 
 def particle_bald(predictions, weights, eps=1e-5):
@@ -149,15 +150,23 @@ def run_particle_filter_fitting(args):
             resample=False,
             plot=True
         )
-    else:
+    elif args.likelihood == 'nn':
         pf = GraspingDiscreteLikelihoodParticleBelief(
             object_set=object_set,
-            D=d_latents,
-            N=args.n_particles,
+            d_latents=d_latents,
+            n_particles=args.n_particles,
             likelihood=likelihood_model,
             resample=False,
             plot=True)
-    if args.likelihood == 'pb':
+    else: # pybullet
+        pf = GraspingDiscreteLikelihoodParticleBelief(
+            object_set=object_set,
+            d_latents=d_latents,
+            n_particles=args.n_particles,
+            likelihood=likelihood_model,
+            resample=False,
+            plot=True
+        )
         pf.particles = likelihood_model.init_particles(args.n_particles)
 
     # ----- Run particle filter loop -----

@@ -48,10 +48,13 @@ class PBLikelihood:
                 grasps.append(g)
 
             batch_labels = []
-            for body, grawsp in zip(bodies, grasp): # TODO: check with Mike to see that this is reasonable
-                labeler = GraspStabilityChecker(body, grasp_noise=0.0025)
-                batch_labels.append(labeler.get_label(grasp))
-                labeler.disconnect()
+            for sx in range(self.n_samples):
+                object_labels = []
+                for body, grasp in zip(bodies, grasps):
+                    labeler = GraspStabilityChecker(body, grasp_noise=0.0025)
+                    object_labels.append(labeler.get_label(grasp))
+                    labeler.disconnect()
+                batch_labels.append(object_labels)
             batch_labels = np.array(batch_labels).mean(axis=0).tolist()
             labels += batch_labels
 
