@@ -79,7 +79,7 @@ def generate_datasets(dataset_args):
     with open(dataset_args.objects_fname, 'rb') as handle:
         object_data = pickle.load(handle)['object_data']
 
-    object_grasp_data, object_grasp_ids, object_grasp_labels = [], [], []
+    object_raw_grasps, object_grasp_data, object_grasp_ids, object_grasp_labels = [], [], [], []
 
     for prop_ix in range(len(object_data['object_names'])):
         if dataset_args.object_ix > -1 and dataset_args.object_ix != prop_ix:
@@ -110,6 +110,7 @@ def generate_datasets(dataset_args):
             # Get label.
             label = labeler.get_label(grasp)
 
+            object_raw_grasps.append(grasp)
             object_grasp_data.append(X)
             object_grasp_ids.append(object_id)
             object_grasp_labels.append(int(label))
@@ -118,6 +119,7 @@ def generate_datasets(dataset_args):
 
         dataset = {
             'grasp_data': {
+                'raw_grasps': object_raw_grasps,
                 'grasps': object_grasp_data,
                 'object_ids': object_grasp_ids,
                 'labels': object_grasp_labels
