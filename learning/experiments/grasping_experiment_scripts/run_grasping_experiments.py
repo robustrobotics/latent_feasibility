@@ -301,7 +301,7 @@ def run_testing_phase(args):
     }
 
     n_found = 0
-    p_stable_low, p_stable_high = 0.0, 1.0
+    p_stable_low, p_stable_high = 0.05, 1.0
     print('train_objects_fname', train_objects_fname)
     for ox, object_name in enumerate(train_objects['object_data']['object_names']):
         #import IPython; IPython.embed()

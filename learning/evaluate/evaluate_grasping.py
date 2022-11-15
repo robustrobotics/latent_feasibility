@@ -9,7 +9,7 @@ import matplotlib.cm as cm
 
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.axes_grid1 import ImageGrid
-from sklearn.metrics import recall_score, precision_score, balanced_accuracy_score, f1_score, confusion_matrix, accuracy_score
+from sklearn.metrics import recall_score, precision_score, balanced_accuracy_score, f1_score, confusion_matrix, accuracy_score, average_precision_score
 from torch.utils.data import DataLoader
 from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, get_train_and_fit_objects
 from learning.active.acquire import bald
@@ -267,7 +267,8 @@ def get_pf_task_performance(logger, fname):
 
 
 def get_pf_validation_accuracy(logger, fname, amortize):
-    accs, precisions, recalls, f1s, balanced_accs = [], [], [], [], []
+    accs, precisions, recalls, f1s, balanced_accs, av_precs = [], [], [], [], [], []
+    thresholded_recalls = {}
     confusions = []
 
     with open(fname, 'rb') as handle:
@@ -305,8 +306,17 @@ def get_pf_validation_accuracy(logger, fname, amortize):
                 n_particle_samples=50
             )
 
+        thresholds = np.arange(0.05, 1.0, 0.05)
+        for threshold in thresholds:
+            preds = (probs > threshold).float()
+            rec = recall_score(labels, preds)
+            str_t = f'{threshold: .2f}'
+            if str_t not in thresholded_recalls:
+                thresholded_recalls[str_t] = []
+            thresholded_recalls[str_t].append(rec)
+        
         preds = (probs > 0.5).float()
-
+        av_prec = average_precision_score(labels, probs)
         acc = accuracy_score(labels, preds)
         prec = precision_score(labels, preds)
         rec = recall_score(labels, preds)
@@ -316,6 +326,7 @@ def get_pf_validation_accuracy(logger, fname, amortize):
 
         print(f'Acc: {acc}\tBalanced Acc: {b_acc}\tPrecision: {prec}\tRecall: {rec}\tF1: {f1}')
         accs.append(acc)
+        av_precs.append(av_prec)
         precisions.append(prec)
         recalls.append(rec)
         confusions.append(confs)
@@ -326,6 +337,8 @@ def get_pf_validation_accuracy(logger, fname, amortize):
         pickle.dump(accs, handle)
     with open(logger.get_figure_path('val_precisions.pkl'), 'wb') as handle:
         pickle.dump(precisions, handle)
+    with open(logger.get_figure_path('val_average_precisions.pkl'), 'wb') as handle:
+        pickle.dump(av_precs, handle)
     with open(logger.get_figure_path('val_recalls.pkl'), 'wb') as handle:
         pickle.dump(recalls, handle)
     with open(logger.get_figure_path('val_confusions.pkl'), 'wb') as handle:
@@ -334,6 +347,11 @@ def get_pf_validation_accuracy(logger, fname, amortize):
         pickle.dump(f1s, handle)
     with open(logger.get_figure_path('val_balanced_accs.pkl'), 'wb') as handle:
         pickle.dump(balanced_accs, handle)
+
+    for k, v in thresholded_recalls.items():
+        with open(logger.get_figure_path(f'val_recalls_{k}.pkl'), 'wb') as handle:
+            pickle.dump(v, handle)
+
     return accs
 
 def get_acquired_preditctions_pf(logger):
