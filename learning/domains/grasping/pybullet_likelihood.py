@@ -5,7 +5,7 @@ import multiprocessing
 
 from block_utils import ParticleDistribution
 from learning.domains.grasping.active_utils import sample_unlabeled_data
-from learning.domains.grasping.generate_grasp_datasets import vector_from_graspablebody
+from learning.domains.grasping.generate_grasp_datasets import vector_from_graspablebody, graspablebody_from_vector
 from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspableBodySampler, GraspStabilityChecker
 
 
@@ -41,6 +41,13 @@ class PBLikelihood:
         particle_dist = ParticleDistribution(np.array(graspable_vectors), np.ones(len(graspable_vectors)))
         return particle_dist
 
+    def particle_distribution_from_graspable_vectors(self, graspable_vectors):
+        graspable_bodies = []
+        for gsp_vect in graspable_vectors:
+           graspable_bodies.append(graspablebody_from_vector(self.object_name, gsp_vect))
+        self.bodies_for_particles = graspable_bodies
+        return ParticleDistribution(np.array(graspable_vectors), np.ones(len(graspable_vectors)))
+
     def get_particle_likelihoods(self, particles, observation):
         worker_pool = multiprocessing.Pool(self.n_processes, maxtasksperchild=1)
 
@@ -49,7 +56,7 @@ class PBLikelihood:
             return
 
         tgrasp = observation['grasp_data']['raw_grasps'][0]
-        
+
         labels = []
         n_batches =int(np.ceil(len(particles)/self.batch_size))
         for bx in range(n_batches):
@@ -68,14 +75,13 @@ class PBLikelihood:
 
             batch_labels = np.array(batch_labels).mean(axis=0).tolist()
             labels += batch_labels
-
         return np.array(labels)
 
 
 if __name__ == '__main__':
     with open('learning/data/grasping/train-sn100-test-sn10/objects/test_geo_test_props.pkl', 'rb') as handle:
         all_object_set = pickle.load(handle)['object_data']
-    
+
     object_ix = 0
     object_set = {
         'object_names': [all_object_set['object_names'][object_ix]],

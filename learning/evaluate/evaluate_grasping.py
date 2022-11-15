@@ -19,6 +19,7 @@ from filter_utils import sample_particle_distribution
 from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.grasp_data import GraspDataset, GraspParallelDataLoader
 from learning.domains.grasping.explore_dataset import visualize_grasp_dataset
+from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief
 
@@ -266,7 +267,7 @@ def get_pf_task_performance(logger, fname):
         # IPython.embed()
 
 
-def get_pf_validation_accuracy(logger, fname, amortize):
+def get_pf_validation_accuracy(logger, fname, amortize, debug):
     accs, precisions, recalls, f1s, balanced_accs = [], [], [], [], []
     confusions = []
 
@@ -284,7 +285,29 @@ def get_pf_validation_accuracy(logger, fname, amortize):
             particles.weights/np.sum(particles.weights)
         )
         resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
-        if amortize:
+        if debug:
+            # grab object name so that pybullet can take in object
+            object_ix = logger.args.eval_object_ix
+            pb_model = PBLikelihood(val_grasp_data['object_data']['object_names'][object_ix],
+                                      n_samples=1,
+                                      batch_size=32)
+
+            # load in
+            pb_model.particle_distribution_from_graspable_vectors(resampled_parts)
+            probs = []
+            for raw_grasp in val_grasp_data['grasp_data']['raw_grasps']:
+                # construct a dummy observation to evaluate a single grasp
+                # (this is nonstandard use for get_particle_likelihoods() )
+                dummy_observation = {
+                    'grasp_data' : {
+                        'raw_grasps': [raw_grasp]
+                    }
+                }
+                preds_per_particle = pb_model.get_particle_likelihoods(pb_model.bodies_for_particles, dummy_observation)
+                probs.append(np.mean(preds_per_particle))
+
+            labels = val_grasp_data['grasp_data']['labels']
+        elif amortize:
             gnp = logger.get_neural_process(tx)
             if torch.cuda.is_available():
                 gnp = gnp.cuda()

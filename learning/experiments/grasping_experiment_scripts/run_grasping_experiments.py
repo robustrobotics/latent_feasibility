@@ -183,7 +183,7 @@ def run_fitting_phase(args):
                 'grasps', 'fitting_phase', val_dataset_fname
             )
 
-            get_pf_validation_accuracy(fit_logger, val_dataset_path, args.amortize)
+            get_pf_validation_accuracy(fit_logger, val_dataset_path, args.amortize, args.debug)
 
 
 def run_training_phase(args):

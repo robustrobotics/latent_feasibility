@@ -100,6 +100,7 @@ def run_particle_filter_fitting(args):
 
     # ----- Load the block set -----
     print('Loading objects:', args.objects_fname)
+    # adds the fit object currently being evaluated as the _last_ element to the train object set
     object_set = get_train_and_fit_objects(
         pretrained_ensemble_path=args.pretrained_ensemble_exp_path,
         use_latents=True,

@@ -5,6 +5,9 @@ from learning.domains.grasping.generate_grasp_datasets import graspablebody_from
 from pb_robot.planners.antipodalGraspPlanner import GraspSampler, GraspStabilityChecker
 
 
+# later part of the code exploits the fact that the last fit object
+# is appended to the train set to generate samples.
+# this feels a bit......... convoluted
 def get_train_and_fit_objects(pretrained_ensemble_path, use_latents, fit_objects_fname, fit_object_ix):
     train_logger = ActiveExperimentLogger(exp_path=pretrained_ensemble_path)
     with open(train_logger.args.train_dataset_fname, 'rb') as handle:
