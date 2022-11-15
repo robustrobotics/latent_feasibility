@@ -67,6 +67,8 @@ def plot_val_loss(loggers, output_path):
     plt.clf()
     fig, axes = plt.subplots(1, sharex=False, figsize=(20,10))
     val_fname = 'val_accuracies.pkl'
+    #val_fname = 'val_recalls_ 0.80.pkl'
+    val_fname = 'val_average_precisions.pkl'
     # val_fname = 'val_precisions.pkl'
     # val_fname = 'val_f1s.pkl'
     for name, group_loggers in loggers.items():
@@ -106,7 +108,7 @@ def plot_val_loss(loggers, output_path):
         #     xs = xs *3
         axes.plot(xs, median, label=name)
         axes.fill_between(xs, lower25, upper75, alpha=0.2)
-        axes.set_ylim(0.25, 1.1)
+        axes.set_ylim(0.0, 1.1)
         axes.set_ylabel('Val Accuracy')
         axes.set_xlabel('Number of adaptation towers')
         axes.legend()

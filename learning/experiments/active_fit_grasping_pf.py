@@ -147,7 +147,7 @@ def run_particle_filter_fitting(args):
             n_particles=args.n_particles,
             likelihood=likelihood_model,
             resample=False,
-            plot=True
+            plot=False
         )
     else:
         pf = GraspingDiscreteLikelihoodParticleBelief(
@@ -156,7 +156,7 @@ def run_particle_filter_fitting(args):
             N=args.n_particles,
             likelihood=likelihood_model,
             resample=False,
-            plot=True)
+            plot=False)
     if args.likelihood == 'pb':
         pf.particles = likelihood_model.init_particles(args.n_particles)
 
