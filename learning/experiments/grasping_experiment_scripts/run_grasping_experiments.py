@@ -118,7 +118,7 @@ def run_fitting_phase(args):
         # if geo_type == 'train_geo':
         #     continue
 
-        for ox in range(min(n_objects, 100)):
+        for ox in range(min(n_objects, 100)): # TODO: ask mike, why 100 here?
             # Some geometries have trouble when considering IK (e.g., always close to table).
             # TODO: Make this more modular when we use constraints again.
             # if args.constrained and geo_type == 'test_geo' and ox in [15, 16, 17, 18, 19]:
@@ -141,14 +141,14 @@ def run_fitting_phase(args):
 
             fitting_args = argparse.Namespace()
             fitting_args.exp_name = fitting_exp_name
-            fitting_args.max_acquisitions = 25
+            fitting_args.max_acquisitions = 1
             fitting_args.objects_fname = objects_fname
-            fitting_args.n_samples = 20
+            fitting_args.n_samples = 1
             fitting_args.pretrained_ensemble_exp_path = pretrained_model_path
             fitting_args.ensemble_tx = 0
             fitting_args.eval_object_ix = ox
             fitting_args.strategy = args.strategy
-            fitting_args.n_particles = 1000
+            fitting_args.n_particles = 100 # 1000
 
             if args.debug:
                 fitting_args.likelihood = 'pb'
