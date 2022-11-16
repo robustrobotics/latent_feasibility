@@ -114,17 +114,45 @@ def generate_object_grid(objects, dataset_figpath):
             mass = prop[-2]
             friction = prop[-1]
             n = name.split('::')[1].split('_')[0]
-            
+ 
             # Iterating over the grid returns the Axes.
             ax.imshow(im)
             ax.text(50, 375, f'{n}\nm={mass: .2f}\nf={friction: .2f}', bbox=dict(fill=False, edgecolor='black', linewidth=1))
             ax.get_xaxis().set_visible(False)
             ax.get_yaxis().set_visible(False)
-        
+
         fname = os.path.join(dataset_figpath, f'geom{ix}_{n}.png')
         print(fname)
         plt.savefig(fname)
-    
+
+def visualize_grasp_gnp_dataset(dataset_fname, labels=None, figpath='', prefix='', acquired=[]):
+    with open(dataset_fname, 'rb') as handle:
+        val_data = pickle.load(handle)
+    dataset_args = val_data['metadata']
+    object_names = val_data['object_data']['object_names']
+    object_properties = val_data['object_data']['object_properties']
+
+    grasp_midpoints = val_data['grasp_data']['grasp_midpoints']
+    object_ixs = sorted(list(grasp_midpoints.keys()))
+
+    if labels is None:
+        labels = val_data['grasp_data']['labels']
+
+    for ox, object_ix in enumerate(object_ixs):
+        print(object_ix)
+        graspable_body = graspablebody_from_vector(object_names[object_ix], object_properties[object_ix])
+
+        sim_client = GraspSimulationClient(graspable_body, False)
+        grasps = grasp_midpoints[object_ix][:100]
+        obj_labels = labels[ox*min(dataset_args.n_grasps_per_object, 100):(ox+1)*min(dataset_args.n_grasps_per_object, 100)]
+
+        fname = os.path.join(figpath, f'object{object_ix}_{prefix}.png')
+        if len(figpath) > 0:
+             sim_client.tm_show_grasps(grasps, obj_labels, fname=fname, acquired=acquired)
+        else:
+            sim_client.tm_show_grasps(grasps, obj_labels, acquired=acquired)
+        sim_client.disconnect()
+
 def visualize_grasp_dataset(dataset_fname, labels=None, figpath='', prefix=''):
 
     with open(dataset_fname, 'rb') as handle:
@@ -139,8 +167,6 @@ def visualize_grasp_dataset(dataset_fname, labels=None, figpath='', prefix=''):
         labels = val_data['grasp_data']['labels']
     
     for ix in range(n_objects):
-        if ix not in [2, 3, 46, 49, 51, 54, 65, 68, 83, 170, 213, 249, 256, 258, 267, 286, 287, 292, 337, 338, 351, 396, 400, 401, 415, 435, 446, 457, 496]:
-            continue
         if (ix+1)*dataset_args.n_grasps_per_object > len(labels):
             break
         

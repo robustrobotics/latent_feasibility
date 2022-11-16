@@ -4,9 +4,13 @@ import numpy as np
 import os
 import pickle
 import sys
+import torch
 
+from block_utils import ParticleDistribution
+from filter_utils import sample_particle_distribution
 from learning.active.utils import ActiveExperimentLogger
-from learning.evaluate.evaluate_grasping import get_pf_validation_accuracy, get_pf_task_performance
+from learning.domains.grasping.explore_dataset import visualize_grasp_gnp_dataset
+from learning.evaluate.evaluate_grasping import get_pf_task_performance, combine_gnp_preds, get_pf_validation_accuracy, get_gnp_predictions, get_gnp_predictions_with_particles
 from learning.evaluate.plot_compare_grasping_runs import plot_val_loss
 from learning.experiments.train_grasping_single import run as training_phase_variational
 from learning.domains.grasping.generate_datasets_for_experiment import parse_ignore_file
@@ -365,6 +369,126 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
     return valid_objects[:max_objects]
 
 
+def run_fitting_eval(args):
+    exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
+    if not os.path.exists(exp_path):
+        print(f'[ERROR] Experiment does not exist: {args.exp_name}')
+        sys.exit()
+
+    logs_path = os.path.join(exp_path, 'logs_lookup.json')
+    with open(logs_path, 'r') as handle:
+        logs_lookup = json.load(handle)
+
+    pretrained_model_path = logs_lookup['training_phase']
+    if len(pretrained_model_path) == 0:
+        print(f'[ERROR] Training phase has not yet been executed.')
+        sys.exit()
+
+    # Get train_geo_test_props.pkl and test_geo_test_props.pkl
+    args_path = os.path.join(exp_path, 'args.pkl')
+    with open(args_path, 'rb') as handle:
+        exp_args = pickle.load(handle)
+
+    _, _, n_train_geo, n_test_geo = \
+        get_fitting_phase_dataset_args(exp_args.dataset_name)
+
+    ignore_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'ignore.txt')
+    TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(ignore_fname)
+    
+    figpath = os.path.join(exp_path, 'figures', 'fitting-phase')
+    combine_gnp_preds(figpath, [0, 5, 10, 15, 20], args.strategy)
+    sys.exit()
+    # Run fitting phase for all objects that have not yet been fitted
+    # (each has a standard name in the experiment logs).
+    for geo_type, n_objects, ignore in zip(
+        ['train_geo', 'test_geo'],
+        [n_train_geo, n_test_geo],
+        [TRAIN_IGNORE, TEST_IGNORE]
+    ):
+        for ox in range(0, min(n_objects, 100), 5):
+            if ox in ignore: continue
+            mode = f'{args.strategy}'
+            fitting_exp_name = f'grasp_{exp_args.exp_name}_fit_{mode}_{geo_type}_object{ox}'
+            fit_log_path = logs_lookup['fitting_phase'][mode][fitting_exp_name]
+
+            print(f'Evaluating fitting phase: {fitting_exp_name}')
+            fit_logger = ActiveExperimentLogger(fit_log_path, use_latents=True)
+            val_dataset_fname = f'fit_grasps_{geo_type}_object{ox}.pkl'
+            val_dataset_path = os.path.join(
+                DATA_ROOT, exp_args.dataset_name,
+                'grasps', 'fitting_phase', val_dataset_fname
+            )
+
+            with open(val_dataset_path, 'rb') as handle:
+                val_data = pickle.load(handle)
+
+            gnp = fit_logger.get_neural_process(tx=0)
+            particles = fit_logger.load_particles(24)
+            sampling_dist = ParticleDistribution(
+                particles.particles,
+                particles.weights/np.sum(particles.weights)
+            )
+            resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
+            if torch.cuda.is_available():
+                gnp.cuda()
+            preds, targets = get_gnp_predictions_with_particles(
+                resampled_parts, val_data, gnp, n_particle_samples=32
+            )
+            acquisition_midpoints = []
+            for tx in range(1, 25):
+                data = fit_logger.load_acquisition_data(tx)[0]
+                grasp = data['grasp_data']['raw_grasps'][0]
+                midpoint = (grasp.pb_point1 + grasp.pb_point2)/2.0
+                acquisition_midpoints.append(midpoint)
+
+            preds = (preds > 0.5).float()
+            figpath = os.path.join(exp_path, 'figures', 'fitting-phase')
+            visualize_grasp_gnp_dataset(val_dataset_path, targets==preds, figpath=figpath, prefix=f'_{mode}_errors', acquired=acquisition_midpoints)
+            visualize_grasp_gnp_dataset(val_dataset_path, targets, figpath=figpath, prefix=f'_{mode}_targets')
+            visualize_grasp_gnp_dataset(val_dataset_path, preds, figpath=figpath, prefix=f'_{mode}_preds')
+
+    
+
+def run_training_eval(args):
+    print('HERE')
+    exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
+    if not os.path.exists(exp_path):
+        print(f'[ERROR] Experiment does not exist: {args.exp_name}')
+        sys.exit()
+    
+    args_path = os.path.join(exp_path, 'args.pkl')
+    with open(args_path, 'rb') as handle:
+        exp_args = pickle.load(handle)
+
+    logs_path = os.path.join(exp_path, 'logs_lookup.json')
+    with open(logs_path, 'r') as handle:
+        logs_lookup = json.load(handle)
+
+    pretrained_model_path = logs_lookup['training_phase']
+    if len(pretrained_model_path) == 0:
+        print(f'[ERROR] Training phase has not yet been executed.')
+        sys.exit()
+
+    train_data_fname, val_data_fname, n_objs = \
+        get_training_phase_dataset_args(exp_args.dataset_name)
+    with open(train_data_fname, 'rb') as handle:
+        train_data = pickle.load(handle)
+    with open(val_data_fname, 'rb') as handle:
+        val_data = pickle.load(handle)
+
+    train_logger = ActiveExperimentLogger(
+        exp_path=pretrained_model_path,
+        use_latents=False
+    )
+    gnp = train_logger.get_neural_process(tx=0)
+    if torch.cuda.is_available():
+        gnp.cuda()
+    preds, targets = get_gnp_predictions(train_data, val_data, gnp)
+    preds = (preds > 0.5).float()
+    figpath = os.path.join(exp_path, 'figures', 'train-phase')
+    visualize_grasp_gnp_dataset(val_data_fname, targets==preds, figpath=figpath)
+
+
 def run_testing_phase(args):
     # Create log_group files.
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
@@ -543,7 +667,7 @@ def run_testing_phase(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--phase', required=True, choices=['create', 'training', 'fitting', 'testing', 'task-eval'])
+    parser.add_argument('--phase', required=True, choices=['create', 'training', 'fitting', 'testing', 'training-eval', 'fitting-eval', 'task-eval'])
     parser.add_argument('--dataset-name', type=str, default='')
     parser.add_argument('--exp-name', required=True, type=str)
     parser.add_argument('--strategy', type=str, choices=['bald', 'random'], default='random')
@@ -561,3 +685,7 @@ if __name__ == '__main__':
         run_testing_phase(args)
     elif args.phase == 'task-eval':
         run_task_eval_phase(args)
+    elif args.phase == 'training-eval':
+        run_training_eval(args)
+    elif args.phase == 'fitting-eval':
+        run_fitting_eval(args)

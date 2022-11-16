@@ -45,7 +45,7 @@ def get_labels_predictions(logger, val_dataset_fname):
             probs = model.forward(x[:, :-5, :], object_ids).squeeze().cpu()
 
         preds = (probs > 0.5).float()
-        
+
         wrong = (preds != y)
         print('Wrong Probabilities:', probs[wrong])
         predictions.append(preds)
@@ -87,6 +87,34 @@ def visualize_predictions(logger, val_dataset_fname):
     visualize_grasp_dataset(val_dataset_fname, labels=predictions==labels, figpath=figure_path, prefix='correct_')
     visualize_grasp_dataset(val_dataset_fname, labels=labels, figpath=figure_path, prefix='labels_')
     visualize_grasp_dataset(val_dataset_fname, labels=predictions, figpath=figure_path, prefix='predictions_')
+
+def combine_gnp_preds(image_root, object_ids, strategy):
+    images = []
+    for ox in object_ids:
+        fname = os.path.join(
+            f'{image_root}/object{ox}__{strategy}_targets_x.png'
+        )
+        images.append(plt.imread(fname))
+        fname = os.path.join(
+            f'{image_root}/object{ox}__{strategy}_errors_x.png'
+        )
+        images.append(plt.imread(fname))
+        fname = os.path.join(
+            f'{image_root}/object{ox}__{strategy}_preds_x.png'
+        )
+        images.append(plt.imread(fname))
+
+    fig = plt.figure(figsize=(15,5))
+    grid = ImageGrid(fig, 111, nrows_ncols=(len(object_ids), 3))
+
+    for ax, im in zip(grid, images):
+        print(im.shape)
+        im = im[200:, 500:, :]
+        im = im[:-200, :-500, :]
+        ax.imshow(im)
+        ax.axis('off')
+
+    plt.savefig(os.path.join(image_root, f'combined_{strategy}.png'), bbox_inches='tight', dpi=500)
 
 def combine_image_grids(logger, prefixes):
     for ix in range(0, 50):
@@ -154,6 +182,42 @@ def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_s
             labels.append(y)
             # if (len(preds)*16) > 200: break
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
+
+
+def get_gnp_predictions(train_data, val_data, gnp):
+    val_dataset_eval = CustomGNPGraspDataset(data=val_data, context_data=train_data)
+    val_dataloader = DataLoader(
+        dataset=val_dataset_eval,
+        collate_fn=custom_collate_fn,
+        batch_size=16,
+        shuffle=False
+    )
+    gnp.eval()
+    val_probs, val_targets = [], []
+    with torch.no_grad():
+        for _, (context_data, target_data, meshes) in enumerate(val_dataloader):
+            c_grasp_geoms, c_midpoints, c_labels = context_data
+            t_grasp_geoms, t_midpoints, t_labels = target_data
+            if torch.cuda.is_available():
+                c_grasp_geoms, c_midpoints, c_labels = (
+                    c_grasp_geoms.cuda(), c_midpoints.cuda(), c_labels.cuda()
+                )
+                t_grasp_geoms, t_midpoints, t_labels = (
+                    t_grasp_geoms.cuda(), t_midpoints.cuda(), t_labels.cuda()
+                )
+                meshes = meshes.cuda()
+            y_probs, q_z = gnp.forward(
+                (c_grasp_geoms, c_midpoints, c_labels),
+                (t_grasp_geoms, t_midpoints),
+                meshes
+            )
+            y_probs = y_probs.squeeze()
+
+            val_probs.append(y_probs.flatten())
+            val_targets.append(t_labels.flatten())
+
+    return torch.cat(val_probs, dim=0).cpu(), torch.cat(val_targets, dim=0).cpu()
+
 
 def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_samples=10):
     preds, labels = [], []
@@ -470,10 +534,12 @@ def visualize_gnp_predictions():
         else:
             print(f'----- Object {ox}: {acc} True {targets[ox].mean()}')
 
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--exp-path', type=str, required=True)
-    parser.add_argument('--val-dataset-fname', type=str, required=True)
+    parser.add_argument('--exp-name', type=str, required=True)
+    # parser.add_argument('--val-dataset-fname', type=str, required=True)
     args = parser.parse_args()
 
     #logger = ActiveExperimentLogger(args.exp_path, use_latents=True)
@@ -485,5 +551,4 @@ if __name__ == '__main__':
     visualize_gnp_predictions()
     #get_acquired_preditctions_pf(logger)
     #plot_training_latents(logger)
-
     #get_pf_validation_accuracy(logger, args.val_dataset_fname)
