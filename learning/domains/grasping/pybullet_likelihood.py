@@ -6,7 +6,8 @@ import multiprocessing
 from block_utils import ParticleDistribution
 from learning.domains.grasping.active_utils import sample_unlabeled_data
 from learning.domains.grasping.generate_grasp_datasets import vector_from_graspablebody, graspablebody_from_vector
-from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspableBodySampler, GraspStabilityChecker
+from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspableBodySampler, GraspStabilityChecker, \
+    GraspSimulationClient
 
 
 # this is a helper function to verify grasp stability from a single pybullet instance
@@ -44,7 +45,13 @@ class PBLikelihood:
     def particle_distribution_from_graspable_vectors(self, graspable_vectors):
         graspable_bodies = []
         for gsp_vect in graspable_vectors:
-           graspable_bodies.append(graspablebody_from_vector(self.object_name, gsp_vect))
+            body = graspablebody_from_vector(self.object_name, gsp_vect)
+
+            # create a simulation client to create a temporary urdf with given particle properties
+            client = GraspSimulationClient(body, False, recompute_inertia=True)
+            client.disconnect()
+
+            graspable_bodies.append(body)
         self.bodies_for_particles = graspable_bodies
         return ParticleDistribution(np.array(graspable_vectors), np.ones(len(graspable_vectors)))
 
@@ -58,17 +65,17 @@ class PBLikelihood:
         tgrasp = observation['grasp_data']['raw_grasps'][0]
 
         labels = []
-        n_batches =int(np.ceil(len(particles)/self.batch_size))
+        n_batches = int(np.ceil(len(particles) / self.batch_size))
         for bx in range(n_batches):
-            bodies = self.bodies_for_particles[bx*self.batch_size:(bx+1)*self.batch_size]
+            bodies = self.bodies_for_particles[bx * self.batch_size:(bx + 1) * self.batch_size]
             grasps = []
             for body in bodies:
-                g = Grasp(body, tgrasp.pb_point1, tgrasp.pb_point2, tgrasp.pitch, tgrasp.roll, tgrasp.ee_relpose, tgrasp.force)
+                g = Grasp(body, tgrasp.pb_point1, tgrasp.pb_point2, tgrasp.pitch, tgrasp.roll, tgrasp.ee_relpose,
+                          tgrasp.force)
                 grasps.append(g)
 
             batch_labels = []
             for sx in range(self.n_samples):
-
                 # parallelizing labeling process for all grasps for one object
                 object_labels = worker_pool.starmap(get_label, zip(bodies, grasps))
                 batch_labels.append(object_labels)
