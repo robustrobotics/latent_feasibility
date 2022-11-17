@@ -306,7 +306,8 @@ def get_pf_validation_accuracy(logger, fname, amortize, debug):
                 preds_per_particle = pb_model.get_particle_likelihoods(pb_model.bodies_for_particles, dummy_observation)
                 probs.append(np.mean(preds_per_particle))
 
-            labels = val_grasp_data['grasp_data']['labels']
+            probs = torch.as_tensor(probs).cpu()
+            labels = torch.as_tensor(val_grasp_data['grasp_data']['labels'])
         elif amortize:
             gnp = logger.get_neural_process(tx)
             if torch.cuda.is_available():
