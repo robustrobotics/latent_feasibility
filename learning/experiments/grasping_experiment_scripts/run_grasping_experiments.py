@@ -118,7 +118,7 @@ def run_fitting_phase(args):
         # if geo_type == 'train_geo':
         #     continue
 
-        for ox in range(min(n_objects, 100)): # TODO: ask mike, why 100 here?
+        for ox in range(min(n_objects, 10)):  # 100 (just to sanity check the results)
             # Some geometries have trouble when considering IK (e.g., always close to table).
             # TODO: Make this more modular when we use constraints again.
             # if args.constrained and geo_type == 'test_geo' and ox in [15, 16, 17, 18, 19]:
