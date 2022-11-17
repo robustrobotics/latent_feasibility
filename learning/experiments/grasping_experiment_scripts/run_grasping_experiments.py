@@ -9,6 +9,7 @@ from learning.active.utils import ActiveExperimentLogger
 from learning.evaluate.evaluate_grasping import get_pf_validation_accuracy
 from learning.evaluate.plot_compare_grasping_runs import plot_val_loss
 from learning.experiments.train_grasping_single import run as training_phase_variational
+from learning.domains.grasping.generate_datasets_for_experiment import parse_ignore_file
 from learning.models.grasp_np.train_grasp_np import run as training_phase_amortized
 from learning.experiments.active_fit_grasping_pf import run_particle_filter_fitting as fitting_phase
 from learning.experiments.active_fit_constrained_grasping_pf import \
@@ -107,12 +108,16 @@ def run_fitting_phase(args):
     train_geo_fname, test_geo_fname, n_train_geo, n_test_geo = \
         get_fitting_phase_dataset_args(exp_args.dataset_name)
 
+    ignore_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'ignore.txt')
+    TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(ignore_fname)
+
     # Run fitting phase for all objects that have not yet been fitted
     # (each has a standard name in the experiment logs).
-    for geo_type, objects_fname, n_objects in zip(
+    for geo_type, objects_fname, n_objects, ignore in zip(
         ['train_geo', 'test_geo'],
         [train_geo_fname, test_geo_fname],
-        [n_train_geo, n_test_geo]
+        [n_train_geo, n_test_geo],
+        [TRAIN_IGNORE, TEST_IGNORE]
     ):
         # Uncomment to temporarily skip train_geo.
         # if geo_type == 'train_geo':
@@ -125,6 +130,8 @@ def run_fitting_phase(args):
             #     continue
             # if args.constrained and geo_type == 'train_geo' and (ox >= 85 and ox < 90):
             #     continue
+
+
             if args.constrained:
                 mode = f'constrained_{args.strategy}'
             else:
@@ -211,7 +218,7 @@ def run_training_phase(args):
         training_args.exp_name = f'grasp_{exp_args.exp_name}_train'
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
-        training_args.n_epochs = 20
+        training_args.n_epochs = 200
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 32
         training_args.use_latents = False # NOTE: this is a workaround for pointnet + latents,
@@ -257,6 +264,9 @@ def run_testing_phase(args):
     with open(args_path, 'rb') as handle:
         exp_args = pickle.load(handle)
 
+    ignore_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'ignore.txt')
+    TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(ignore_fname)
+
     # Get object data.
     train_objects_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'objects', 'train_geo_test_props.pkl')
     with open(train_objects_fname, 'rb') as handle:
@@ -292,28 +302,29 @@ def run_testing_phase(args):
     }
 
     n_found = 0
-    p_stable_low, p_stable_high = 0.2, 0.8
+    p_stable_low, p_stable_high = 0.05, 1.0
     print('train_objects_fname', train_objects_fname)
     for ox, object_name in enumerate(train_objects['object_data']['object_names']):
-        import IPython; IPython.embed()
+        #import IPython; IPython.embed()
         # break
         if ox > 99:
             break
+        if ox in TRAIN_IGNORE: continue
         # TO REMOVE. (2 lines)
         val_dataset_fname = f'fit_grasps_train_geo_object{ox}.pkl'
         # if not os.path.exists(val_dataset_fname):
         #    print('Skipping')
         #    break
 
-        p_stable = 1
-        # val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
-        # with open(val_dataset_path, 'rb') as handle:
-        #     data = pickle.load(handle)
-        #     p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-        #     if p_stable < p_stable_low or p_stable > p_stable_high:
-        #         continue
-        #     n_found += 1
-        n_found += 1
+        #p_stable = 1
+        val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
+        with open(val_dataset_path, 'rb') as handle:
+            data = pickle.load(handle)
+            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+            if p_stable < p_stable_low or p_stable > p_stable_high:
+                continue
+            n_found += 1
+        #n_found += 1
 
         print(f'{object_name} in range ({p_stable_low}, {p_stable_high}) ({p_stable})')
 
@@ -353,19 +364,19 @@ def run_testing_phase(args):
     for ox, object_name in enumerate(test_objects['object_data']['object_names']):
         if ox > 99: 
             break
+        if ox in TEST_IGNORE: continue
+        #p_stable = 1
+        val_dataset_fname = f'fit_grasps_test_geo_object{ox}.pkl'
+        val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
 
-        p_stable = 1
-        # val_dataset_fname = f'fit_grasps_test_geo_object{ox}.pkl'
-        # val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
-
-        # with open(val_dataset_path, 'rb') as handle:
-        #     data = pickle.load(handle)
-        #     # p_stable = np.mean(data['grasp_data']['labels'])
-        #     p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-        #     if p_stable < p_stable_low or p_stable > p_stable_high:
-        #         continue
-        #     n_found += 1
-        n_found += 1
+        with open(val_dataset_path, 'rb') as handle:
+            data = pickle.load(handle)
+            # p_stable = np.mean(data['grasp_data']['labels'])
+            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+            if p_stable < p_stable_low or p_stable > p_stable_high:
+                continue
+            n_found += 1
+        #n_found += 1
 
         if object_name not in logs_lookup_by_object['test_geo']['random']:
             logs_lookup_by_object['test_geo']['random'][object_name] = []

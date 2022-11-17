@@ -116,8 +116,8 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         # Assemble dataset.
         new_geometries_dict[object_id].append(points)
         new_midpoints_dict[object_id].append(midpoint)
-        new_labels_dict[object_id].append(label)  
-        new_meshes_dict[object_id].append(all_points_per_objects[object_id][:512,:])      
+        new_labels_dict[object_id].append(label)
+        new_meshes_dict[object_id].append(all_points_per_objects[object_id][:512,:])
 
     dataset = {
         'grasp_data': {

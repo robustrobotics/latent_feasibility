@@ -2,10 +2,15 @@ import argparse
 import copy
 import os
 
+import multiprocessing as  mp
 import numpy as np
 
 from pybullet_object_models import ycb_objects
-from xml.etree.ElementInclude import include
+
+from pb_robot.planners.antipodalGraspPlanner import (
+    GraspSimulationClient,
+    graspablebody_from_vector
+)
 
 IGNORE_MODELS = [
     'YCB::YcbMasterChefCan',
@@ -82,6 +87,33 @@ def select_objects(ycb_object_names, sn_object_names, pm_object_names, datasets,
 
     return chosen_objects
 
+def get_object_volume(object_name):
+    body = graspablebody_from_vector(
+        object_name=object_name,
+        vector=[0., 0., 0., 0.5, 0.5]
+    )
+    client = GraspSimulationClient(
+        graspable_body=body,
+        show_pybullet=False
+    )
+    volume = client.mesh.volume
+    client.disconnect()
+    return volume
+
+
+def filter_by_volume(object_list, min_volume=0.001, max_volume=0.008, n_processes=1):   
+    worker_pool = mp.Pool(processes=n_processes)
+    volumes = worker_pool.map(get_object_volume, object_list)
+    worker_pool.close()
+
+    new_objects = []
+    for name, vol in zip(object_list, volumes):
+        if vol > min_volume and vol < max_volume:
+            new_objects.append(name)
+            if vol < 0.0015 or vol > 0.0075:
+                print(vol, name)
+    return new_objects
+
 
 OBJECTS_LIST_DIR = 'learning/data/grasping/object_lists'
 if __name__ == '__main__':
@@ -95,6 +127,7 @@ if __name__ == '__main__':
     parser.add_argument('--test-objects-datasets', nargs='+', required=True)
     parser.add_argument('--n-train', type=int, required=True)
     parser.add_argument('--n-test', type=int, required=True)
+    parser.add_argument('--n-processes', type=int, default=1)
     args = parser.parse_args()
     print(args)
 
@@ -104,6 +137,10 @@ if __name__ == '__main__':
     all_ycb_objects = get_ycb_models()
 
     all_shapenet_objects = get_shapenet_models(os.path.join(shapenet_root, 'urdfs'))
+    if 'ShapeNet' in args.train_objects_datasets + args.test_objects_datasets:
+        print(f'Before length: {len(all_shapenet_objects)}')
+        all_shapenet_objects = filter_by_volume(all_shapenet_objects, n_processes=args.n_processes)
+        print(f'After length: {len(all_shapenet_objects)}')
 
     # then use train_object_datasets and then lookup with try except and then just inform
     # user if the set name passed as an argument does not exist

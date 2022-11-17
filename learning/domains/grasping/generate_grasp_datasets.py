@@ -1,5 +1,6 @@
 import argparse
 import pickle
+import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,10 +39,14 @@ def sample_grasp_X(graspable_body, property_vector, n_points_per_object, grasp=N
 
     # Sample grasp.
     if grasp is None:
-        grasp_sampler = GraspSampler(graspable_body=graspable_body,
-                                     antipodal_tolerance=30,
-                                     show_pybullet=False)
-        grasp = grasp_sampler.sample_grasp(force=20, show_trimesh=False)
+        try:
+            grasp_sampler = GraspSampler(graspable_body=graspable_body,
+                                        antipodal_tolerance=30,
+                                        show_pybullet=False)
+            grasp = grasp_sampler.sample_grasp(force=20, show_trimesh=False)
+        except Exception as e:
+            grasp_sampler.disconnect()
+            raise e
         grasp_sampler.disconnect()
 
     # Encode grasp as points.
@@ -98,7 +103,8 @@ def generate_datasets(dataset_args):
                                         stability_direction='all',
                                         label_type='relpose',
                                         grasp_noise=dataset_args.grasp_noise,
-                                        show_pybullet=False)
+                                        show_pybullet=False,
+                                        recompute_inertia=True)
         print('PBID:', labeler.sim_client.pb_client_id)
         for grasp_ix in range(0, dataset_args.n_grasps_per_object):
             print('Grasp %d/%d...' % (grasp_ix, dataset_args.n_grasps_per_object))
@@ -106,7 +112,6 @@ def generate_datasets(dataset_args):
             grasp, X = sample_grasp_X(graspable_body,
                                       property_vector,
                                       dataset_args.n_points_per_object)
-
             # Get label.
             label = labeler.get_label(grasp)
 

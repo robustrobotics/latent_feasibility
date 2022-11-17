@@ -149,7 +149,7 @@ def run_particle_filter_fitting(args):
             n_particles=args.n_particles,
             likelihood=likelihood_model,
             resample=False,
-            plot=True
+            plot=False
         )
     elif args.likelihood == 'nn':
         pf = GraspingDiscreteLikelihoodParticleBelief(
