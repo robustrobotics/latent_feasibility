@@ -148,7 +148,7 @@ def run_fitting_phase(args):
 
             fitting_args = argparse.Namespace()
             fitting_args.exp_name = fitting_exp_name
-            fitting_args.max_acquisitions = 1
+            fitting_args.max_acquisitions = 25
             fitting_args.objects_fname = objects_fname
             fitting_args.n_samples = 1
             fitting_args.pretrained_ensemble_exp_path = pretrained_model_path
@@ -316,14 +316,15 @@ def run_testing_phase(args):
         #    print('Skipping')
         #    break
 
-        #p_stable = 1
-        val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
-        with open(val_dataset_path, 'rb') as handle:
-            data = pickle.load(handle)
-            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-            if p_stable < p_stable_low or p_stable > p_stable_high:
-                continue
-            n_found += 1
+        # TODO: this should not be run when running --debug (pb eval)
+        p_stable = 1
+        # val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
+        # with open(val_dataset_path, 'rb') as handle:
+        #     data = pickle.load(handle)
+        #     p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+        #     if p_stable < p_stable_low or p_stable > p_stable_high:
+        #         continue
+        #     n_found += 1
         #n_found += 1
 
         print(f'{object_name} in range ({p_stable_low}, {p_stable_high}) ({p_stable})')
@@ -369,13 +370,13 @@ def run_testing_phase(args):
         val_dataset_fname = f'fit_grasps_test_geo_object{ox}.pkl'
         val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
 
-        with open(val_dataset_path, 'rb') as handle:
-            data = pickle.load(handle)
-            # p_stable = np.mean(data['grasp_data']['labels'])
-            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-            if p_stable < p_stable_low or p_stable > p_stable_high:
-                continue
-            n_found += 1
+        # with open(val_dataset_path, 'rb') as handle:
+        #     data = pickle.load(handle)
+        #     # p_stable = np.mean(data['grasp_data']['labels'])
+        #     p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+        #     if p_stable < p_stable_low or p_stable > p_stable_high:
+        #         continue
+        #     n_found += 1
         #n_found += 1
 
         if object_name not in logs_lookup_by_object['test_geo']['random']:

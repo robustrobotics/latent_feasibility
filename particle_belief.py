@@ -5,6 +5,7 @@ Izzy Brand
 """
 import argparse
 from learning.domains.grasping.grasp_data import GraspDataset, GraspParallelDataLoader
+from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.domains.towers.tower_data import ParallelDataLoader, TowerDataset
 import matplotlib.pyplot as plt
 import numpy as np
@@ -459,8 +460,14 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
             likelihoods = np.zeros((N,2))
             # Compute likelihood of particles over history so far.
             n_correct = np.zeros((N, 2))
+            # set the particles for get_particle_likelihoods
             for observation in experience:
+                if isinstance(self.likelihood, PBLikelihood):
+                    self.likelihood.particle_distribution_from_graspable_vectors(particles)
                 bern_probs_particles = self.get_particle_likelihoods(particles, observation)
+
+                if isinstance(self.likelihood, PBLikelihood):
+                    self.likelihood.particle_distribution_from_graspable_vectors(particles)
                 bern_probs_proposed = self.get_particle_likelihoods(proposed_particles, observation)
                 
                 label = observation['grasp_data']['labels'][0]
@@ -501,6 +508,11 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
             particles = proposed_particles
 
         weights = np.ones(N)/float(N) # weights become uniform again
+
+        # update particles in pb likelihood to the ones we found
+        if isinstance(self.likelihood, PBLikelihood):
+            self.likelihood.particle_distribution_from_graspable_vectors(particles)
+
         return ParticleDistribution(particles, weights)
 
     def get_particle_likelihoods(self, particles, observation):
