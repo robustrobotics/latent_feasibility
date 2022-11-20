@@ -82,6 +82,9 @@ class PBLikelihood:
 
             batch_labels = np.array(batch_labels).mean(axis=0).tolist()
             labels += batch_labels
+
+        # gracefully close the pool to free up threads to prevent system lockup
+        worker_pool.close()
         return np.array(labels)
 
 
