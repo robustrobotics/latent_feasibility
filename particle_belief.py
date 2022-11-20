@@ -464,12 +464,16 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
             for observation in experience:
                 if isinstance(self.likelihood, PBLikelihood):
                     self.likelihood.particle_distribution_from_graspable_vectors(particles)
-                bern_probs_particles = self.get_particle_likelihoods(particles, observation)
+                    bern_probs_particles = self.likelihood.get_particle_likelihoods(particles, observation)
+                else:
+                    bern_probs_particles = self.get_particle_likelihoods(particles, observation)
 
                 if isinstance(self.likelihood, PBLikelihood):
                     self.likelihood.particle_distribution_from_graspable_vectors(particles)
-                bern_probs_proposed = self.get_particle_likelihoods(proposed_particles, observation)
-                
+                    bern_probs_proposed = self.likelihood.get_particle_likelihoods(particles, observation)
+                else:
+                    bern_probs_proposed = self.get_particle_likelihoods(particles, observation)
+
                 label = observation['grasp_data']['labels'][0]
                 for ix in range(N):
                     #print(bern_probs_particles[ix], bern_probs_particles[ix] > 0.5, label, bern_probs_particles[ix] > 0.5 == label)
