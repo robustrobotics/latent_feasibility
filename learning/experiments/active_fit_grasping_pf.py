@@ -165,7 +165,7 @@ def run_particle_filter_fitting(args):
             d_latents=d_latents,
             n_particles=args.n_particles,
             likelihood=likelihood_model,
-            resample=True,
+            resample=False,
             plot=False
         )
         pf.particles = likelihood_model.init_particles(args.n_particles)

@@ -150,12 +150,12 @@ def run_fitting_phase(args):
             fitting_args.exp_name = fitting_exp_name
             fitting_args.max_acquisitions = 10
             fitting_args.objects_fname = objects_fname
-            fitting_args.n_samples = 3
+            fitting_args.n_samples = 1
             fitting_args.pretrained_ensemble_exp_path = pretrained_model_path
             fitting_args.ensemble_tx = 0
             fitting_args.eval_object_ix = ox
             fitting_args.strategy = args.strategy
-            fitting_args.n_particles = 100 # 1000
+            fitting_args.n_particles =  1000
 
             if args.debug:
                 fitting_args.likelihood = 'pb'
@@ -302,7 +302,7 @@ def run_testing_phase(args):
     }
 
     n_found = 0
-    p_stable_low, p_stable_high = 0.05, 1.0
+    p_stable_low, p_stable_high = 0.05, 0.5
     print('train_objects_fname', train_objects_fname)
     for ox, object_name in enumerate(train_objects['object_data']['object_names']):
         #import IPython; IPython.embed()
@@ -318,14 +318,14 @@ def run_testing_phase(args):
 
         # TODO: this should not be run when running --debug (pb eval)
         p_stable = 1
-        # val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
-        # with open(val_dataset_path, 'rb') as handle:
-        #     data = pickle.load(handle)
-        #     p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-        #     if p_stable < p_stable_low or p_stable > p_stable_high:
-        #         continue
-        #     n_found += 1
-        #n_found += 1
+        val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
+        with open(val_dataset_path, 'rb') as handle:
+            data = pickle.load(handle)
+            p_stable = np.mean(list(data['grasp_data']['labels']))
+            if p_stable < p_stable_low or p_stable > p_stable_high:
+                continue
+            n_found += 1
+        n_found += 1
 
         print(f'{object_name} in range ({p_stable_low}, {p_stable_high}) ({p_stable})')
 

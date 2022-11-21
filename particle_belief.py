@@ -574,7 +574,11 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         new_weights = []
         for pi, (bern_prob, old_weight) in enumerate(zip(bernoulli_probs, self.particles.weights)):
             # print(pi, bern_prob, old_weight)
-            obs_model = bern_prob*label + (1-bern_prob)*(1-label)
+            if isinstance(self.likelihood, nn.Module):
+                obs_model = bern_prob * label + (1 - bern_prob) * (1 - label)
+            else:
+                obs_model = (bern_prob == label) * 0.95 + (bern_prob != label) * 0.05
+            # obs_model = bern_prob*label + (1-bern_prob)*(1-label)
             new_weight = old_weight*obs_model
             new_weights.append(new_weight)
 
