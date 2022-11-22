@@ -83,7 +83,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
 
         # Update the particle belief.
         particles, means = pf.update(grasp_dataset)
-        mse = mean_squared_error(pf.object_properties.reshape(1, -1), means[0].reshape(1, -1), multioutput='raw_values')
+        mse = mean_squared_error(pf.object_properties.reshape(1, -1), means[-1].reshape(1, -1), multioutput='raw_values')
 
         print('[ParticleFilter] Particle Statistics')
         print(f'Min Weight: {np.min(pf.particles.weights)}')
