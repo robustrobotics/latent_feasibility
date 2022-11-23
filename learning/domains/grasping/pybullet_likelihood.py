@@ -12,11 +12,14 @@ from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspableBodySampler,
 
 # this is a helper function to verify grasp stability from a single pybullet instance
 # (and will be parallelized)
-def get_label(body, cand_grasp):
-    labeler = GraspStabilityChecker(body, grasp_noise=0.0025, recompute_inertia=True)
-    label = labeler.get_label(cand_grasp)
-    labeler.disconnect()
-    return label
+def get_label(body, cand_grasp, weight):
+    if weight < 1e-15:
+        return False
+    else:
+        labeler = GraspStabilityChecker(body, grasp_noise=0.0, recompute_inertia=True)
+        label = labeler.get_label(cand_grasp)
+        labeler.disconnect()
+        return label
 
 
 class PBLikelihood:
@@ -24,7 +27,7 @@ class PBLikelihood:
     def __init__(self, object_name, n_samples, batch_size, n_processes=20):
         self.object_name = object_name
         self.n_samples = n_samples
-        self.batch_size = batch_size
+        self.batch_size = 1000
         self.bodies_for_particles = None
         self.n_processes = n_processes
 
@@ -42,22 +45,23 @@ class PBLikelihood:
         particle_dist = ParticleDistribution(np.array(graspable_vectors), np.ones(len(graspable_vectors)))
         return particle_dist
 
-    def particle_distribution_from_graspable_vectors(self, graspable_vectors):
+    def particle_distribution_from_graspable_vectors(self, graspable_vectors, reinit=True):
         graspable_bodies = []
         for gsp_vect in graspable_vectors:
             body = graspablebody_from_vector(self.object_name, gsp_vect)
 
             # create a simulation client to create a temporary urdf with given particle properties
-            client = GraspSimulationClient(body, False, recompute_inertia=True)
-            client.disconnect()
+            if reinit:
+                client = GraspSimulationClient(body, False, recompute_inertia=True)
+                client.disconnect()
 
             graspable_bodies.append(body)
         self.bodies_for_particles = graspable_bodies
         return ParticleDistribution(np.array(graspable_vectors), np.ones(len(graspable_vectors)))
 
-    def get_particle_likelihoods(self, particles, observation):
+    def get_particle_likelihoods(self, particles, observation, weights=None):
         worker_pool = multiprocessing.Pool(self.n_processes, maxtasksperchild=1)
-
+        
         if self.bodies_for_particles is None:
             print('[ERROR] Need to initialize particles first.')
             return
@@ -66,8 +70,12 @@ class PBLikelihood:
 
         labels = []
         n_batches = int(np.ceil(len(particles) / self.batch_size))
-        for bx in range(n_batches):
+        for bx in range(n_batches): 
             bodies = self.bodies_for_particles[bx * self.batch_size:(bx + 1) * self.batch_size]
+            if weights is not None:
+                pweights = weights[bx*self.batch_size:(bx+1)*self.batch_size]
+            else:
+                pweights = [1.]*len(bodies)
             grasps = []
             for body in bodies:
                 g = Grasp(body, tgrasp.pb_point1, tgrasp.pb_point2, tgrasp.pitch, tgrasp.roll, tgrasp.ee_relpose,
@@ -77,7 +85,7 @@ class PBLikelihood:
             batch_labels = []
             for sx in range(self.n_samples):
                 # parallelizing labeling process for all grasps for one object
-                object_labels = worker_pool.starmap(get_label, zip(bodies, grasps))
+                object_labels = worker_pool.starmap(get_label, zip(bodies, grasps, pweights))
                 batch_labels.append(object_labels)
 
             batch_labels = np.array(batch_labels).mean(axis=0).tolist()

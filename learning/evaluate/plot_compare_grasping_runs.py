@@ -102,15 +102,15 @@ def plot_val_loss(loggers, output_path):
             lower25.append(np.quantile(all_accs[tx], 0.25))
             upper75.append(np.quantile(all_accs[tx], 0.75))
 
-        xs = np.arange(init, init+len(median), n_acquire)
+        xs = np.arange(init, init+len(median), n_acquire)*5
         # if 'ensemble' in name:
         #     print(name)
         #     xs = xs *3
         axes.plot(xs, median, label=name)
         axes.fill_between(xs, lower25, upper75, alpha=0.2)
         axes.set_ylim(0.0, 1.1)
-        axes.set_ylabel('Val Accuracy')
-        axes.set_xlabel('Number of adaptation towers')
+        axes.set_ylabel(val_fname.split('.pkl')[0].replace('_', ' ').capitalize())
+        axes.set_xlabel('Number of adaptation grasps')
         axes.legend()
     # plt_fname = 'validation_accuracy.png'
     plt.savefig(output_path)

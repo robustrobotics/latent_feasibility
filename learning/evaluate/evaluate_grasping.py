@@ -283,7 +283,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, debug):
     with open(fname, 'rb') as handle:
         val_grasp_data = pickle.load(handle)
 
-    eval_range = range(0, logger.args.max_acquisitions, 1)
+    eval_range = range(0, logger.args.max_acquisitions, 5)
     for tx in eval_range:
         print('Eval timestep, ', tx)
         particles = logger.load_particles(tx)
@@ -293,7 +293,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, debug):
             particles.particles,
             particles.weights / np.sum(particles.weights)
         )
-        resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
+        resampled_parts = sample_particle_distribution(sampling_dist, num_samples=16)
         if debug:
             # grab object name so that pybullet can take in object
             object_ix = logger.args.eval_object_ix
@@ -302,7 +302,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, debug):
                                     batch_size=32)
 
             # load in
-            pb_model.particle_distribution_from_graspable_vectors(resampled_parts)
+            pb_model.particle_distribution_from_graspable_vectors(resampled_parts, reinit=False)
             probs = []
             for raw_grasp in val_grasp_data['grasp_data']['raw_grasps'][:100]:  # NOTE: can truncate here
                 # construct a dummy observation to evaluate a single grasp
@@ -356,7 +356,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, debug):
         f1 = f1_score(labels, preds)
         b_acc = balanced_accuracy_score(labels, preds)
 
-        print(f'Acc: {acc}\tBalanced Acc: {b_acc}\tPrecision: {prec}\tRecall: {rec}\tF1: {f1}')
+        print(f'Acc: {acc}\tAvg Prec: {av_prec}\tPrecision: {prec}\tRecall: {rec}\tF1: {f1}')
         accs.append(acc)
         av_precs.append(av_prec)
         precisions.append(prec)

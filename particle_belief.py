@@ -103,7 +103,7 @@ class ParticleBelief(BeliefBase):
         new_weights = []
 
         for pi, (particle_world, old_weight) in enumerate(zip(particle_worlds, self.particles.weights)):
-            particle_end_pose = particle_world.get_pose(particle_world.objects[1])            
+            particle_end_pose = particle_world.get_pose(particle_world.objects[1])        
             obs_model = multivariate_normal.pdf(end_pose.pos,
                                                 mean=particle_end_pose.pos,
                                                 cov=self.OBS_MODEL_COV)
@@ -566,11 +566,11 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         if isinstance(self.likelihood, nn.Module):
             bernoulli_probs = self.get_particle_likelihoods(self.particles.particles, observation)
         else:
-            bernoulli_probs = self.likelihood.get_particle_likelihoods(self.particles.particles, observation)
+            bernoulli_probs = self.likelihood.get_particle_likelihoods(self.particles.particles, observation, self.particles.weights)
         label = observation['grasp_data']['labels'][0]
         n_correct = ((bernoulli_probs > 0.5).astype('float32') == label).sum()
         print('Correct for CURRENT sample:', n_correct/len(bernoulli_probs), len(bernoulli_probs))
-        
+
         new_weights = []
         for pi, (bern_prob, old_weight) in enumerate(zip(bernoulli_probs, self.particles.weights)):
             # print(pi, bern_prob, old_weight)

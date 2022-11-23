@@ -123,7 +123,7 @@ def run_fitting_phase(args):
         # if geo_type == 'train_geo':
         #     continue
 
-        for ox in range(min(n_objects, 10)):  # 100 (just to sanity check the results)
+        for ox in range(min(n_objects, 25)):  # 100 (just to sanity check the results)
             # Some geometries have trouble when considering IK (e.g., always close to table).
             # TODO: Make this more modular when we use constraints again.
             # if args.constrained and geo_type == 'test_geo' and ox in [15, 16, 17, 18, 19]:
@@ -145,12 +145,23 @@ def run_fitting_phase(args):
             if fitting_exp_name in logs_lookup['fitting_phase'][mode]:
                 print(f'Skipping {fitting_exp_name}...')
                 continue
+            
+            val_dataset_fname = f'fit_grasps_{geo_type}_object{ox}.pkl'
+            val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
+            with open(val_dataset_path, 'rb') as handle:
+                data = pickle.load(handle)
+                p_stable = np.mean(list(data['grasp_data']['labels']))
+                if p_stable < 0.05 or p_stable > 0.3:
+                    continue
+
+
+            print('Fitting for p_stable:', p_stable)
 
             fitting_args = argparse.Namespace()
             fitting_args.exp_name = fitting_exp_name
-            fitting_args.max_acquisitions = 10
+            fitting_args.max_acquisitions = 50
             fitting_args.objects_fname = objects_fname
-            fitting_args.n_samples = 1
+            fitting_args.n_samples = 20
             fitting_args.pretrained_ensemble_exp_path = pretrained_model_path
             fitting_args.ensemble_tx = 0
             fitting_args.eval_object_ix = ox

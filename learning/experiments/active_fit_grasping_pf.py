@@ -1,7 +1,10 @@
 import argparse
+import copy
 import numpy as np
 import torch
 
+from block_utils import ParticleDistribution
+from filter_utils import sample_particle_distribution
 from learning.active import acquire
 from learning.models import latent_ensemble
 from learning.active.utils import ActiveExperimentLogger
@@ -41,12 +44,26 @@ def find_informative_tower(pf, object_set, logger, args):
     all_preds = []
     for ix in range(0, args.n_samples):
         grasp_data = data_sampler_fn(1)
-        preds = pf.get_particle_likelihoods(pf.particles.particles, grasp_data)
+        # TODO: Resample particle dist. for more efficient BALD computation.
+        # TODO: Use PyBullet Likelihood.
+        if isinstance(pf.likelihood, PBLikelihood):
+            # This is necessary if we're using a weighted particle filter.
+            sampling_dist = ParticleDistribution(
+                pf.particles.particles,
+                pf.particles.weights / np.sum(pf.particles.weights)
+            )
+            resampled_parts = sample_particle_distribution(sampling_dist, num_samples=32)
+            # grab object name so that pybullet can take in object
+            pb_model = copy.deepcopy(pf.likelihood)
+            pb_model.particle_distribution_from_graspable_vectors(resampled_parts, reinit=False)
+            preds = pb_model.get_particle_likelihoods(pb_model.bodies_for_particles, grasp_data)
+        else:
+            preds = pf.get_particle_likelihoods(pf.particles.particles, grasp_data)
         all_preds.append(preds)
         all_grasps.append(grasp_data)
 
     pred_vec = torch.Tensor(np.stack(all_preds))
-    scores = particle_bald(pred_vec, pf.particles.weights)
+    scores = particle_bald(pred_vec, np.ones((32,)))
     print('Scores:', scores)
     acquire_ix = np.argsort(scores)[::-1][0]
 
@@ -136,7 +153,7 @@ def run_particle_filter_fitting(args):
     elif args.likelihood == 'pb':
         likelihood_model = PBLikelihood(
             object_name=object_set['object_names'][-1],
-            n_samples=5,
+            n_samples=1,
             batch_size=50
         )
         d_latents = 5
