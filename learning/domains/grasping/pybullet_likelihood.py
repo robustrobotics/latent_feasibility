@@ -13,7 +13,7 @@ from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspableBodySampler,
 # this is a helper function to verify grasp stability from a single pybullet instance
 # (and will be parallelized)
 def get_label(body, cand_grasp, weight):
-    if weight < 1e-15:
+    if weight < 1e-8:
         return False
     else:
         labeler = GraspStabilityChecker(body, grasp_noise=0.0, recompute_inertia=True)
@@ -27,7 +27,7 @@ class PBLikelihood:
     def __init__(self, object_name, n_samples, batch_size, n_processes=20):
         self.object_name = object_name
         self.n_samples = n_samples
-        self.batch_size = 1000
+        self.batch_size = 25000
         self.bodies_for_particles = None
         self.n_processes = n_processes
 

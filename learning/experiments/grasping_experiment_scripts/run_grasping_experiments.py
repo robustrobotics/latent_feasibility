@@ -159,7 +159,7 @@ def run_fitting_phase(args):
 
             fitting_args = argparse.Namespace()
             fitting_args.exp_name = fitting_exp_name
-            fitting_args.max_acquisitions = 50
+            fitting_args.max_acquisitions = 25
             fitting_args.objects_fname = objects_fname
             fitting_args.n_samples = 20
             fitting_args.pretrained_ensemble_exp_path = pretrained_model_path

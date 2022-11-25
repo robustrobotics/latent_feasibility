@@ -419,6 +419,7 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         plt.pause(0.1)
 
     def sample_and_wiggle(self, distribution, experience):
+        if len(experience) < 3: return distribution
         N, D = distribution.particles.shape
         # NOTE(izzy): note sure if this is an ok way to get the covariance matrix...
         # If the weights has collapsed onto a single particle, then the covariance
@@ -469,10 +470,10 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
                     bern_probs_particles = self.get_particle_likelihoods(particles, observation)
 
                 if isinstance(self.likelihood, PBLikelihood):
-                    self.likelihood.particle_distribution_from_graspable_vectors(particles)
-                    bern_probs_proposed = self.likelihood.get_particle_likelihoods(particles, observation)
+                    self.likelihood.particle_distribution_from_graspable_vectors(proposed_particles)
+                    bern_probs_proposed = self.likelihood.get_particle_likelihoods(proposed_particles, observation)
                 else:
-                    bern_probs_proposed = self.get_particle_likelihoods(particles, observation)
+                    bern_probs_proposed = self.get_particle_likelihoods(proposed_particles, observation)
 
                 label = observation['grasp_data']['labels'][0]
                 for ix in range(N):

@@ -1,14 +1,18 @@
 import argparse
 import copy
+import pickle
+
 import numpy as np
 import torch
+from sklearn.metrics import mean_squared_error
 
 from block_utils import ParticleDistribution
 from filter_utils import sample_particle_distribution
 from learning.active import acquire
 from learning.models import latent_ensemble
 from learning.active.utils import ActiveExperimentLogger
-from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, get_train_and_fit_objects
+from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, \
+    get_train_and_fit_objects
 from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.active.acquire import bald
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief, \
@@ -23,19 +27,20 @@ def particle_bald(predictions, weights, eps=1e-5):
     predictions = predictions.cpu().numpy()
     norm = weights.sum()
 
-    mp_c1 = np.sum(weights*predictions, axis=1)/norm
+    mp_c1 = np.sum(weights * predictions, axis=1) / norm
     mp_c0 = 1 - mp_c1
 
-    m_ent = -(mp_c1 * np.log(mp_c1+eps) + mp_c0 * np.log(mp_c0+eps))
+    m_ent = -(mp_c1 * np.log(mp_c1 + eps) + mp_c0 * np.log(mp_c0 + eps))
 
     p_c1 = predictions
     p_c0 = 1 - predictions
 
-    ent_per_model = p_c1 * np.log(p_c1+eps) + p_c0 * np.log(p_c0+eps)
-    ent = np.sum(ent_per_model*weights, axis=1)/norm
+    ent_per_model = p_c1 * np.log(p_c1 + eps) + p_c0 * np.log(p_c0 + eps)
+    ent = np.sum(ent_per_model * weights, axis=1) / norm
 
     bald = m_ent + ent
     return bald
+
 
 def find_informative_tower(pf, object_set, logger, args):
     data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
@@ -69,6 +74,7 @@ def find_informative_tower(pf, object_set, logger, args):
 
     return all_grasps[acquire_ix]
 
+
 def particle_filter_loop(pf, object_set, logger, strategy, args):
     if args.likelihood == 'nn':
         logger.save_ensemble(pf.likelihood, 0, symlink_tx0=False)
@@ -76,6 +82,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
         logger.save_neural_process(pf.likelihood, 0, symlink_tx0=False)
     logger.save_particles(pf.particles, 0)
 
+    mses = []
     for tx in range(0, args.max_acquisitions):
         print('[ParticleFilter] Interaction Number', tx)
 
@@ -93,21 +100,37 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
 
         # Update the particle belief.
         particles, means = pf.update(grasp_dataset)
+        mse = mean_squared_error(pf.object_properties.reshape(1, -1), means[-1].reshape(1, -1), multioutput='raw_values')
+
         print('[ParticleFilter] Particle Statistics')
         print(f'Min Weight: {np.min(pf.particles.weights)}')
         print(f'Max Weight: {np.max(pf.particles.weights)}')
         print(f'Sum Weights: {np.sum(pf.particles.weights)}')
-
+        print(f'MSE: {mse}')
 
         # Save the model and particle distribution at each step.
         if args.likelihood == 'nn':
-            logger.save_ensemble(pf.likelihood, tx+1, symlink_tx0=True)
+            logger.save_ensemble(pf.likelihood, tx + 1, symlink_tx0=True)
         elif args.likelihood == 'gnp':
-            logger.save_neural_process(pf.likelihood, tx+1, symlink_tx0=True)
-        logger.save_acquisition_data(grasp_dataset, None, tx+1)
-        logger.save_particles(particles, tx+1)
+            logger.save_neural_process(pf.likelihood, tx + 1, symlink_tx0=True)
+        logger.save_acquisition_data(grasp_dataset, None, tx + 1)
+        logger.save_particles(particles, tx + 1)
 
-# "grasp_train-ycb-test-ycb-1_fit_random_train_geo_object0": "learning/experiments/logs/grasp_train-ycb-test-ycb-1_fit_random_train_geo_object0-20220504-134253"
+        # save mean squared errors
+        mses.append(mse)
+
+        indexable_mses = np.array(mses)
+        _, cols = indexable_mses.shape
+        for c in range(cols):
+            with open(logger.get_figure_path('val_mean_squared_errors_prop_%i.pkl' % c), 'wb') as handle:
+                pickle.dump(list(indexable_mses[:, c]), handle)
+
+        with open(logger.get_figure_path('val_mean_squared_errors_aggregate_mean.pkl'), 'wb') as handle:
+            pickle.dump(list(np.mean(indexable_mses, axis=1)), handle)
+
+        # "grasp_train-ycb-test-ycb-1_fit_random_train_geo_object0": "learning/experiments/logs/grasp_train-ycb-test-ycb-1_fit_random_train_geo_object0-20220504-134253"
+
+
 def run_particle_filter_fitting(args):
     print(args)
     args.use_latents = True
@@ -176,7 +199,7 @@ def run_particle_filter_fitting(args):
             likelihood=likelihood_model,
             resample=False,
             plot=True)
-    else: # pybullet
+    else:  # pybullet
         pf = GraspingDiscreteLikelihoodParticleBelief(
             object_set=object_set,
             d_latents=d_latents,
@@ -192,10 +215,13 @@ def run_particle_filter_fitting(args):
 
     return logger.exp_path
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--exp-name', type=str, default='', help='Where results will be saved. Randon number if not specified.')
-    parser.add_argument('--max-acquisitions', type=int, default=25, help='Number of iterations to run the main active learning loop for.')
+    parser.add_argument('--exp-name', type=str, default='',
+                        help='Where results will be saved. Randon number if not specified.')
+    parser.add_argument('--max-acquisitions', type=int, default=25,
+                        help='Number of iterations to run the main active learning loop for.')
     parser.add_argument('--objects-fname', type=str, default='', help='File containing a list of objects to grasp.')
     parser.add_argument('--n-samples', type=int, default=1000)
     parser.add_argument('--pretrained-ensemble-exp-path', type=str, default='', help='Path to a trained ensemble.')

@@ -69,6 +69,8 @@ def plot_val_loss(loggers, output_path):
     val_fname = 'val_accuracies.pkl'
     #val_fname = 'val_recalls_ 0.80.pkl'
     val_fname = 'val_average_precisions.pkl'
+    #  = 'val_mean_squared_errors_prop_4.pkl'
+    # val_fname = 'val_mean_squared_errors_aggregate_mean.pkl'
     # val_fname = 'val_precisions.pkl'
     # val_fname = 'val_f1s.pkl'
     for name, group_loggers in loggers.items():
@@ -82,6 +84,7 @@ def plot_val_loss(loggers, output_path):
                 continue
             with open(val_path, 'rb') as handle:
                 vals = pickle.load(handle)
+                vals = np.sqrt(vals)
 
             if len(all_accs) == 0:
                 all_accs = [[acc] for acc in vals]
@@ -108,7 +111,7 @@ def plot_val_loss(loggers, output_path):
         #     xs = xs *3
         axes.plot(xs, median, label=name)
         axes.fill_between(xs, lower25, upper75, alpha=0.2)
-        axes.set_ylim(0.0, 1.1)
+        # axes.set_ylim(0.0, 1.1)
         axes.set_ylabel(val_fname.split('.pkl')[0].replace('_', ' ').capitalize())
         axes.set_xlabel('Number of adaptation grasps')
         axes.legend()

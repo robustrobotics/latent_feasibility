@@ -43,7 +43,7 @@ def sample_grasp_X(graspable_body, property_vector, n_points_per_object, grasp=N
             grasp_sampler = GraspSampler(graspable_body=graspable_body,
                                         antipodal_tolerance=30,
                                         show_pybullet=False)
-            force = np.random.uniform(5, 20)
+            force = np.random.uniform(20, 20)
             grasp = grasp_sampler.sample_grasp(force=force, show_trimesh=False)
         except Exception as e:
             grasp_sampler.disconnect()
