@@ -171,20 +171,23 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
     latent_samples = torch.Tensor(particles)
     gnp.eval()
     for (_, target_data, meshes) in dataloader:
-        t_grasp_geoms, t_midpoints, t_labels = target_data
+        t_grasp_geoms, t_midpoints, t_forces, t_labels = target_data
 
         # TODO: Currently there are too many grasps (500 requires too much memory).
         # TODO: Implement better way to batch a lot of evaluation grasps.
         t_grasp_geoms = t_grasp_geoms[:, :100, :, :]
         t_midpoints = t_midpoints[:, :100, :]
+        t_forces = t_forces[:, :100]
         t_labels = t_labels[:, :100].squeeze()
 
         if torch.cuda.is_available():
             meshes = meshes.cuda()
             t_grasp_geoms = t_grasp_geoms.cuda()
             t_midpoints = t_midpoints.cuda()
+            t_forces = t_forces.cuda()
         t_grasp_geoms = t_grasp_geoms.expand(n_particle_samples, -1, -1, -1)
         t_midpoints = t_midpoints.expand(n_particle_samples, -1, -1)
+        t_forces = t_forces.expand(n_particle_samples, -1)
         
         # Sample particles and ensembles models to use to speed up evaluation. Might hurt performance.
         latents_ix = np.arange(latent_samples.shape[0])
@@ -195,7 +198,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         if torch.cuda.is_available():
             latents = latents.cuda()
         pred = gnp.conditional_forward(
-            target_xs = (t_grasp_geoms, t_midpoints),
+            target_xs = (t_grasp_geoms, t_midpoints, t_forces),
             meshes=meshes,
             zs=latents
         ).squeeze().cpu().detach()
@@ -314,7 +317,7 @@ def get_pf_validation_accuracy(logger, fname, amortize):
             if str_t not in thresholded_recalls:
                 thresholded_recalls[str_t] = []
             thresholded_recalls[str_t].append(rec)
-        
+
         preds = (probs > 0.5).float()
         av_prec = average_precision_score(labels, probs)
         acc = accuracy_score(labels, preds)
@@ -324,7 +327,7 @@ def get_pf_validation_accuracy(logger, fname, amortize):
         f1 = f1_score(labels, preds)
         b_acc = balanced_accuracy_score(labels, preds)
 
-        print(f'Acc: {acc}\tBalanced Acc: {b_acc}\tPrecision: {prec}\tRecall: {rec}\tF1: {f1}')
+        print(f'Acc: {acc}\tAverage Prec: {av_prec}\tPrecision: {prec}\tRecall: {rec}\tF1: {f1}')
         accs.append(acc)
         av_precs.append(av_prec)
         precisions.append(prec)
@@ -332,7 +335,7 @@ def get_pf_validation_accuracy(logger, fname, amortize):
         confusions.append(confs)
         f1s.append(f1)
         balanced_accs.append(b_acc)
-    
+
     with open(logger.get_figure_path('val_accuracies.pkl'), 'wb') as handle:
         pickle.dump(accs, handle)
     with open(logger.get_figure_path('val_precisions.pkl'), 'wb') as handle:

@@ -157,7 +157,7 @@ def run_fitting_phase(args):
             fitting_args.ensemble_tx = 0
             fitting_args.eval_object_ix = ox
             fitting_args.strategy = args.strategy
-            fitting_args.n_particles = 10000
+            fitting_args.n_particles = 1000
             if args.amortize:
                 fitting_args.likelihood = 'gnp'
             else:
@@ -301,7 +301,7 @@ def run_testing_phase(args):
     }
 
     n_found = 0
-    p_stable_low, p_stable_high = 0.05, 1.0
+    p_stable_low, p_stable_high = 0.05, 0.25
     print('train_objects_fname', train_objects_fname)
     for ox, object_name in enumerate(train_objects['object_data']['object_names']):
         #import IPython; IPython.embed()
@@ -320,6 +320,7 @@ def run_testing_phase(args):
         with open(val_dataset_path, 'rb') as handle:
             data = pickle.load(handle)
             p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+            print(p_stable)
             if p_stable < p_stable_low or p_stable > p_stable_high:
                 continue
             n_found += 1
