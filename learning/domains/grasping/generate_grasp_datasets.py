@@ -43,7 +43,7 @@ def sample_grasp_X(graspable_body, property_vector, n_points_per_object, grasp=N
             grasp_sampler = GraspSampler(graspable_body=graspable_body,
                                         antipodal_tolerance=30,
                                         show_pybullet=False)
-            force = np.random.uniform(20, 20)
+            force = np.random.uniform(5, 20)
             grasp = grasp_sampler.sample_grasp(force=force, show_trimesh=False)
         except Exception as e:
             grasp_sampler.disconnect()
@@ -85,7 +85,8 @@ def generate_datasets(dataset_args):
     with open(dataset_args.objects_fname, 'rb') as handle:
         object_data = pickle.load(handle)['object_data']
 
-    object_raw_grasps, object_grasp_data, object_grasp_ids, object_grasp_labels = [], [], [], []
+    object_raw_grasps, object_grasp_data, object_grasp_forces, object_grasp_ids, object_grasp_labels = \
+        [], [], [], [], []
 
     for prop_ix in range(len(object_data['object_names'])):
         if dataset_args.object_ix > -1 and dataset_args.object_ix != prop_ix:
@@ -113,10 +114,13 @@ def generate_datasets(dataset_args):
             grasp, X = sample_grasp_X(graspable_body,
                                       property_vector,
                                       dataset_args.n_points_per_object)
+            
             # Get label.
             label = labeler.get_label(grasp)
 
+            #TODO: verify that these changes play nicely with fitting down the road
             object_raw_grasps.append(grasp)
+            object_grasp_forces.append(grasp.force)
             object_grasp_data.append(X)
             object_grasp_ids.append(object_id)
             object_grasp_labels.append(int(label))
@@ -127,6 +131,7 @@ def generate_datasets(dataset_args):
             'grasp_data': {
                 'raw_grasps': object_raw_grasps,
                 'grasps': object_grasp_data,
+                'forces': object_grasp_forces,
                 'object_ids': object_grasp_ids,
                 'labels': object_grasp_labels
             },

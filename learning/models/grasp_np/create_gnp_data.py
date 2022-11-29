@@ -64,6 +64,7 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     all_grasps = train_dataset['grasp_data']['grasps'][::skip]
     all_ids = train_dataset['grasp_data']['object_ids'][::skip]
     all_labels = train_dataset['grasp_data']['labels'][::skip]
+    all_forces = train_dataset['grasp_data']['forces'][::skip]
     gx = 0
 
     # Collect all mesh points for each object.
@@ -79,9 +80,10 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     new_geometries_dict = defaultdict(list) # obj_id -> [grasp__points]
     new_midpoints_dict = defaultdict(list) # obj_id -> [grasp_midpoint]
     new_labels_dict = defaultdict(list) # obj_id -> [grasp_label]
+    new_forces_dict = defaultdict(list) # obj_id -> [forces]
     new_meshes_dict = defaultdict(list)
 
-    for grasp_vector, object_id, label in zip(all_grasps, all_ids, all_labels):
+    for grasp_vector, object_id, force, label in zip(all_grasps, all_ids, all_forces, all_labels):
         if verbose:
             print(f'Coverting grasp {gx}/{len(all_ids)}...')
         gx += 1
@@ -116,6 +118,7 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         # Assemble dataset.
         new_geometries_dict[object_id].append(points)
         new_midpoints_dict[object_id].append(midpoint)
+        new_forces_dict[object_id].append(force)
         new_labels_dict[object_id].append(label)
         new_meshes_dict[object_id].append(all_points_per_objects[object_id][:512,:])
 
@@ -124,6 +127,7 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
             'object_meshes': new_meshes_dict,
             'grasp_geometries': new_geometries_dict,
             'grasp_midpoints': new_midpoints_dict,
+            'grasp_forces': new_forces_dict,
             'labels': new_labels_dict
         },
         'object_data': train_dataset['object_data'],

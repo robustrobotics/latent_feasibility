@@ -37,7 +37,7 @@ def sample_unlabeled_data(n_samples, object_set):
     object_name, object_properties, object_ix = get_fit_object(object_set)
     graspable_body = graspablebody_from_vector(object_name, object_properties)
 
-    object_grasp_data, object_grasp_ids, object_grasp_labels = [], [], []  
+    object_grasp_data, object_grasp_ids, object_grasp_forces, object_grasp_labels = [], [], [], []  
     raw_grasps = []
     for nx in range(n_samples):
         grasp, X = sample_grasp_X(graspable_body, object_properties, n_points_per_object=10000)
@@ -45,12 +45,14 @@ def sample_unlabeled_data(n_samples, object_set):
         raw_grasps.append(grasp)
         object_grasp_data.append(X)
         object_grasp_ids.append(object_ix)
+        object_grasp_forces.append(grasp.force)
         object_grasp_labels.append(0)
 
     unlabeled_dataset = {
         'grasp_data': {
             'raw_grasps': raw_grasps,
             'grasps': object_grasp_data,
+            'forces': object_grasp_forces,
             'object_ids': object_grasp_ids,
             'labels': object_grasp_labels
         },

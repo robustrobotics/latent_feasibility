@@ -50,7 +50,7 @@ def parse_ignore_file(fname):
 
 def merge_datasets(dataset_paths, merged_fname):
     """ Create one large dataset file form individual object files."""
-    all_grasps, all_object_ids, all_labels = [], [], []
+    all_grasps, all_object_ids, all_forces, all_labels = [], [], [], []
     for dataset_path in dataset_paths:
         if not os.path.exists(dataset_path):
             continue
@@ -61,6 +61,7 @@ def merge_datasets(dataset_paths, merged_fname):
         all_grasps += [g.astype('float32') for g in single_dataset['grasp_data']['grasps']]
         all_object_ids += single_dataset['grasp_data']['object_ids']
         all_labels += single_dataset['grasp_data']['labels']
+        all_forces += single_dataset['grasp_data']['forces']
 
     updated_metadata = single_dataset['metadata']
     updated_metadata.fname = merged_fname
@@ -69,6 +70,7 @@ def merge_datasets(dataset_paths, merged_fname):
     merged_dataset = {
         'grasp_data': {
             'grasps': all_grasps,
+            'forces': all_forces,
             'object_ids': all_object_ids,
             'labels': all_labels
         },

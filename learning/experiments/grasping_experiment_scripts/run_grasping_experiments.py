@@ -313,7 +313,7 @@ def run_testing_phase(args):
     }
 
     n_found = 0
-    p_stable_low, p_stable_high = 0.05, 0.5
+    p_stable_low, p_stable_high = 0.05, 0.25
     print('train_objects_fname', train_objects_fname)
     for ox, object_name in enumerate(train_objects['object_data']['object_names']):
         #import IPython; IPython.embed()
@@ -332,7 +332,8 @@ def run_testing_phase(args):
         val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
         with open(val_dataset_path, 'rb') as handle:
             data = pickle.load(handle)
-            p_stable = np.mean(list(data['grasp_data']['labels']))
+            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+            print(p_stable)
             if p_stable < p_stable_low or p_stable > p_stable_high:
                 continue
             n_found += 1
