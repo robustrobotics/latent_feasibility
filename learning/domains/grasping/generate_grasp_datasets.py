@@ -118,7 +118,6 @@ def generate_datasets(dataset_args):
             # Get label.
             label = labeler.get_label(grasp)
 
-            #TODO: verify that these changes play nicely with fitting down the road
             object_raw_grasps.append(grasp)
             object_grasp_forces.append(grasp.force)
             object_grasp_data.append(X)
