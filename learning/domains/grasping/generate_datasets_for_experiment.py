@@ -16,6 +16,7 @@ Fitting phase datasets are created for each of these to cover a range of difficu
 
 import argparse
 import multiprocessing
+import numpy as np
 import pickle
 import os
 
@@ -194,9 +195,9 @@ if __name__ == '__main__':
 
     worker_pool.map(generate_datasets, train_dataset_tasks)
 
+    train_grasps_path = os.path.join(training_phase_path, 'train_grasps.pkl')
     if args.merge:
         print('[Grasps] Merging all train grasps for training phase.')
-        train_grasps_path = os.path.join(training_phase_path, 'train_grasps.pkl')
         merge_datasets(train_dataset_paths, train_grasps_path)
 
     print('[Grasps] Generating validation grasps for training phase.')
@@ -285,3 +286,14 @@ if __name__ == '__main__':
             fit_dataset_samegeo_tasks.append(fit_grasps_samegeo_args)
 
     worker_pool.map(generate_datasets, fit_dataset_samegeo_tasks)
+
+    # Show dataset statistics.
+    with open(train_grasps_path, 'rb') as handle:
+        train_data = pickle.load(handle)
+
+    labels = train_data['grasp_data']['labels']
+    print(f'% Stable: {np.mean(labels)}')
+    per_object_stability = []
+    for ox in range(0, len(labels), args.n_grasps_per_object):
+        per_object_stability.append(np.mean(labels[ox:(ox+args.n_grasps_per_object)]))
+    print('Per Object Stability:', np.histogram(per_object_stability, bins=10))
