@@ -9,8 +9,8 @@ class CustomGraspNeuralProcess(nn.Module):
 
     def __init__(self, d_latents):
         super(CustomGraspNeuralProcess, self).__init__()
-        d_mesh = 8
-        n_out_geom = 8
+        d_mesh = 3
+        n_out_geom = 1
         self.encoder = CustomGNPEncoder(d_latents=d_latents, d_mesh=d_mesh)
         self.decoder = CustomGNPDecoder(n_in=3+1+n_out_geom+d_latents+d_mesh, d_latents=d_latents)
         self.mesh_encoder = PointNetRegressor(n_in=3, n_out=d_mesh)
@@ -99,7 +99,7 @@ class CustomGNPEncoder(nn.Module):
         super(CustomGNPEncoder, self).__init__()
 
         # Used to encode local geometry.
-        n_out_geom = 8
+        n_out_geom = 1
         self.pn_grasp = PointNetRegressor(n_in=3+1+1+n_out_geom+d_mesh, n_out=d_latents*2)
         self.d_latents = d_latents
 

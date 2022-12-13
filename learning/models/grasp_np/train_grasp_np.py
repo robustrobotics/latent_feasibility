@@ -104,6 +104,7 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
         print(f'Train Loss: {epoch_loss}\tTrain Acc: {train_acc}')
 
         model.eval()
+        means = []
         val_loss, val_probs, val_targets = 0, [], []
         with torch.no_grad():
             for bx, (context_data, target_data, meshes) in enumerate(val_dataloader):
@@ -116,6 +117,7 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                     (t_grasp_geoms, t_midpoints, t_forces),
                     meshes
                 )
+                means.append(q_z.loc)
                 y_probs = y_probs.squeeze()
                 val_loss += get_loss(y_probs, t_labels, q_z)[0].item()
 
@@ -134,6 +136,8 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                 best_loss = val_loss
                 best_weights = copy.deepcopy(model.state_dict())
                 print('New best loss: ', val_loss)
+        # if val_acc > 0.9:
+        #     import IPython; IPython.embed()
 
     model.load_state_dict(best_weights)
     return model
@@ -178,11 +182,12 @@ def run(args):
     )
 
     # train model
-    model = train(train_dataloader=train_dataloader,
-                  val_dataloader=val_dataloader,
-                  model=model,
-                  n_epochs=args.n_epochs
-                  )
+    model = train(
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        model=model,
+        n_epochs=args.n_epochs
+    )
 
     # save model
     logger.save_dataset(dataset=train_dataset, tx=0)

@@ -61,17 +61,17 @@ class CustomGNPGraspDataset(Dataset):
             cp_data = None
         else:
             cp_data = {
-                'object_mesh': self.cp_full_meshes[ox]/0.02,
+                'object_mesh': self.cp_full_meshes[ox]/0.1,
                 'grasp_geometries': self.cp_grasp_geometries[ox]/0.02,
                 'grasp_forces': (self.cp_grasp_forces[ox]-12.5)/7.5,
-                'grasp_midpoints': self.cp_grasp_midpoints[ox]/0.02,
+                'grasp_midpoints': self.cp_grasp_midpoints[ox]/0.1,
                 'grasp_labels': self.cp_grasp_labels[ox]
             }
         hp_data = {
-            'object_mesh': self.hp_full_meshes[ox]/0.02,
+            'object_mesh': self.hp_full_meshes[ox]/0.1,
             'grasp_geometries': self.hp_grasp_geometries[ox]/0.02,
             'grasp_forces': (self.hp_grasp_forces[ox]-12.5)/7.5,
-            'grasp_midpoints': self.hp_grasp_midpoints[ox]/0.02,
+            'grasp_midpoints': self.hp_grasp_midpoints[ox]/0.1,
             'grasp_labels': self.hp_grasp_labels[ox]
         }
         return cp_data, hp_data
