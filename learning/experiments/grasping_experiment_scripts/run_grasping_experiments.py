@@ -309,7 +309,51 @@ def run_training_phase(args):
         json.dump(logs_lookup, handle)
 
 
-# TODO: implement amortized flag here
+def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, max_pstable, min_dist_threshold, max_objects):
+    """
+    :param object_names: All potential objects to consider.
+    :param ignore_list: List of objects that are ungraspable.
+    :param phase: train or test.
+
+    Return list of (ox, object_name) for all valid objects.
+    """
+    valid_objects = []
+    for ox, object_name in enumerate(object_names):
+        if ox in ignore_list:
+            continue
+        val_dataset_fname = f'fit_grasps_{phase}_geo_object{ox}.pkl'
+        val_dataset_path = os.path.join(
+            DATA_ROOT, dataset_name,
+            'grasps', 'fitting_phase', val_dataset_fname
+        )
+        if not os.path.exists(val_dataset_path):
+            continue
+        with open(val_dataset_path, 'rb') as handle:
+            data = pickle.load(handle)
+
+        all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
+        dists_to_closest = []
+        for gx, midpoint in enumerate(all_midpoints):
+            other_points = np.concatenate(
+                [all_midpoints[:gx,:], all_midpoints[gx+1:,:]],
+                axis=0
+            )
+            dists = np.linalg.norm(midpoint - other_points, axis=1)
+            dists_to_closest.append(np.min(dists))
+
+        avg_min_dist = np.mean(dists_to_closest)
+        p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+        if avg_min_dist < min_dist_threshold:
+            continue
+        if p_stable < min_pstable or p_stable > max_pstable:
+            continue
+
+        valid_objects.append((ox, object_name))
+        print(f'{object_name} in range ({min_pstable}, {max_pstable}) ({p_stable})')
+
+    return valid_objects[:max_objects]
+
+
 def run_testing_phase(args):
     # Create log_group files.
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
@@ -362,70 +406,19 @@ def run_testing_phase(args):
             }
         }
     }
+    min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.01
 
-    n_found = 0
-    filter_type = 'p-stable'
-    p_stable_low, p_stable_high = 0.05, 0.25
-    filter_type = 'min-side'
-    filter_type = 'avg-dist'
-    print('train_objects_fname', train_objects_fname)
-    for ox, object_name in enumerate(train_objects['object_data']['object_names']):
-        #import IPython; IPython.embed()
-        # break
-        if ox > 99:
-            break
-        if ox in TRAIN_IGNORE: continue
-        # TO REMOVE. (2 lines)
-        val_dataset_fname = f'fit_grasps_train_geo_object{ox}.pkl'
-        val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
-        with open(val_dataset_path, 'rb') as handle:
-            data = pickle.load(handle)
-
-        if filter_type == 'min-side':
-            p_stable = 1.
-            mesh_points = np.array(list(data['grasp_data']['object_meshes'].values())[0]).reshape(-1, 3)
-            print(val_dataset_fname, mesh_points.shape)
-            min_dims = np.min(mesh_points, axis=0)
-            max_dims = np.max(mesh_points, axis=0)
-            bounds = max_dims - min_dims
-            if np.min(bounds) > 0.08:
-                continue
-            n_found += 1
-            
-        elif filter_type ==  'p-stable':
-            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-            print(p_stable)
-            if p_stable < p_stable_low or p_stable > p_stable_high:
-                continue
-            n_found += 1
-        elif filter_type =='avg-dist':
-            p_stable = 1
-            all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
-            dists_to_closest = []
-            for gx, midpoint in enumerate(all_midpoints):
-                other_points = np.concatenate(
-                    [all_midpoints[:gx,:], all_midpoints[gx+1:,:]],
-                    axis=0
-                )
-                dists = np.linalg.norm(midpoint - other_points, axis=1)
-                dists_to_closest.append(np.min(dists))
-
-            avg_min_dist = np.mean(dists_to_closest)
-            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-            print(avg_min_dist)
-            if avg_min_dist < 0.02:
-                continue
-            if p_stable < 0.05 or p_stable > 0.25:
-                continue
-
-            n_found += 1
-
-            # import IPython; IPython.embed()
-            # sys.exit()
-        else:
-            p_stable = 1.
-
-        print(f'{object_name} in range ({p_stable_low}, {p_stable_high}) ({p_stable})')
+    valid_train_objects = filter_objects(
+        object_names=train_objects['object_data']['object_names'],
+        ignore_list=TRAIN_IGNORE,
+        phase='train',
+        dataset_name=exp_args.dataset_name,
+        min_pstable=min_pstable,
+        max_pstable=max_pstable,
+        min_dist_threshold=min_dist,
+        max_objects=100
+    )
+    for ox, object_name in valid_train_objects:
 
         if object_name not in logs_lookup_by_object['train_geo']['random']:
             logs_lookup_by_object['train_geo']['random'][object_name] = []
@@ -440,7 +433,6 @@ def run_testing_phase(args):
 
             logs_lookup_by_object['train_geo']['random']['all'].append(random_log_fname)
             logs_lookup_by_object['train_geo']['random'][object_name].append(random_log_fname)
-
 
         constrained_random_log_key = f'grasp_{exp_args.exp_name}_fit_constrained_random_train_geo_object{ox}'
         if constrained_random_log_key in logs_lookup['fitting_phase']['constrained_random']:
@@ -457,64 +449,19 @@ def run_testing_phase(args):
             logs_lookup_by_object['train_geo']['bald']['all'].append(bald_log_fname)
             logs_lookup_by_object['train_geo']['bald'][object_name].append(bald_log_fname)
 
+    print(f'{len(valid_train_objects)} train geo objects included.')
 
-    print(f'{n_found} train geo objects included.')
-    n_found = 0
-    for ox, object_name in enumerate(test_objects['object_data']['object_names']):
-        if ox > 99: 
-            break
-        if ox in TEST_IGNORE: continue
-        #p_stable = 1
-        val_dataset_fname = f'fit_grasps_test_geo_object{ox}.pkl'
-        val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
-
-        with open(val_dataset_path, 'rb') as handle:
-            data = pickle.load(handle)
-
-        #n_found += 1
-        if filter_type == 'min-side':
-            p_stable = 1.
-            mesh_points = np.array(list(data['grasp_data']['object_meshes'].values())[0]).reshape(-1, 3)
-            print(val_dataset_fname, mesh_points.shape)
-            min_dims = np.min(mesh_points, axis=0)
-            max_dims = np.max(mesh_points, axis=0)
-            bounds = max_dims - min_dims
-            if np.min(bounds) > 0.08:
-                continue
-            n_found += 1
-            
-        elif filter_type ==  'p-stable':
-            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-            print(p_stable)
-            if p_stable < p_stable_low or p_stable > p_stable_high:
-                continue
-            n_found += 1
-        elif filter_type =='avg-dist':
-            p_stable = 1
-            all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
-            dists_to_closest = []
-            for gx, midpoint in enumerate(all_midpoints):
-                other_points = np.concatenate(
-                    [all_midpoints[:gx,:], all_midpoints[gx+1:,:]],
-                    axis=0
-                )
-                dists = np.linalg.norm(midpoint - other_points, axis=1)
-                dists_to_closest.append(np.min(dists))
-
-            avg_min_dist = np.mean(dists_to_closest)
-            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-            print(avg_min_dist)
-            if avg_min_dist < 0.0:
-                continue
-            if p_stable < 0.05 or p_stable > 0.25:
-                continue
-
-            n_found += 1
-
-            # import IPython; IPython.embed()
-            # sys.exit()
-        else:
-            p_stable = 1.
+    valid_test_objects = filter_objects(
+        object_names=test_objects['object_data']['object_names'],
+        ignore_list=TEST_IGNORE,
+        phase='test',
+        dataset_name=exp_args.dataset_name,
+        min_pstable=min_pstable,
+        max_pstable=max_pstable,
+        min_dist_threshold=min_dist,
+        max_objects=100
+    )
+    for ox, object_name in valid_test_objects:
 
         if object_name not in logs_lookup_by_object['test_geo']['random']:
             logs_lookup_by_object['test_geo']['random'][object_name] = []
@@ -535,21 +482,16 @@ def run_testing_phase(args):
         if constrained_random_log_key in logs_lookup['fitting_phase']['constrained_random']:
             constrained_random_log_fname = logs_lookup['fitting_phase']['constrained_random'][
                 constrained_random_log_key]
-
             logs_lookup_by_object['test_geo']['constrained_random']['all'].append(constrained_random_log_fname)
             logs_lookup_by_object['test_geo']['constrained_random'][object_name].append(constrained_random_log_fname)
 
         bald_log_key = f'grasp_{args.exp_name}_fit_bald_test_geo_object{ox}'
         if 'bald' in logs_lookup['fitting_phase'] and bald_log_key in logs_lookup['fitting_phase']['bald']:
             bald_log_fname = logs_lookup['fitting_phase']['bald'][bald_log_key]
-            print('HERE')
             logs_lookup_by_object['test_geo']['bald']['all'].append(bald_log_fname)
             logs_lookup_by_object['test_geo']['bald'][object_name].append(bald_log_fname)
 
-            # TO REMVOE (2 lines)
-            # fit_logger = ActiveExperimentLogger(bald_log_fname, use_latents=True) 
-            # get_pf_validation_accuracy(fit_logger, val_dataset_path)
-    print(f'{n_found} test geo objects included.')
+    print(f'{len(valid_test_objects)} test geo objects included.')
 
     for obj_name, loggers in logs_lookup_by_object['train_geo']['random'].items():
         all_train_loggers = {
