@@ -69,6 +69,7 @@ def plot_val_loss(loggers, output_path):
     val_fname = 'val_accuracies.pkl'
     #val_fname = 'val_recalls_ 0.80.pkl'
     val_fname = 'val_average_precisions.pkl'
+    # val_fname = 'regrets_-20.pkl'
     # val_fname = 'val_precisions.pkl'
     # val_fname = 'val_f1s.pkl'
     for name, group_loggers in loggers.items():
@@ -90,6 +91,7 @@ def plot_val_loss(loggers, output_path):
                     if tx >= len(vals):
                         all_accs[tx].append(vals[-1])
                     else:
+                        #if vals[tx] != 1:
                         all_accs[tx].append(vals[tx])
         if len(all_accs) == 0:
             continue

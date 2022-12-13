@@ -235,7 +235,7 @@ class LatentEnsemblePlanner:
     def plan(self, blocks, ensemble, reward_fn, args, num_blocks=None, n_tower=None, latent_samples=None, pf_latent_ix=-1, fixed_order=False):
         # Step (1): Build dataset of potential towers. 
         tower_vectors, tower_block_ids, rotated_tower_vectors = self.generate_candidate_towers(blocks, args, num_blocks, n_tower, fixed_order=fixed_order)
-        
+ 
         # Step (2): Get predictions for each tower.
         towers = np.array(tower_vectors)
         block_ids = np.array(tower_block_ids)
@@ -245,7 +245,7 @@ class LatentEnsemblePlanner:
         # always use the '2block' key for simplicity. The rest currently
         # need at least some data for the code to work.
         valid_ixs = np.arange(0, towers.shape[0])
-        
+
         n_blocks = towers.shape[1]
         sub_tower_preds = torch.zeros(towers.shape[0], n_blocks-1)
         for n_blocks in range(2, n_blocks+1):
@@ -311,7 +311,7 @@ class LatentEnsemblePlanner:
         # Step (3): Find the tallest tower of a given height.
         max_reward, max_exp_reward, max_tower, max_stable, max_rotated = -100, -100, None, 0, None
         ground_truth = -100
-        max_reward_block_ids = None 
+        max_reward_block_ids = None
         #print(p_stables.shape, towers.shape, block_ids.shape, rotated_towers.shape)
         for ix, (p, tower, tower_block_ids, rotated_tower) in enumerate(zip(p_stables, towers, block_ids, rotated_towers)):
             # print(rotated_tower)
@@ -340,9 +340,6 @@ class LatentEnsemblePlanner:
             max_tower = tower_vectors[0]
             max_reward = reward_fn(towers[0])
             max_rotated = rotated_towers[0]
-        
-
-
 
         print('Prob Stable:', max_stable, max_reward)
 
