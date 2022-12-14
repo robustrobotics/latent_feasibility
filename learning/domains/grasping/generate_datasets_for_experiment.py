@@ -230,7 +230,7 @@ if __name__ == '__main__':
         os.mkdir(fitting_phase_path)
 
     fit_dataset_tasks = []
-    for ox in range(0, min(100, len(test_objects)*args.n_property_samples_test)):
+    for ox in range(0, min(250, len(test_objects)*args.n_property_samples_test)):
         if ox in TEST_IGNORE:
             continue
         print(f'[Grasps] Generating grasps for fitting phase eval for obj {ox}.')
@@ -248,7 +248,7 @@ if __name__ == '__main__':
     worker_pool.map(generate_datasets, fit_dataset_tasks)
 
     fit_dataset_samegeo_tasks = []
-    for ox in range(0, min(100, len(train_objects)*args.n_property_samples_test)):
+    for ox in range(0, min(250, len(train_objects)*args.n_property_samples_test)):
         if ox in TRAIN_IGNORE:
             continue
         print(f'[Grasps] Generating grasps for fitting phase eval for samegeo obj {ox}.')

@@ -120,20 +120,30 @@ def run_fitting_phase(args):
         [n_train_geo, n_test_geo],
         [TRAIN_IGNORE, TEST_IGNORE]
     ):
-        # Uncomment to temporarily skip train_geo.
-        # if geo_type == 'train_geo':
-        #     continue
+        # Get object data.
+        with open(objects_fname, 'rb') as handle:
+            fit_objects = pickle.load(handle)
 
-        for ox in range(min(n_objects, 100)):
-            if ox in ignore: continue
+        min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.01
+        valid_fit_objects = filter_objects(
+            object_names=fit_objects['object_data']['object_names'],
+            ignore_list=ignore,
+            phase=geo_type.split('_')[0],
+            dataset_name=exp_args.dataset_name,
+            min_pstable=min_pstable,
+            max_pstable=max_pstable,
+            min_dist_threshold=min_dist,
+            max_objects=250
+        )
+        print(f'Total: {len(valid_fit_objects)} to fit for {geo_type}.')
+
+        for (ox, _) in valid_fit_objects:
             # Some geometries have trouble when considering IK (e.g., always close to table).
             # TODO: Make this more modular when we use constraints again.
             # if args.constrained and geo_type == 'test_geo' and ox in [15, 16, 17, 18, 19]:
             #     continue
             # if args.constrained and geo_type == 'train_geo' and (ox >= 85 and ox < 90):
             #     continue
-
-
             if args.constrained:
                 mode = f'constrained_{args.strategy}'
             else:
@@ -343,6 +353,7 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
 
         avg_min_dist = np.mean(dists_to_closest)
         p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+        
         if avg_min_dist < min_dist_threshold:
             continue
         if p_stable < min_pstable or p_stable > max_pstable:
@@ -406,7 +417,7 @@ def run_testing_phase(args):
             }
         }
     }
-    min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.01
+    min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.02
 
     valid_train_objects = filter_objects(
         object_names=train_objects['object_data']['object_names'],
@@ -416,7 +427,7 @@ def run_testing_phase(args):
         min_pstable=min_pstable,
         max_pstable=max_pstable,
         min_dist_threshold=min_dist,
-        max_objects=100
+        max_objects=250
     )
     for ox, object_name in valid_train_objects:
 
@@ -459,7 +470,7 @@ def run_testing_phase(args):
         min_pstable=min_pstable,
         max_pstable=max_pstable,
         min_dist_threshold=min_dist,
-        max_objects=100
+        max_objects=250
     )
     for ox, object_name in valid_test_objects:
 
