@@ -6,7 +6,7 @@ import pickle
 import sys
 
 from learning.active.utils import ActiveExperimentLogger
-from learning.evaluate.evaluate_grasping import get_pf_validation_accuracy
+from learning.evaluate.evaluate_grasping import get_pf_validation_accuracy, get_pf_task_performance
 from learning.evaluate.plot_compare_grasping_runs import plot_val_loss
 from learning.experiments.train_grasping_single import run as training_phase_variational
 from learning.domains.grasping.generate_datasets_for_experiment import parse_ignore_file
@@ -120,20 +120,30 @@ def run_fitting_phase(args):
         [n_train_geo, n_test_geo],
         [TRAIN_IGNORE, TEST_IGNORE]
     ):
-        # Uncomment to temporarily skip train_geo.
-        # if geo_type == 'train_geo':
-        #     continue
+        # Get object data.
+        with open(objects_fname, 'rb') as handle:
+            fit_objects = pickle.load(handle)
 
-        for ox in range(min(n_objects, 100)):
-            if ox in ignore: continue
+        min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.01
+        valid_fit_objects = filter_objects(
+            object_names=fit_objects['object_data']['object_names'],
+            ignore_list=ignore,
+            phase=geo_type.split('_')[0],
+            dataset_name=exp_args.dataset_name,
+            min_pstable=min_pstable,
+            max_pstable=max_pstable,
+            min_dist_threshold=min_dist,
+            max_objects=250
+        )
+        print(f'Total: {len(valid_fit_objects)} to fit for {geo_type}.')
+
+        for (ox, _) in valid_fit_objects:
             # Some geometries have trouble when considering IK (e.g., always close to table).
             # TODO: Make this more modular when we use constraints again.
             # if args.constrained and geo_type == 'test_geo' and ox in [15, 16, 17, 18, 19]:
             #     continue
             # if args.constrained and geo_type == 'train_geo' and (ox >= 85 and ox < 90):
             #     continue
-
-
             if args.constrained:
                 mode = f'constrained_{args.strategy}'
             else:
@@ -157,7 +167,7 @@ def run_fitting_phase(args):
             fitting_args.ensemble_tx = 0
             fitting_args.eval_object_ix = ox
             fitting_args.strategy = args.strategy
-            fitting_args.n_particles = 10000
+            fitting_args.n_particles = 1000
             if args.amortize:
                 fitting_args.likelihood = 'gnp'
             else:
@@ -191,6 +201,69 @@ def run_fitting_phase(args):
 
             get_pf_validation_accuracy(fit_logger, val_dataset_path, args.amortize)
 
+def run_task_eval_phase(args):
+    exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
+    if not os.path.exists(exp_path):
+        print(f'[ERROR] Experiment does not exist: {args.exp_name}')
+        sys.exit()
+
+    logs_path = os.path.join(exp_path, 'logs_lookup.json')
+    with open(logs_path, 'r') as handle:
+        logs_lookup = json.load(handle)
+
+    pretrained_model_path = logs_lookup['training_phase']
+    if len(pretrained_model_path) == 0:
+        print(f'[ERROR] Training phase has not yet been executed.')
+        sys.exit()
+
+    # Get train_geo_test_props.pkl and test_geo_test_props.pkl
+    args_path = os.path.join(exp_path, 'args.pkl')
+    with open(args_path, 'rb') as handle:
+        exp_args = pickle.load(handle)
+
+    train_geo_fname, test_geo_fname, n_train_geo, n_test_geo = \
+        get_fitting_phase_dataset_args(exp_args.dataset_name)
+
+    ignore_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'ignore.txt')
+    TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(ignore_fname)
+
+    # Run fitting phase for all objects that have not yet been fitted
+    # (each has a standard name in the experiment logs).
+    for geo_type, objects_fname, n_objects, ignore in zip(
+        ['train_geo', 'test_geo'],
+        [train_geo_fname, test_geo_fname],
+        [n_train_geo, n_test_geo],
+        [TRAIN_IGNORE, TEST_IGNORE]
+    ):
+        for ox in range(min(n_objects, 100)):
+            if ox in ignore: continue
+
+            if args.constrained:
+                mode = f'constrained_{args.strategy}'
+            else:
+                mode = f'{args.strategy}'
+
+            if mode not in logs_lookup['fitting_phase']:
+                logs_lookup['fitting_phase'][mode] = {}
+            fitting_exp_name = f'grasp_{exp_args.exp_name}_fit_{mode}_{geo_type}_object{ox}'
+
+            # Check if we have already fit this object.
+            if fitting_exp_name not in logs_lookup['fitting_phase'][mode]:
+                print(f'Skipping {fitting_exp_name}... (not fitted)')
+                continue
+
+            fit_log_path = logs_lookup['fitting_phase'][mode][fitting_exp_name]
+
+            # Run accuracy evaluations for this object.
+            print(f'Evaluating min-force grasping: {fitting_exp_name}')
+            fit_logger = ActiveExperimentLogger(fit_log_path, use_latents=True)
+            val_dataset_fname = f'fit_grasps_{geo_type}_object{ox}.pkl'
+            val_dataset_path = os.path.join(
+                DATA_ROOT, exp_args.dataset_name,
+                'grasps', 'fitting_phase', val_dataset_fname
+            )
+            get_pf_task_performance(fit_logger, val_dataset_path)
+
 
 def run_training_phase(args):
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
@@ -217,7 +290,7 @@ def run_training_phase(args):
         training_args.exp_name = f'grasp_{exp_args.exp_name}_train'
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
-        training_args.n_epochs = 200
+        training_args.n_epochs = 100
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 32
         training_args.use_latents = False # NOTE: this is a workaround for pointnet + latents,
@@ -246,7 +319,52 @@ def run_training_phase(args):
         json.dump(logs_lookup, handle)
 
 
-# TODO: implement amortized flag here
+def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, max_pstable, min_dist_threshold, max_objects):
+    """
+    :param object_names: All potential objects to consider.
+    :param ignore_list: List of objects that are ungraspable.
+    :param phase: train or test.
+
+    Return list of (ox, object_name) for all valid objects.
+    """
+    valid_objects = []
+    for ox, object_name in enumerate(object_names):
+        if ox in ignore_list:
+            continue
+        val_dataset_fname = f'fit_grasps_{phase}_geo_object{ox}.pkl'
+        val_dataset_path = os.path.join(
+            DATA_ROOT, dataset_name,
+            'grasps', 'fitting_phase', val_dataset_fname
+        )
+        if not os.path.exists(val_dataset_path):
+            continue
+        with open(val_dataset_path, 'rb') as handle:
+            data = pickle.load(handle)
+
+        all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
+        dists_to_closest = []
+        for gx, midpoint in enumerate(all_midpoints):
+            other_points = np.concatenate(
+                [all_midpoints[:gx,:], all_midpoints[gx+1:,:]],
+                axis=0
+            )
+            dists = np.linalg.norm(midpoint - other_points, axis=1)
+            dists_to_closest.append(np.min(dists))
+
+        avg_min_dist = np.mean(dists_to_closest)
+        p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+        
+        if avg_min_dist < min_dist_threshold:
+            continue
+        if p_stable < min_pstable or p_stable > max_pstable:
+            continue
+
+        valid_objects.append((ox, object_name))
+        print(f'{object_name} in range ({min_pstable}, {max_pstable}) ({p_stable})')
+
+    return valid_objects[:max_objects]
+
+
 def run_testing_phase(args):
     # Create log_group files.
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
@@ -299,33 +417,19 @@ def run_testing_phase(args):
             }
         }
     }
+    min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.02
 
-    n_found = 0
-    p_stable_low, p_stable_high = 0.05, 1.0
-    print('train_objects_fname', train_objects_fname)
-    for ox, object_name in enumerate(train_objects['object_data']['object_names']):
-        #import IPython; IPython.embed()
-        # break
-        if ox > 99:
-            break
-        if ox in TRAIN_IGNORE: continue
-        # TO REMOVE. (2 lines)
-        val_dataset_fname = f'fit_grasps_train_geo_object{ox}.pkl'
-        # if not os.path.exists(val_dataset_fname):
-        #    print('Skipping')
-        #    break
-
-        #p_stable = 1
-        val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
-        with open(val_dataset_path, 'rb') as handle:
-            data = pickle.load(handle)
-            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-            if p_stable < p_stable_low or p_stable > p_stable_high:
-                continue
-            n_found += 1
-        #n_found += 1
-
-        print(f'{object_name} in range ({p_stable_low}, {p_stable_high}) ({p_stable})')
+    valid_train_objects = filter_objects(
+        object_names=train_objects['object_data']['object_names'],
+        ignore_list=TRAIN_IGNORE,
+        phase='train',
+        dataset_name=exp_args.dataset_name,
+        min_pstable=min_pstable,
+        max_pstable=max_pstable,
+        min_dist_threshold=min_dist,
+        max_objects=250
+    )
+    for ox, object_name in valid_train_objects:
 
         if object_name not in logs_lookup_by_object['train_geo']['random']:
             logs_lookup_by_object['train_geo']['random'][object_name] = []
@@ -340,7 +444,6 @@ def run_testing_phase(args):
 
             logs_lookup_by_object['train_geo']['random']['all'].append(random_log_fname)
             logs_lookup_by_object['train_geo']['random'][object_name].append(random_log_fname)
-
 
         constrained_random_log_key = f'grasp_{exp_args.exp_name}_fit_constrained_random_train_geo_object{ox}'
         if constrained_random_log_key in logs_lookup['fitting_phase']['constrained_random']:
@@ -357,25 +460,19 @@ def run_testing_phase(args):
             logs_lookup_by_object['train_geo']['bald']['all'].append(bald_log_fname)
             logs_lookup_by_object['train_geo']['bald'][object_name].append(bald_log_fname)
 
+    print(f'{len(valid_train_objects)} train geo objects included.')
 
-    print(f'{n_found} train geo objects included.')
-    n_found = 0
-    for ox, object_name in enumerate(test_objects['object_data']['object_names']):
-        if ox > 99: 
-            break
-        if ox in TEST_IGNORE: continue
-        #p_stable = 1
-        val_dataset_fname = f'fit_grasps_test_geo_object{ox}.pkl'
-        val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
-
-        with open(val_dataset_path, 'rb') as handle:
-            data = pickle.load(handle)
-            # p_stable = np.mean(data['grasp_data']['labels'])
-            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-            if p_stable < p_stable_low or p_stable > p_stable_high:
-                continue
-            n_found += 1
-        #n_found += 1
+    valid_test_objects = filter_objects(
+        object_names=test_objects['object_data']['object_names'],
+        ignore_list=TEST_IGNORE,
+        phase='test',
+        dataset_name=exp_args.dataset_name,
+        min_pstable=min_pstable,
+        max_pstable=max_pstable,
+        min_dist_threshold=min_dist,
+        max_objects=250
+    )
+    for ox, object_name in valid_test_objects:
 
         if object_name not in logs_lookup_by_object['test_geo']['random']:
             logs_lookup_by_object['test_geo']['random'][object_name] = []
@@ -396,41 +493,49 @@ def run_testing_phase(args):
         if constrained_random_log_key in logs_lookup['fitting_phase']['constrained_random']:
             constrained_random_log_fname = logs_lookup['fitting_phase']['constrained_random'][
                 constrained_random_log_key]
-
             logs_lookup_by_object['test_geo']['constrained_random']['all'].append(constrained_random_log_fname)
             logs_lookup_by_object['test_geo']['constrained_random'][object_name].append(constrained_random_log_fname)
 
         bald_log_key = f'grasp_{args.exp_name}_fit_bald_test_geo_object{ox}'
         if 'bald' in logs_lookup['fitting_phase'] and bald_log_key in logs_lookup['fitting_phase']['bald']:
             bald_log_fname = logs_lookup['fitting_phase']['bald'][bald_log_key]
-
             logs_lookup_by_object['test_geo']['bald']['all'].append(bald_log_fname)
             logs_lookup_by_object['test_geo']['bald'][object_name].append(bald_log_fname)
 
-            # TO REMVOE (2 lines)
-            # fit_logger = ActiveExperimentLogger(bald_log_fname, use_latents=True) 
-            # get_pf_validation_accuracy(fit_logger, val_dataset_path)
-    print(f'{n_found} test geo objects included.')
+    print(f'{len(valid_test_objects)} test geo objects included.')
 
     for obj_name, loggers in logs_lookup_by_object['train_geo']['random'].items():
         all_train_loggers = {
-            f'{obj_name}_traingeo_random': [ActiveExperimentLogger(exp_path=name, use_latents=True) for name in
-                                            loggers],
-            f'{obj_name}_traingeo_bald': [ActiveExperimentLogger(exp_path=name, use_latents=True) for name in
-                                          logs_lookup_by_object['train_geo']['bald'][obj_name]],
-            f'{obj_name}_traingeo_crandom': [ActiveExperimentLogger(exp_path=name, use_latents=True) for name in
-                                             logs_lookup_by_object['train_geo']['constrained_random'][obj_name]]
+            f'{obj_name}_traingeo_random': [
+                ActiveExperimentLogger(exp_path=name, use_latents=True)
+                for name in loggers
+            ],
+            f'{obj_name}_traingeo_bald': [
+                ActiveExperimentLogger(exp_path=name, use_latents=True) 
+                    for name in logs_lookup_by_object['train_geo']['bald'][obj_name]
+            ],
+            f'{obj_name}_traingeo_crandom': [
+                ActiveExperimentLogger(exp_path=name, use_latents=True) 
+                    for name in logs_lookup_by_object['train_geo']['constrained_random'][obj_name]
+            ]
         }
         fig_path = os.path.join(exp_path, 'figures', f'traingeo_{obj_name}.png')
         plot_val_loss(all_train_loggers, fig_path)
 
     for obj_name, loggers in logs_lookup_by_object['test_geo']['random'].items():
         all_test_loggers = {
-            f'{obj_name}_testgeo_random': [ActiveExperimentLogger(exp_path=name, use_latents=True) for name in loggers],
-            f'{obj_name}_testgeo_bald': [ActiveExperimentLogger(exp_path=name, use_latents=True) for name in
-                                         logs_lookup_by_object['test_geo']['bald'][obj_name]],
-            f'{obj_name}_testgeo_crandom': [ActiveExperimentLogger(exp_path=name, use_latents=True) for name in
-                                            logs_lookup_by_object['test_geo']['constrained_random'][obj_name]]
+            f'{obj_name}_testgeo_random': [
+                ActiveExperimentLogger(exp_path=name, use_latents=True) 
+                    for name in loggers
+            ],
+            f'{obj_name}_testgeo_bald': [
+                ActiveExperimentLogger(exp_path=name, use_latents=True) 
+                    for name in logs_lookup_by_object['test_geo']['bald'][obj_name]
+            ],
+            f'{obj_name}_testgeo_crandom': [
+                ActiveExperimentLogger(exp_path=name, use_latents=True) 
+                    for name in logs_lookup_by_object['test_geo']['constrained_random'][obj_name]
+            ]
         }
         fig_path = os.path.join(exp_path, 'figures', f'testgeo_{obj_name}.png')
         plot_val_loss(all_test_loggers, fig_path)
@@ -438,7 +543,7 @@ def run_testing_phase(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--phase', required=True, choices=['create', 'training', 'fitting', 'testing'])
+    parser.add_argument('--phase', required=True, choices=['create', 'training', 'fitting', 'testing', 'task-eval'])
     parser.add_argument('--dataset-name', type=str, default='')
     parser.add_argument('--exp-name', required=True, type=str)
     parser.add_argument('--strategy', type=str, choices=['bald', 'random'], default='random')
@@ -454,3 +559,5 @@ if __name__ == '__main__':
         run_fitting_phase(args)
     elif args.phase == 'testing':
         run_testing_phase(args)
+    elif args.phase == 'task-eval':
+        run_task_eval_phase(args)

@@ -13,6 +13,13 @@ from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_colla
 from learning.models.grasp_np.grasp_neural_process import CustomGraspNeuralProcess
 
 
+def check_to_cuda(tensor_list):
+    if torch.cuda.is_available():
+        return [tensor.cuda() for tensor in tensor_list]
+    else:
+        return tensor_list
+
+
 def get_accuracy(y_probs, target_ys, test=False, save=False):
     assert (y_probs.shape == target_ys.shape)
     if test == True:
@@ -65,20 +72,21 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
         epoch_loss, train_probs, train_targets = 0, [], []
         model.train()
         for bx, (context_data, target_data, meshes) in enumerate(train_dataloader):
-            c_grasp_geoms, c_midpoints, c_labels = context_data
-            t_grasp_geoms, t_midpoints, t_labels = target_data
+            c_grasp_geoms, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
+            t_grasp_geoms, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
             if torch.cuda.is_available():
-                c_grasp_geoms, c_midpoints, c_labels = c_grasp_geoms.cuda(), c_midpoints.cuda(), c_labels.cuda()
-                t_grasp_geoms, t_midpoints, t_labels = t_grasp_geoms.cuda(), t_midpoints.cuda(), t_labels.cuda()
                 meshes = meshes.cuda()
-            optimizer.zero_grad()
 
-            y_probs, q_z = model.forward((c_grasp_geoms, c_midpoints, c_labels), (t_grasp_geoms, t_midpoints), meshes)
+            optimizer.zero_grad()
+            y_probs, q_z = model.forward(
+                (c_grasp_geoms, c_midpoints, c_forces, c_labels),
+                (t_grasp_geoms, t_midpoints, t_forces),
+                meshes
+            )
             y_probs = y_probs.squeeze()
 
             loss, bce_loss, kld_loss = get_loss(y_probs, t_labels, q_z, alpha=ep)
             if bx == 0:
-                # print(q_z.loc[0:5,...], q_z.scale[0:5,...])
                 print(f'Loss: {loss.item()}\tBCE: {bce_loss}\tKLD: {kld_loss}')
 
             loss.backward()
@@ -89,21 +97,27 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
             train_targets.append(t_labels.flatten())
 
         epoch_loss /= len(train_dataloader.dataset)
-        train_acc = get_accuracy(torch.cat(train_probs).flatten(), torch.cat(train_targets).flatten())
+        train_acc = get_accuracy(
+            torch.cat(train_probs).flatten(),
+            torch.cat(train_targets).flatten()
+        )
         print(f'Train Loss: {epoch_loss}\tTrain Acc: {train_acc}')
 
         model.eval()
+        means = []
         val_loss, val_probs, val_targets = 0, [], []
         with torch.no_grad():
             for bx, (context_data, target_data, meshes) in enumerate(val_dataloader):
-                c_grasp_geoms, c_midpoints, c_labels = context_data
-                t_grasp_geoms, t_midpoints, t_labels = target_data
+                c_grasp_geoms, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
+                t_grasp_geoms, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
                 if torch.cuda.is_available():
-                    c_grasp_geoms, c_midpoints, c_labels = c_grasp_geoms.cuda(), c_midpoints.cuda(), c_labels.cuda()
-                    t_grasp_geoms, t_midpoints, t_labels = t_grasp_geoms.cuda(), t_midpoints.cuda(), t_labels.cuda()
                     meshes = meshes.cuda()
-                y_probs, q_z = model.forward((c_grasp_geoms, c_midpoints, c_labels), (t_grasp_geoms, t_midpoints),
-                                             meshes)
+                y_probs, q_z = model.forward(
+                    (c_grasp_geoms, c_midpoints, c_forces, c_labels),
+                    (t_grasp_geoms, t_midpoints, t_forces),
+                    meshes
+                )
+                means.append(q_z.loc)
                 y_probs = y_probs.squeeze()
                 val_loss += get_loss(y_probs, t_labels, q_z)[0].item()
 
@@ -111,13 +125,19 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                 val_targets.append(t_labels.flatten())
 
             val_loss /= len(val_dataloader.dataset)
-            val_acc = get_accuracy(torch.cat(val_probs), torch.cat(val_targets), test=True, save=True)
+            val_acc = get_accuracy(
+                torch.cat(val_probs),
+                torch.cat(val_targets),
+                test=True, save=True
+            )
             print(f'Val Loss: {val_loss}\tVal Acc: {val_acc}')
 
             if val_loss < best_loss:
                 best_loss = val_loss
                 best_weights = copy.deepcopy(model.state_dict())
                 print('New best loss: ', val_loss)
+        # if val_acc > 0.9:
+        #     import IPython; IPython.embed()
 
     model.load_state_dict(best_weights)
     return model
@@ -162,11 +182,12 @@ def run(args):
     )
 
     # train model
-    model = train(train_dataloader=train_dataloader,
-                  val_dataloader=val_dataloader,
-                  model=model,
-                  n_epochs=args.n_epochs
-                  )
+    model = train(
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        model=model,
+        n_epochs=args.n_epochs
+    )
 
     # save model
     logger.save_dataset(dataset=train_dataset, tx=0)

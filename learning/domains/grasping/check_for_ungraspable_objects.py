@@ -33,7 +33,7 @@ def check_grasp_gen(objects_fname, object_ix, phase):
     # print(f'Grasping {phase} object {object_ix}: {object_name}...')
     # Sample random grasps with labels.
     try:
-        with time_limit(5):
+        with time_limit(2):
             sample_grasp_X(graspable_body, property_vector, 100)
     except TimeoutException:
         print(f'{phase},{object_ix}')

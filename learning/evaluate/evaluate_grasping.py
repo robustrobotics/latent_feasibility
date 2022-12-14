@@ -69,12 +69,12 @@ def get_validation_metrics(logger, val_dataset_fname):
         'Accuracy': accuracy_score,
         'Precision': precision_score,
         'Recall': recall_score
-    } 
+    }
 
     metrics_val = {}
     for name, fn in metrics_fn.items():
         metrics_val[name] = fn(labels, predictions)
-    
+
     with open(logger.get_figure_path('metrics.json'), 'w') as handle:
         json.dump(metrics_val, handle)
     print(metrics_val)
@@ -120,7 +120,7 @@ def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_s
                                          batch_size=16,
                                          shuffle=False,
                                          n_dataloaders=1)
-    
+
     latent_samples = torch.Tensor(particles)
     ensemble.eval()
     for set_of_batches in dataloader:
@@ -129,7 +129,7 @@ def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_s
         if torch.cuda.is_available():
             grasps = grasps.cuda()
             object_ids = object_ids.cuda()
-            
+
         with torch.no_grad():
             # Sample particles and ensembles models to use to speed up evaluation. Might hurt performance.
             ensemble_ix = np.random.choice(np.arange(ensemble.ensemble.n_models))
@@ -171,20 +171,23 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
     latent_samples = torch.Tensor(particles)
     gnp.eval()
     for (_, target_data, meshes) in dataloader:
-        t_grasp_geoms, t_midpoints, t_labels = target_data
+        t_grasp_geoms, t_midpoints, t_forces, t_labels = target_data
 
         # TODO: Currently there are too many grasps (500 requires too much memory).
         # TODO: Implement better way to batch a lot of evaluation grasps.
         t_grasp_geoms = t_grasp_geoms[:, :100, :, :]
         t_midpoints = t_midpoints[:, :100, :]
+        t_forces = t_forces[:, :100]
         t_labels = t_labels[:, :100].squeeze()
 
         if torch.cuda.is_available():
             meshes = meshes.cuda()
             t_grasp_geoms = t_grasp_geoms.cuda()
             t_midpoints = t_midpoints.cuda()
+            t_forces = t_forces.cuda()
         t_grasp_geoms = t_grasp_geoms.expand(n_particle_samples, -1, -1, -1)
         t_midpoints = t_midpoints.expand(n_particle_samples, -1, -1)
+        t_forces = t_forces.expand(n_particle_samples, -1)
         
         # Sample particles and ensembles models to use to speed up evaluation. Might hurt performance.
         latents_ix = np.arange(latent_samples.shape[0])
@@ -195,7 +198,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         if torch.cuda.is_available():
             latents = latents.cuda()
         pred = gnp.conditional_forward(
-            target_xs = (t_grasp_geoms, t_midpoints),
+            target_xs = (t_grasp_geoms, t_midpoints, t_forces),
             meshes=meshes,
             zs=latents
         ).squeeze().cpu().detach()
@@ -206,65 +209,76 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
 
 def get_pf_task_performance(logger, fname):
+    """ 
+    Perform minimum force evaluation for a specific object.
+    :param logger: Logger object for the fitted object.
+    :param fname: Test dataset for the object of interest. Contains pool of samples.
+    Note this only works with GNP models.
+    """
+
     with open(fname, 'rb') as handle:
         val_grasp_data = pickle.load(handle)
-        grasps = val_grasp_data['grasp_data']['grasps']
+
+    grasp_forces = val_grasp_data['grasp_data']['grasp_forces']
+    grasp_forces = list(grasp_forces.values())[0]
+
     regrets = []
     eval_range = range(0, logger.args.max_acquisitions, 1)
     for tx in eval_range:
         print('Eval timestep, ', tx)
-        ensemble = logger.get_ensemble(tx)
-        if torch.cuda.is_available():
-            ensemble = ensemble.cuda()
+
         particles = logger.load_particles(tx)
 
-        sampling_dist = ParticleDistribution(particles.particles, particles.weights/np.sum(particles.weights))
-        resampled_parts = sample_particle_distribution(sampling_dist, num_samples=100)
-        probs, labels = get_predictions_with_particles(resampled_parts, val_grasp_data, ensemble, n_particle_samples=100)
+        # This is necessary if we're using a weighted particle filter.
+        sampling_dist = ParticleDistribution(
+            particles.particles,
+            particles.weights/np.sum(particles.weights)
+        )
+        resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
+        gnp = logger.get_neural_process(tx)
+        if torch.cuda.is_available():
+            gnp = gnp.cuda()
+        probs, labels = get_gnp_predictions_with_particles(
+            resampled_parts,
+            val_grasp_data,
+            gnp,
+            n_particle_samples=32
+        )
         probs = probs.cpu().numpy()
         labels = labels.cpu().numpy()
-        
-        neg_reward = 0.
 
-        all_rewards = []
-        exp_rewards = []
+        max_force = 20
+        neg_reward = -max_force
 
-        max_reward = -1
-        max_exp_reward = -1
-        max_achieved_reward = -1
-        #import IPython
-        #IPython.embed()
+        max_reward = neg_reward
+        max_exp_reward = neg_reward
+        max_achieved_reward = neg_reward
+
         print(f'# Stable: {np.sum(labels)}/{len(labels)}')
-        for grasp, prob, label in zip(grasps, probs, labels):
-            finger1, finger2 = grasp[0][0:3], grasp[1][0:3]
-            midpoint = (finger1+finger2)/2.0
-            
-            if label == 1:
-                reward = np.linalg.norm(midpoint)
-            else:
-                reward = neg_reward
+        for force, prob, label in zip(grasp_forces, probs, labels):
+            pos_reward = (max_force - force)
+            exp_reward = neg_reward * (1-prob) + prob*pos_reward
+            true_reward = pos_reward if label else neg_reward
 
-            exp_reward = neg_reward * (1-prob) + prob*reward
-        
-            if (reward > max_reward) and (label == 1):
-                max_reward = reward
+            if (true_reward > max_reward) and (label == 1):
+                max_reward = true_reward
 
-            if (exp_reward > max_exp_reward):
+            if exp_reward > max_exp_reward:
                 max_exp_reward = exp_reward
-                max_achieved_reward = reward
-        
+                max_achieved_reward = true_reward
+
+            # if label == 1:
+            #     print(f'F: {force}\tProb: {prob}\tExpR: {exp_reward}')
+
         if max_achieved_reward == neg_reward:
             regret = 1
         else:
-            regret = (max_reward - max_achieved_reward)/max_reward
+            regret = (max_reward - max_achieved_reward)/15
         regrets.append(regret)
         print(f'Max Reward: {max_reward}\tReward: {max_achieved_reward}\tRegret: {regret}')
-        
-        with open(logger.get_figure_path('regrets.pkl'), 'wb') as handle:
-            pickle.dump(regrets, handle)
-        # import IPython
-        # IPython.embed()
 
+        with open(logger.get_figure_path(f'regrets_{neg_reward}.pkl'), 'wb') as handle:
+            pickle.dump(regrets, handle)
 
 def get_pf_validation_accuracy(logger, fname, amortize):
     accs, precisions, recalls, f1s, balanced_accs, av_precs = [], [], [], [], [], []
@@ -314,7 +328,7 @@ def get_pf_validation_accuracy(logger, fname, amortize):
             if str_t not in thresholded_recalls:
                 thresholded_recalls[str_t] = []
             thresholded_recalls[str_t].append(rec)
-        
+
         preds = (probs > 0.5).float()
         av_prec = average_precision_score(labels, probs)
         acc = accuracy_score(labels, preds)
@@ -324,7 +338,7 @@ def get_pf_validation_accuracy(logger, fname, amortize):
         f1 = f1_score(labels, preds)
         b_acc = balanced_accuracy_score(labels, preds)
 
-        print(f'Acc: {acc}\tBalanced Acc: {b_acc}\tPrecision: {prec}\tRecall: {rec}\tF1: {f1}')
+        print(f'Acc: {acc}\tAverage Prec: {av_prec}\tPrecision: {prec}\tRecall: {rec}\tF1: {f1}')
         accs.append(acc)
         av_precs.append(av_prec)
         precisions.append(prec)
@@ -332,7 +346,7 @@ def get_pf_validation_accuracy(logger, fname, amortize):
         confusions.append(confs)
         f1s.append(f1)
         balanced_accs.append(b_acc)
-    
+
     with open(logger.get_figure_path('val_accuracies.pkl'), 'wb') as handle:
         pickle.dump(accs, handle)
     with open(logger.get_figure_path('val_precisions.pkl'), 'wb') as handle:
