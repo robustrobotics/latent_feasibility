@@ -20,6 +20,7 @@ from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.grasp_data import GraspDataset, GraspParallelDataLoader
 from learning.domains.grasping.explore_dataset import visualize_grasp_dataset
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
+from learning.models.grasp_np.train_grasp_np import check_to_cuda
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief
 
 
@@ -196,22 +197,17 @@ def get_gnp_predictions(train_data, val_data, gnp):
     val_probs, val_targets = [], []
     with torch.no_grad():
         for _, (context_data, target_data, meshes) in enumerate(val_dataloader):
-            c_grasp_geoms, c_midpoints, c_labels = context_data
-            t_grasp_geoms, t_midpoints, t_labels = target_data
+            c_grasp_geoms, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
+            t_grasp_geoms, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
             if torch.cuda.is_available():
-                c_grasp_geoms, c_midpoints, c_labels = (
-                    c_grasp_geoms.cuda(), c_midpoints.cuda(), c_labels.cuda()
-                )
-                t_grasp_geoms, t_midpoints, t_labels = (
-                    t_grasp_geoms.cuda(), t_midpoints.cuda(), t_labels.cuda()
-                )
                 meshes = meshes.cuda()
             y_probs, q_z = gnp.forward(
-                (c_grasp_geoms, c_midpoints, c_labels),
-                (t_grasp_geoms, t_midpoints),
-                meshes
+                (c_grasp_geoms, c_midpoints, c_forces, c_labels),
+                (t_grasp_geoms, t_midpoints, t_forces),
+                meshes,
+                decoder_ix=-1
             )
-            y_probs = y_probs.squeeze()
+            y_probs = y_probs.mean(dim=-1).squeeze()
 
             val_probs.append(y_probs.flatten())
             val_targets.append(t_labels.flatten())

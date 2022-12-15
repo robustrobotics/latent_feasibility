@@ -589,7 +589,7 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
     """
     A ParticleBelief that is compatible with a GraspNeuralProcess object.
     """
-    def get_particle_likelihoods(self, particles, observation, batch_size=1000):
+    def get_particle_likelihoods(self, particles, observation, batch_size=50):
         """
         Compute the likelihood of an obervation for each particle.
         :param particles: NxD matrix of particles.
@@ -632,7 +632,7 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
             t_midpoints = t_midpoints.expand(batch_size, -1, -1)
             t_forces = t_forces.expand(batch_size, -1)
 
-            for ix in range(0, latent_samples.shape[0]//batch_size):
+            for ix in range(0, int(np.ceil(latent_samples.shape[0]/batch_size))):
                 preds = self.likelihood.conditional_forward(
                     target_xs = (t_grasp_geoms, t_midpoints, t_forces),
                     meshes=meshes,

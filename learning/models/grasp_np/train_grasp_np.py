@@ -81,7 +81,8 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
             y_probs, q_z = model.forward(
                 (c_grasp_geoms, c_midpoints, c_forces, c_labels),
                 (t_grasp_geoms, t_midpoints, t_forces),
-                meshes
+                meshes,
+                decoder_ix=np.random.randint(0, model.n_decoders)
             )
             y_probs = y_probs.squeeze()
 
@@ -115,10 +116,11 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                 y_probs, q_z = model.forward(
                     (c_grasp_geoms, c_midpoints, c_forces, c_labels),
                     (t_grasp_geoms, t_midpoints, t_forces),
-                    meshes
+                    meshes,
+                    decoder_ix=-1
                 )
                 means.append(q_z.loc)
-                y_probs = y_probs.squeeze()
+                y_probs = y_probs.mean(dim=-1).squeeze()
                 val_loss += get_loss(y_probs, t_labels, q_z)[0].item()
 
                 val_probs.append(y_probs.flatten())
@@ -156,7 +158,10 @@ def run(args):
     logger = ActiveExperimentLogger.setup_experiment_directory(args)
 
     # build the model # args.5
-    model = CustomGraspNeuralProcess(d_latents=args.d_latents)
+    model = CustomGraspNeuralProcess(
+        d_latents=args.d_latents,
+        n_decoders=args.n_decoders
+    )
 
     # load datasets
     with open(args.train_dataset_fname, 'rb') as handle:
@@ -195,7 +200,7 @@ def run(args):
     logger.save_neural_process(gnp=model, tx=0, symlink_tx0=False)
 
     return logger.exp_path
-    
+
 
 if __name__ == '__main__':
 
@@ -206,6 +211,7 @@ if __name__ == '__main__':
     parser.add_argument('--d-latents', type=int, required=True)
     parser.add_argument('--n-epochs', type=int, required=True)
     parser.add_argument('--batch-size', type=int, required=True)
+    parser.add_argument('--n-decoders', type=int, required=True)
     args = parser.parse_args()
     args.use_latents = False # NOTE: this is for the specific workaround for block stacking that assumes
                              # a different NN architecture

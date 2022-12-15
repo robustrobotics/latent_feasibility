@@ -2,6 +2,8 @@ import argparse
 import numpy as np
 import torch
 
+from block_utils import ParticleDistribution
+from filter_utils import sample_particle_distribution
 from learning.active import acquire
 from learning.models import latent_ensemble
 from learning.active.utils import ActiveExperimentLogger
@@ -36,16 +38,25 @@ def particle_bald(predictions, weights, eps=1e-5):
 def find_informative_tower(pf, object_set, logger, args):
     data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
 
+    # This is necessary if we're using a weighted particle filter.
+    sampling_dist = ParticleDistribution(
+        pf.particles.particles,
+        pf.particles.weights/np.sum(pf.particles.weights)
+    )
+    resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
+
     all_grasps = []
     all_preds = []
     for ix in range(0, args.n_samples):
         grasp_data = data_sampler_fn(1)
-        preds = pf.get_particle_likelihoods(pf.particles.particles, grasp_data)
+        # preds = pf.get_particle_likelihoods(pf.particles.particles, grasp_data)
+        preds = pf.get_particle_likelihoods(resampled_parts, grasp_data)
         all_preds.append(preds)
         all_grasps.append(grasp_data)
 
     pred_vec = torch.Tensor(np.stack(all_preds))
-    scores = particle_bald(pred_vec, pf.particles.weights)
+    # scores = particle_bald(pred_vec, pf.particles.weights)
+    scores = particle_bald(pred_vec, np.ones_like(pf.particles.weights)[:50])
     print('Scores:', scores)
     acquire_ix = np.argsort(scores)[::-1][0]
 

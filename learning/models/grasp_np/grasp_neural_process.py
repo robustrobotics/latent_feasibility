@@ -2,23 +2,35 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from learning.models.pointnet import PointNetEncoder, PointNetRegressor, PointNetClassifier, PointNetPerPointClassifier
+from learning.models.ensemble import Ensemble
+from learning.models.pointnet import (
+    PointNetRegressor,
+    PointNetClassifier
+)
 
 
 class CustomGraspNeuralProcess(nn.Module):
 
-    def __init__(self, d_latents):
+    def __init__(self, d_latents, n_decoders):
         super(CustomGraspNeuralProcess, self).__init__()
         d_mesh = 3
         n_out_geom = 1
         self.encoder = CustomGNPEncoder(d_latents=d_latents, d_mesh=d_mesh)
-        self.decoder = CustomGNPDecoder(n_in=3+1+n_out_geom+d_latents+d_mesh, d_latents=d_latents)
+        self.decoders = Ensemble(
+            base_model=CustomGNPDecoder,
+            base_args={
+                'n_in': 3+1+n_out_geom+d_latents+d_mesh,
+                'd_latents': d_latents
+            },
+            n_models=n_decoders
+        )
         self.mesh_encoder = PointNetRegressor(n_in=3, n_out=d_mesh)
         self.grasp_geom_encoder = PointNetRegressor(n_in=3, n_out=n_out_geom)
 
         self.d_latents = d_latents
+        self.n_decoders = n_decoders
 
-    def forward(self, contexts, target_xs, meshes):
+    def forward(self, contexts, target_xs, meshes, decoder_ix=-1):
         mesh_enc = self.mesh_encoder(meshes)
         # mesh_enc = torch.zeros_like(mesh_enc)
 
@@ -43,7 +55,13 @@ class CustomGraspNeuralProcess(nn.Module):
 
         geoms = target_geoms.view(-1, 3, n_pts)
         geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
-        y_pred = self.decoder(geoms_enc, target_mids, target_forces, z, mesh_enc)
+
+        decoder_input = (geoms_enc, target_mids, target_forces, z, mesh_enc)
+        if decoder_ix == -1:
+            y_pred = self.decoders(decoder_input)
+        else:
+            y_pred = self.decoders.models[decoder_ix](decoder_input)
+
         return y_pred, q_z
 
     def conditional_forward(self, target_xs, meshes, zs):
@@ -55,8 +73,11 @@ class CustomGraspNeuralProcess(nn.Module):
         geoms = target_geoms.reshape(-1, 3, n_pts)
         geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
 
-        y_pred = self.decoder(geoms_enc, target_mids, target_forces, zs, mesh_enc)
-        return y_pred
+        y_pred = self.decoders(
+            (geoms_enc, target_mids, target_forces, zs, mesh_enc)
+        )
+        return y_pred.mean(dim=-1)
+
 
 class CustomGNPDecoder(nn.Module):
 
@@ -66,13 +87,15 @@ class CustomGNPDecoder(nn.Module):
         self.n_in = n_in
         self.d_latents = d_latents
 
-    def forward(self, target_geoms, target_midpoints, target_forces, zs, meshes):
+    def forward(self, x):
         """
         :param target geoms: (batch_size, n_grasps, 3, n_points)
         :param target_midpoint: (batch_size, n_grasps, 3)
         :param target_forces: (batch_size, n_grasps)
         :param zs: (batch_size, d_latents)
         """
+        target_geoms, target_midpoints, target_forces, zs, meshes = x
+
         n_batch, n_grasp, n_feats = target_geoms.shape
         zs_broadcast = zs[:, None, :].expand(n_batch, n_grasp, -1)
         # midpoints_broadcast = target_midpoints[:, :, :, None].expand(n_batch, n_grasp, 3, n_pts)

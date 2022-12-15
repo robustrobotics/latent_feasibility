@@ -128,7 +128,7 @@ def run_fitting_phase(args):
         with open(objects_fname, 'rb') as handle:
             fit_objects = pickle.load(handle)
 
-        min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.01
+        min_pstable, max_pstable, min_dist = 0.05, 0.25, 0.02
         valid_fit_objects = filter_objects(
             object_names=fit_objects['object_data']['object_names'],
             ignore_list=ignore,
@@ -294,9 +294,10 @@ def run_training_phase(args):
         training_args.exp_name = f'grasp_{exp_args.exp_name}_train'
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
-        training_args.n_epochs = 100
+        training_args.n_epochs = 20
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 32
+        training_args.n_decoders = 5
         training_args.use_latents = False # NOTE: this is a workaround for pointnet + latents,
                                           # GNPs DO USE LATENTS, but they are handled more
                                           # cleanly in the model specification and training
@@ -447,15 +448,14 @@ def run_fitting_eval(args):
             visualize_grasp_gnp_dataset(val_dataset_path, targets, figpath=figpath, prefix=f'_{mode}_targets')
             visualize_grasp_gnp_dataset(val_dataset_path, preds, figpath=figpath, prefix=f'_{mode}_preds')
 
-    
+
 
 def run_training_eval(args):
-    print('HERE')
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
     if not os.path.exists(exp_path):
         print(f'[ERROR] Experiment does not exist: {args.exp_name}')
         sys.exit()
-    
+
     args_path = os.path.join(exp_path, 'args.pkl')
     with open(args_path, 'rb') as handle:
         exp_args = pickle.load(handle)

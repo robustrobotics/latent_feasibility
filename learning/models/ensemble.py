@@ -11,7 +11,7 @@ class Ensemble(nn.Module):
     This class is designed to be used for active learning. It only needs
     to be initialized once outside of the active loop. Every time we want 
     new models, we only need to call reset().
-    
+
     To save an ensemble, save it as a regular PyTorch model. Only a single 
     file is needed for the whole ensemble.
 
@@ -33,7 +33,10 @@ class Ensemble(nn.Module):
 
     def reset(self):
         """ Initialize (or re-initialize) all the models in the ensemble."""
-        self.models = nn.ModuleList([self.base_model(**self.base_args) for _ in range(self.n_models)])
+        self.models = nn.ModuleList([
+            self.base_model(**self.base_args) 
+                for _ in range(self.n_models)
+        ])
 
     def forward(self, x):
         """ Return a prediction for each model in the ensemble.
@@ -41,13 +44,13 @@ class Ensemble(nn.Module):
         :return: (N, n_models), class prediction for each model.
         """
         preds = [self.models[ix].forward(x) for ix in range(self.n_models)]
-        return torch.cat(preds, dim=1)
+        return torch.cat(preds, dim=2)
 
 
 # Test creation of an ensemble.
 if __name__ == '__main__':
-    ensemble = Ensemble(base_model=MLP, 
-                        base_args={'n_hidden': 4, 'dropout': 0.}, 
+    ensemble = Ensemble(base_model=MLP,
+                        base_args={'n_hidden': 4, 'dropout': 0.},
                         n_models=5)
     # Try saving the model.
     torch.save(ensemble.state_dict(), 'scratch/mlp_ensemble.pt')
