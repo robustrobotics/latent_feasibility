@@ -24,7 +24,7 @@ def get_label(body, cand_grasp, weight):
 
 class PBLikelihood:
 
-    def __init__(self, object_name, n_samples, batch_size, n_processes=20):
+    def __init__(self, object_name, n_samples, batch_size, n_processes=24):
         self.object_name = object_name
         self.n_samples = n_samples
         self.batch_size = 25000

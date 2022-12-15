@@ -123,14 +123,15 @@ def run_fitting_phase(args):
         # if geo_type == 'train_geo':
         #     continue
 
-        for ox in range(min(n_objects, 25)):  # 100 (just to sanity check the results)
+        for ox in range(min(n_objects, 35)):  # 100 (just to sanity check the results)
             # Some geometries have trouble when considering IK (e.g., always close to table).
             # TODO: Make this more modular when we use constraints again.
             # if args.constrained and geo_type == 'test_geo' and ox in [15, 16, 17, 18, 19]:
             #     continue
             # if args.constrained and geo_type == 'train_geo' and (ox >= 85 and ox < 90):
             #     continue
-
+            if ox in ignore:
+                continue
 
             if args.constrained:
                 mode = f'constrained_{args.strategy}'
@@ -152,7 +153,8 @@ def run_fitting_phase(args):
                 data = pickle.load(handle)
                 p_stable = np.mean(list(data['grasp_data']['labels']))
                 if p_stable < 0.05 or p_stable > 0.3:
-                    continue
+                    pass
+                    # continue
 
 
             print('Fitting for p_stable:', p_stable)
@@ -166,7 +168,7 @@ def run_fitting_phase(args):
             fitting_args.ensemble_tx = 0
             fitting_args.eval_object_ix = ox
             fitting_args.strategy = args.strategy
-            fitting_args.n_particles =  1000
+            fitting_args.n_particles = 1000
 
             if args.debug:
                 fitting_args.likelihood = 'pb'
@@ -313,7 +315,7 @@ def run_testing_phase(args):
     }
 
     n_found = 0
-    p_stable_low, p_stable_high = 0.05, 0.25
+    p_stable_low, p_stable_high = 0.05, 1.05
     print('train_objects_fname', train_objects_fname)
     for ox, object_name in enumerate(train_objects['object_data']['object_names']):
         #import IPython; IPython.embed()
@@ -332,7 +334,7 @@ def run_testing_phase(args):
         val_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase', val_dataset_fname)
         with open(val_dataset_path, 'rb') as handle:
             data = pickle.load(handle)
-            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+            p_stable = np.mean(list(data['grasp_data']['labels'])[0])
             print(p_stable)
             if p_stable < p_stable_low or p_stable > p_stable_high:
                 continue

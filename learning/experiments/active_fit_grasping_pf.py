@@ -15,8 +15,7 @@ from learning.domains.grasping.active_utils import get_fit_object, sample_unlabe
     get_train_and_fit_objects
 from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.active.acquire import bald
-from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief, \
-    ParticleBelief
+from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
 
 
 def particle_bald(predictions, weights, eps=1e-5):
@@ -208,7 +207,24 @@ def run_particle_filter_fitting(args):
             resample=False,
             plot=False
         )
-        pf.particles = likelihood_model.init_particles(args.n_particles)
+        # set the particles to the right answer
+        correct_particle_dist = ParticleDistribution(
+            np.tile(pf.object_properties, (3, 1)), # add three to not any break any code that assmes more than one particle
+            np.ones(3))
+        likelihood_model.particle_distribution_from_graspable_vectors(correct_particle_dist.particles)
+        pf.particles = correct_particle_dist
+
+        # set particles to one parameter to see if we can converge on the right answer
+        # particled_param = 5
+        # init_particles = likelihood_model.init_particles(N=args.n_particles)
+        # from itertools import chain
+        # # for i in chain(range(particled_param), range(particled_param + 1, 5)):
+        # lower_dimension_particles = init_particles.particles
+        # for i in chain(range(particled_param, 5)):
+        #     lower_dimension_particles[:, i] = pf.object_properties[i]
+        # pf.particles = \
+        #     likelihood_model.particle_distribution_from_graspable_vectors(lower_dimension_particles, reinit=True)
+        # pf.particles = likelihood_model.init_particles(args.n_particles)
 
     # ----- Run particle filter loop -----
     particle_filter_loop(pf, object_set, logger, args.strategy, args)

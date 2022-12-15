@@ -68,7 +68,7 @@ def plot_val_loss(loggers, output_path):
     fig, axes = plt.subplots(1, sharex=False, figsize=(20,10))
     val_fname = 'val_accuracies.pkl'
     #val_fname = 'val_recalls_ 0.80.pkl'
-    val_fname = 'val_average_precisions.pkl'
+    # val_fname = 'val_average_precisions.pkl'
     #  = 'val_mean_squared_errors_prop_4.pkl'
     # val_fname = 'val_mean_squared_errors_aggregate_mean.pkl'
     # val_fname = 'val_precisions.pkl'
