@@ -7,7 +7,7 @@ from filter_utils import sample_particle_distribution
 from learning.active import acquire
 from learning.models import latent_ensemble
 from learning.active.utils import ActiveExperimentLogger
-from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, get_train_and_fit_objects
+from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data_fit, get_labels, get_train_and_fit_objects
 from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.active.acquire import bald
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
@@ -36,7 +36,7 @@ def particle_bald(predictions, weights, eps=1e-5):
     return bald
 
 def find_informative_tower(pf, object_set, logger, args):
-    data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
+    data_sampler_fn = lambda n: sample_unlabeled_data_fit(n_samples=n, object_set=object_set)
 
     # This is necessary if we're using a weighted particle filter.
     sampling_dist = ParticleDistribution(
@@ -74,7 +74,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
 
         # Choose a tower to build that includes the new block.
         if strategy == 'random':
-            data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
+            data_sampler_fn = lambda n: sample_unlabeled_data_fit(n_samples=n, object_set=object_set)
             grasp_dataset = data_sampler_fn(1)
         elif strategy == 'bald':
             grasp_dataset = find_informative_tower(pf, object_set, logger, args)

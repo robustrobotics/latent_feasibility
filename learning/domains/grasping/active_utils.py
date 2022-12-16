@@ -1,7 +1,9 @@
+import multiprocessing as mp
 import pickle
+import time
 
 from learning.active.utils import ActiveExperimentLogger
-from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector, sample_grasp_X
+from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector, sample_grasp_Xs
 from pb_robot.planners.antipodalGraspPlanner import GraspSampler, GraspStabilityChecker
 
 
@@ -30,35 +32,82 @@ def get_fit_object(object_set):
     return name, props, ix
 
 
-def sample_unlabeled_data(n_samples, object_set):
+def sample_unlabeled_data_train(n_samples_per_object, object_set, object_ixs):
+    """ Generate unlabeled grasps for all objects in the dataset. """
+    # Parallelize data generation.
+    tasks = []
+    for ox in object_ixs:
+        tasks.append((
+            n_samples_per_object,
+            object_set['object_names'][ox],
+            object_set['object_properties'][ox],
+            ox
+        ))
+    start = time.time()
+    pool = mp.Pool(processes=20)
+    all_grasp_data = pool.starmap(sample_unlabeled_data_object, tasks)
+    pool.close()
+    # print(f'Time: {time.time() - start}')
+
+    # Merge individual grasp datasets.
+    merged_grasp_data = all_grasp_data[0]
+    for grasp_data in all_grasp_data[1:]:
+        for k in grasp_data:
+            merged_grasp_data[k].extend(grasp_data[k])
+
+    unlabeled_dataset = {
+        'grasp_data': merged_grasp_data,
+        'object_data': object_set,
+        'metadata': {
+            'n_samples': n_samples_per_object,
+        }
+    }
+    return unlabeled_dataset
+
+
+def sample_unlabeled_data_fit(n_samples_per_object, object_set):
+    """ During the fitting phase, only generate data for the last object. """
     object_name, object_properties, object_ix = get_fit_object(object_set)
+
+    grasp_data = sample_unlabeled_data_object(
+        n_samples_per_object,
+        object_name,
+        object_properties,
+        object_ix
+    )
+    unlabeled_dataset = {
+        'grasp_data': grasp_data,
+        'object_data': object_set,
+        'metadata': {
+            'n_samples': n_samples_per_object,
+        }
+    }
+    return unlabeled_dataset
+
+def sample_unlabeled_data_object(n_samples, object_name, object_properties, object_ix):
+    """ Generate unlabeled grasps for a single object. """
     graspable_body = graspablebody_from_vector(object_name, object_properties)
 
     object_grasp_data, object_grasp_ids, object_grasp_forces, object_grasp_labels = [], [], [], []  
     raw_grasps = []
-    for nx in range(n_samples):
-        grasp, X = sample_grasp_X(graspable_body, object_properties, n_points_per_object=10000)
 
-        raw_grasps.append(grasp)
-        object_grasp_data.append(X)
-        object_grasp_ids.append(object_ix)
-        object_grasp_forces.append(grasp.force)
-        object_grasp_labels.append(0)
+    grasps_and_Xs = sample_grasp_Xs(graspable_body, object_properties, n_points_per_object=10000, n_grasps=n_samples)
 
-    unlabeled_dataset = {
-        'grasp_data': {
-            'raw_grasps': raw_grasps,
-            'grasps': object_grasp_data,
-            'forces': object_grasp_forces,
-            'object_ids': object_grasp_ids,
-            'labels': object_grasp_labels
-        },
-        'object_data': object_set,
-        'metadata': {
-            'n_samples': n_samples,
-        }
+    raw_grasps = [x[0] for x in grasps_and_Xs]
+    object_grasp_data = [x[1] for x in grasps_and_Xs]
+    object_grasp_ids = [object_ix]*n_samples
+    object_grasp_forces = [x[0].force for x in grasps_and_Xs]
+    object_grasp_labels = [0]*n_samples
+
+    grasp_data =  {
+        'raw_grasps': raw_grasps,
+        'grasps': object_grasp_data,
+        'forces': object_grasp_forces,
+        'object_ids': object_grasp_ids,
+        'labels': object_grasp_labels
     }
-    return unlabeled_dataset
+
+    return grasp_data
 
 
 def get_labels(grasp_dataset):

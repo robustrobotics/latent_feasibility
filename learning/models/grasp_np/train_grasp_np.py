@@ -130,7 +130,7 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
             val_acc = get_accuracy(
                 torch.cat(val_probs),
                 torch.cat(val_targets),
-                test=True, save=True
+                test=False, save=True
             )
             print(f'Val Loss: {val_loss}\tVal Acc: {val_acc}')
 

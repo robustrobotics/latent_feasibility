@@ -27,6 +27,52 @@ def graspablebody_from_vector(object_name, vector):
                                    friction=vector[4])
     return graspable_body
 
+def sample_grasp_Xs(graspable_body, property_vector, n_points_per_object, n_grasps):
+    all_grasps = []
+    grasp_sampler = GraspSampler(
+        graspable_body=graspable_body,
+        antipodal_tolerance=30,
+        show_pybullet=False
+    )
+    import time
+    for gx in range(n_grasps):
+        # Sample new point cloud for object.
+        mesh_points = np.array(
+            grasp_sampler.sim_client.mesh.sample(n_points_per_object, return_index=False),
+            dtype='float32'
+        )
+        mesh_points = np.hstack([
+            mesh_points,
+            np.ones((n_points_per_object, 1), dtype='float32')
+        ])
+        mesh_points = (grasp_sampler.sim_client.mesh_tform@(mesh_points.T)).T[:, 0:3]
+
+        # Sample grasp.
+        try:
+            force = np.random.uniform(5, 20)
+            grasp = grasp_sampler.sample_grasp(force=force, show_trimesh=False)
+        except Exception as e:
+            grasp_sampler.disconnect()
+            raise e
+
+        # Encode grasp as points.
+        grasp_points = (grasp.pb_point1, grasp.pb_point2, grasp.ee_relpose[0])
+
+        # Add grasp/object indicator features.
+        grasp_vectors = np.array(grasp_points, dtype='float32')
+        grasp_vectors = np.hstack([grasp_vectors, np.eye(3, dtype='float32')])
+        mesh_vectors = np.hstack([mesh_points, np.zeros((n_points_per_object, 3), dtype='float32')])
+
+        # Concatenate all relevant vectors (points, indicators, properties).
+        X = np.vstack([grasp_vectors, mesh_vectors])
+        props = np.broadcast_to(property_vector, (X.shape[0], len(property_vector)))
+        X = np.hstack([X, props])
+
+        all_grasps.append((grasp, X))
+
+    grasp_sampler.disconnect()
+    return all_grasps
+
 def sample_grasp_X(graspable_body, property_vector, n_points_per_object, grasp=None):
     # Sample new point cloud for object.
     sim_client = GraspSimulationClient(graspable_body, False)
