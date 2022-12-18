@@ -248,7 +248,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         t_grasp_geoms = t_grasp_geoms.expand(n_particle_samples, -1, -1, -1)
         t_midpoints = t_midpoints.expand(n_particle_samples, -1, -1)
         t_forces = t_forces.expand(n_particle_samples, -1)
-        
+
         # Sample particles and ensembles models to use to speed up evaluation. Might hurt performance.
         latents_ix = np.arange(latent_samples.shape[0])
         np.random.shuffle(latents_ix)

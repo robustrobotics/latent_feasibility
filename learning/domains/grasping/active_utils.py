@@ -1,3 +1,4 @@
+import copy
 import multiprocessing as mp
 import pickle
 import time
@@ -6,6 +7,57 @@ from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector, sample_grasp_Xs
 from pb_robot.planners.antipodalGraspPlanner import GraspSampler, GraspStabilityChecker
 
+
+def remove_grasps(grasp_dict, grasp_ixs):
+    """
+    :param grasp_dict: Dataset which to remove grasps from.
+    :param grasp_ixs: Dictionary specify which grasps to remove.
+        Of form {ox: [grasp_ixs]}
+    :return: New grasp_dict instance with removed grasps.
+    """
+    sorted_object_ixs = sorted(grasp_dict['grasp_data']['grasp_forces'].keys())
+    new_grasps_dict = {}
+    
+    for data_field in grasp_dict['grasp_data']:
+        if data_field == 'object_meshes':
+            continue
+        new_grasps_dict[data_field] = {}
+        for ox in range(0, len(sorted_object_ixs)):
+            object_ix = sorted_object_ixs[ox]
+            remove_ixs = grasp_ixs[ox, :]
+
+            grasp_data = grasp_dict['grasp_data'][data_field][object_ix]
+
+            remove_elements = [
+                grasp_data[gx] for gx in range(0, len(grasp_data)) \
+                    if gx in remove_ixs
+            ]
+            keep_elements = [
+                grasp_data[gx] for gx in range(0, len(grasp_data)) \
+                    if gx not in remove_ixs
+            ]
+
+            new_grasps_dict[data_field][object_ix] = remove_elements
+            grasp_dict['grasp_data'][data_field][object_ix] = keep_elements
+
+    return new_grasps_dict
+
+
+def add_grasps(grasp_dict, new_grasps):
+    """
+    :param grasp_dict:
+    :param new_grasps:
+    :return:
+    """
+    sorted_object_ixs = sorted(grasp_dict['grasp_data']['grasp_forces'].keys())
+
+    for data_field in grasp_dict['grasp_data']:
+        if data_field ==  'object_meshes':
+            continue
+        for ox in sorted_object_ixs:
+            grasp_dict['grasp_data'][data_field][ox].extend(
+                new_grasps[data_field][ox]
+            )
 
 def get_train_and_fit_objects(pretrained_ensemble_path, use_latents, fit_objects_fname, fit_object_ix):
     train_logger = ActiveExperimentLogger(exp_path=pretrained_ensemble_path)

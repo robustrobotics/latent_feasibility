@@ -358,7 +358,7 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
 
         avg_min_dist = np.mean(dists_to_closest)
         p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-        
+
         if avg_min_dist < min_dist_threshold:
             continue
         if p_stable < min_pstable or p_stable > max_pstable:
@@ -395,7 +395,7 @@ def run_fitting_eval(args):
 
     ignore_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'ignore.txt')
     TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(ignore_fname)
-    
+
     figpath = os.path.join(exp_path, 'figures', 'fitting-phase')
     combine_gnp_preds(figpath, [0, 5, 10, 15, 20], args.strategy)
     sys.exit()

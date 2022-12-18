@@ -64,19 +64,39 @@ class CustomGraspNeuralProcess(nn.Module):
 
         return y_pred, q_z
 
-    def conditional_forward(self, target_xs, meshes, zs):
+    def encoder_forward(self, contexts, meshes):
+        mesh_enc = self.mesh_encoder(meshes)
+
+        context_geoms, context_midpoints, context_forces, context_labels = contexts
+        n_batch, n_grasp, _, n_geom_pts = context_geoms.shape
+        geoms = context_geoms.view(-1, 3, n_geom_pts)
+        geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+
+        mu, sigma = self.encoder(
+            geoms_enc,
+            context_midpoints, context_forces, context_labels,
+            mesh_enc
+        )
+
+        # Sample via reparameterization trick.
+        q_z = torch.distributions.normal.Normal(mu, sigma)
+        return q_z
+
+    def conditional_forward(self, target_xs, meshes, zs, decoder_ix=-1):
         """ Forward function that specifies the latents (i.e., no encoder is used). """
         mesh_enc = self.mesh_encoder(meshes)
-        # mesh_enc = torch.zeros_like(mesh_enc)
+        
         target_geoms, target_mids, target_forces = target_xs
         n_batch, n_grasp, _, n_pts = target_geoms.shape
         geoms = target_geoms.reshape(-1, 3, n_pts)
         geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
 
-        y_pred = self.decoders(
-            (geoms_enc, target_mids, target_forces, zs, mesh_enc)
-        )
-        return y_pred.mean(dim=-1)
+        decoder_input = (geoms_enc, target_mids, target_forces, zs, mesh_enc)
+        if decoder_ix == -1:
+            y_pred = self.decoders(decoder_input).mean(dim=-1)
+        else:
+            y_pred = self.decoders.models[decoder_ix](decoder_input)
+        return y_pred
 
 
 class CustomGNPDecoder(nn.Module):

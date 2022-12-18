@@ -145,7 +145,7 @@ def generate_datasets(dataset_args):
         graspable_body = graspablebody_from_vector(object_name, property_vector)
         print(f'Object name: {object_name}', property_vector)
         # Sample random grasps with labels.
-
+        
         labeler = GraspStabilityChecker(graspable_body,
                                         stability_direction='all',
                                         label_type='relpose',
@@ -153,12 +153,18 @@ def generate_datasets(dataset_args):
                                         show_pybullet=False,
                                         recompute_inertia=True)
         print('PBID:', labeler.sim_client.pb_client_id)
+        all_grasps_Xs = sample_grasp_Xs(
+            graspable_body,
+            property_vector,
+            dataset_args.n_points_per_object,
+            dataset_args.n_grasps_per_object
+        )
         for grasp_ix in range(0, dataset_args.n_grasps_per_object):
             print('Grasp %d/%d...' % (grasp_ix, dataset_args.n_grasps_per_object))
-
-            grasp, X = sample_grasp_X(graspable_body,
-                                      property_vector,
-                                      dataset_args.n_points_per_object)
+            grasp, X = all_grasps_Xs[grasp_ix]
+            # grasp, X = sample_grasp_X(graspable_body,
+            #                           property_vector,
+            #                           dataset_args.n_points_per_object)
             
             # Get label.
             label = labeler.get_label(grasp)
