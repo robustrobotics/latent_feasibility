@@ -7,7 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 def convert_dict_to_float32(dictionary):
     new_dict = {}
     for key, value in dictionary.items():
-        new_dict[key] = np.array(value).astype('float32')
+        new_dict[key] = np.array(value, dtype='float32')
     return new_dict
 
 
@@ -47,7 +47,7 @@ class CustomGNPGraspDataset(Dataset):
                     while meshes[mx].shape[0] != 256: 
                         n_dup = 256 - meshes[mx].shape[0]
                         meshes[mx] = np.concatenate([meshes[mx], meshes[mx][:n_dup, :]], axis=0)
-                grasp_geometries[k] = np.array(meshes).astype('float32')
+                grasp_geometries[k] = np.array(meshes, dtype='float32')
 
             grasp_midpoints = convert_dict_to_float32(data['grasp_data']['grasp_midpoints'])
             grasp_forces = convert_dict_to_float32(data['grasp_data']['grasp_forces'])
@@ -99,7 +99,7 @@ def custom_collate_fn(items):
     full_meshes = []
 
     for context_data, heldout_data in items:
-        full_meshes.append(heldout_data['object_mesh'][0, :, :].swapaxes(0, 1))
+        full_meshes.append(heldout_data['object_mesh'][:, :].swapaxes(0, 1))
         if context_data is None:
             all_context_geoms = heldout_data['grasp_geometries']
             all_context_midpoints = heldout_data['grasp_midpoints']
@@ -132,17 +132,17 @@ def custom_collate_fn(items):
             target_forces.append(heldout_data['grasp_forces'])
             target_labels.append(heldout_data['grasp_labels'])
 
-    context_geoms = torch.Tensor(np.array(context_geoms).astype('float32'))
-    context_midpoints = torch.Tensor(np.array(context_midpoints).astype('float32'))
-    context_forces = torch.Tensor(np.array(context_forces).astype('float32'))
-    context_labels = torch.Tensor(np.array(context_labels).astype('float32'))
+    context_geoms = torch.Tensor(np.array(context_geoms, dtype='float32'))
+    context_midpoints = torch.Tensor(np.array(context_midpoints, dtype='float32'))
+    context_forces = torch.Tensor(np.array(context_forces, dtype='float32'))
+    context_labels = torch.Tensor(np.array(context_labels, dtype='float32'))
 
-    target_geoms = torch.Tensor(np.array(target_geoms).astype('float32'))
-    target_midpoints = torch.Tensor(np.array(target_midpoints).astype('float32'))
-    target_forces = torch.Tensor(np.array(target_forces).astype('float32'))
-    target_labels = torch.Tensor(np.array(target_labels).astype('float32'))
+    target_geoms = torch.Tensor(np.array(target_geoms, dtype='float32'))
+    target_midpoints = torch.Tensor(np.array(target_midpoints, dtype='float32'))
+    target_forces = torch.Tensor(np.array(target_forces, dtype='float32'))
+    target_labels = torch.Tensor(np.array(target_labels, dtype='float32'))
 
-    full_meshes = torch.Tensor(np.array(full_meshes).astype('float32'))
+    full_meshes = torch.Tensor(np.array(full_meshes, dtype='float32'))
     return (
         (context_geoms, context_midpoints, context_forces, context_labels),
         (target_geoms, target_midpoints, target_forces, target_labels),

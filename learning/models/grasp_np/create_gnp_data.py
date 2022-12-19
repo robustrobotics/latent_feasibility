@@ -57,6 +57,31 @@ def transform_points(points, finger1, finger2, ee, viz_data=False):
     return new_points.astype('float32')
 
 
+def process_single_geometry(grasp_vector, all_points, radius):
+    finger1 = grasp_vector[0, 0:3]
+    finger2 = grasp_vector[1, 0:3]
+    ee = grasp_vector[2, 0:3]
+    midpoint = (finger1 + finger2)/2.0
+
+    # Only sample points that are within 2cm of a grasp point.
+    candidate_points = all_points
+    d1 = np.linalg.norm(candidate_points-finger1, axis=1)
+    d2 = np.linalg.norm(candidate_points-finger2, axis=1)
+    to_keep = np.logical_or(d1 < radius, d2 < radius)
+    points = candidate_points[to_keep][:256]
+    n_found = points.shape[0]
+    #if False:
+    #    print(f'{n_found} points found for grasp {gx}, object {object_id}')
+
+    # Put everything in grasp point ref frame for better generalization. (Including grasp points)
+    #if gx % 200 == 0:
+    #    viz_data = False
+    #else:
+    viz_data=False
+    points = transform_points(points, finger1, finger2, ee, viz_data=viz_data)
+
+    return points, midpoint
+
 def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     object_names = train_dataset['object_data']['object_names']
     object_properties = train_dataset['object_data']['object_properties']
@@ -75,52 +100,31 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
             all_points_per_objects[object_id] = mesh_points
         else:
             all_points_per_objects[object_id] = np.concatenate([all_points_per_objects[object_id], mesh_points], axis=0)
-
+    print('Collected all points...')
     # For each grasp, find close points and convert them to the local grasp frame.
     new_geometries_dict = defaultdict(list) # obj_id -> [grasp__points]
     new_midpoints_dict = defaultdict(list) # obj_id -> [grasp_midpoint]
     new_labels_dict = defaultdict(list) # obj_id -> [grasp_label]
     new_forces_dict = defaultdict(list) # obj_id -> [forces]
-    new_meshes_dict = defaultdict(list)
+    new_meshes_dict = {}
 
-    for grasp_vector, object_id, force, label in zip(all_grasps, all_ids, all_forces, all_labels):
-        if verbose:
-            print(f'Coverting grasp {gx}/{len(all_ids)}...')
-        gx += 1
+    geom_tasks = []
 
-        object_name = object_names[object_id]
-        object_property = object_properties[object_id]
+    for grasp_vector, object_id  in zip(all_grasps, all_ids):
+        geom_tasks.append((grasp_vector, all_points_per_objects[object_id], radius))
 
-        graspable_body = graspablebody_from_vector(object_name, object_property)
+    pool = multiprocessing.Pool(processes=20)
+    results = pool.starmap(process_single_geometry, geom_tasks)
+    pool.close()
 
-        finger1 = grasp_vector[0, 0:3]
-        finger2 = grasp_vector[1, 0:3]
-        ee = grasp_vector[2, 0:3]
-        midpoint = (finger1 + finger2)/2.0
-
-        # Only sample points that are within 2cm of a grasp point.
-        candidate_points = all_points_per_objects[object_id]
-        d1 = np.linalg.norm(candidate_points-finger1, axis=1)
-        d2 = np.linalg.norm(candidate_points-finger2, axis=1)
-        to_keep = np.logical_or(d1 < radius, d2 < radius)
-        points = candidate_points[to_keep][:512]
-        n_found = points.shape[0]
-        if verbose:
-            print(f'{n_found} points found for grasp {gx}, object {object_id}')
-
-        # Put everything in grasp point ref frame for better generalization. (Including grasp points)
-        if gx % 200 == 0:
-            viz_data = False
-        else:
-            viz_data=False
-        points = transform_points(points, finger1, finger2, ee, viz_data=viz_data)
-
+    for object_id, force, label, result in zip(all_ids, all_forces, all_labels, results):
         # Assemble dataset.
+        points, midpoint = result
         new_geometries_dict[object_id].append(points)
         new_midpoints_dict[object_id].append(midpoint)
         new_forces_dict[object_id].append(force)
         new_labels_dict[object_id].append(label)
-        new_meshes_dict[object_id].append(all_points_per_objects[object_id][:512,:])
+        new_meshes_dict[object_id] = all_points_per_objects[object_id][:512,:]
 
     dataset = {
         'grasp_data': {
@@ -147,7 +151,7 @@ def process_and_save(func_args):
 
     with open(func_args.out_path, 'wb') as handle:
         pickle.dump(new_dataset, handle)
-    
+
 
 DATA_ROOT = 'learning/data/grasping'
 if __name__ == '__main__':
@@ -214,7 +218,8 @@ if __name__ == '__main__':
         )
         with open(train_data_path, 'rb') as handle:
             train_dataset = pickle.load(handle)
-
+        
+        print('Convert train dataset...')
         new_train_dataset = process_geometry(
             train_dataset,
             radius=args.radius,
@@ -235,6 +240,7 @@ if __name__ == '__main__':
         with open(val_data_path, 'rb') as handle:
             val_dataset = pickle.load(handle)
 
+        print('Convert val dataset...')
         new_val_dataset = process_geometry(
             val_dataset,
             radius=args.radius,
@@ -257,9 +263,12 @@ if __name__ == '__main__':
             )
             fitting_tasks.append(fitting_task)
 
-    worker_pool = multiprocessing.Pool(
-        processes=args.n_processes,
-        maxtasksperchild=1
-    )
-    worker_pool.map(process_and_save, fitting_tasks)
-    worker_pool.close()
+    # worker_pool = multiprocessing.Pool(
+    #     processes=args.n_processes,
+    #     maxtasksperchild=1
+    # )
+    # worker_pool.map(process_and_save, fitting_tasks)
+    # worker_pool.close()
+
+    for fargs in fitting_tasks:
+        process_and_save(fargs)

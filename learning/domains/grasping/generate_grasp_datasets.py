@@ -34,7 +34,6 @@ def sample_grasp_Xs(graspable_body, property_vector, n_points_per_object, n_gras
         antipodal_tolerance=30,
         show_pybullet=False
     )
-    import time
     for gx in range(n_grasps):
         # Sample new point cloud for object.
         mesh_points = np.array(

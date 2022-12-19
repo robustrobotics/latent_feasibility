@@ -52,18 +52,25 @@ def parse_ignore_file(fname):
 def merge_datasets(dataset_paths, merged_fname):
     """ Create one large dataset file form individual object files."""
     all_grasps, all_object_ids, all_forces, all_labels = [], [], [], []
-    for dataset_path in dataset_paths:
+    for dx,dataset_path in enumerate(dataset_paths):
+        print(f'{dx}/{len(dataset_paths)}')
         if not os.path.exists(dataset_path):
             continue
 
         with open(dataset_path, 'rb') as handle:
             single_dataset = pickle.load(handle)
-
-        all_grasps += [g.astype('float32') for g in single_dataset['grasp_data']['grasps']]
+        
+        if len(single_dataset['grasp_data']['grasps']) >= 500:
+            max_grasps = 64
+        else:
+            max_grasps = 512
+        all_grasps += [g[:max_grasps, :].astype('float32') for g in single_dataset['grasp_data']['grasps']]
         all_object_ids += single_dataset['grasp_data']['object_ids']
         all_labels += single_dataset['grasp_data']['labels']
         all_forces += single_dataset['grasp_data']['forces']
-
+        
+        #import IPython; IPython.embed()
+        #del single_dataset
     updated_metadata = single_dataset['metadata']
     updated_metadata.fname = merged_fname
     updated_metadata.object_ix = -1
