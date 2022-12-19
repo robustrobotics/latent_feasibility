@@ -72,18 +72,27 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
         epoch_loss, train_probs, train_targets = 0, [], []
         model.train()
         for bx, (context_data, target_data, meshes) in enumerate(train_dataloader):
+
+            # sample a t \in \{0, ..., max_grasps_per_object}
+            # sampling t data points (grasps + geoms + labels) from batched objects (make sure the
+            # sampling we choose per object have the same indices
+            # REMEMBER THEM!!!
+
             c_grasp_geoms, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
             t_grasp_geoms, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
             if torch.cuda.is_available():
                 meshes = meshes.cuda()
 
             optimizer.zero_grad()
+
+            # pass forward for q_max_grasps
             y_probs, q_z = model.forward(
                 (c_grasp_geoms, c_midpoints, c_forces, c_labels),
                 (t_grasp_geoms, t_midpoints, t_forces),
                 meshes
             )
             y_probs = y_probs.squeeze()
+            # pass forward for q_t (but the encoder ONLY)
 
             loss, bce_loss, kld_loss = get_loss(y_probs, t_labels, q_z, alpha=ep)
             if bx == 0:
