@@ -190,7 +190,8 @@ class PointNetRegressor(nn.Module):
         x = self.nonlin(self.bn2(self.dropout(self.fc2(x))))
         x = self.fc3(x)
         x = x.view(n_batch, n_pts, x.shape[-1])
-        x = x.mean(dim=1)
+        x = x.mean(dim=1) # TODO: this may cause input number to be lost, may need to substitute for an operation that
+                          # preserves this information
         # x = self.nonlin(self.bn1(self.fc1(x)))
         # x = self.nonlin(self.bn2(self.dropout(self.fc2(x))))
         return x

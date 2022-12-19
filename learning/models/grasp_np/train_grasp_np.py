@@ -47,8 +47,9 @@ def get_accuracy(y_probs, target_ys, test=False, save=False):
 def get_loss(y_probs, target_ys, q_z, q_z_n, alpha=1):
     bce_loss = F.binary_cross_entropy(y_probs.squeeze(), target_ys.squeeze(), reduction='sum')
 
-    beta = min(alpha / 100., 1)
-    beta = 1. / (1 + np.exp(-0.05 * (alpha - 50)))  # TODO: Is this still necessary?
+    # beta = min(alpha / 100., 1)
+    # beta = 1. / (1 + np.exp(-0.05 * (alpha - 50)))  # TODO: Is this still necessary?
+    beta = 1
 
     kld_loss = beta * torch.distributions.kl_divergence(q_z, q_z_n).sum()
     # kld_loss = 0
@@ -90,7 +91,7 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
             # select random indices used for this evaluation and then select data from arrays
             n_indices = torch.randperm(max_n_grasps)[:n_grasps]
             n_c_grasp_geoms = c_grasp_geoms[:, n_indices, :, :]
-            n_c_midpoints = c_grasp_geoms[:, n_indices, :]
+            n_c_midpoints = c_midpoints[:, n_indices, :]
             n_c_forces = c_forces[:, n_indices]
             n_c_labels = c_labels[:, n_indices]
 
@@ -136,6 +137,17 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                 t_grasp_geoms, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
                 if torch.cuda.is_available():
                     meshes = meshes.cuda()
+
+                # sample a sub collection of the target set to better represent model adaptation phase in training
+                max_n_grasps = c_grasp_geoms.shape[1]
+                n_grasps = torch.randint(low=1, high=max_n_grasps, size=(1,))
+                # select random indices used for this evaluation and then select data from arrays
+                n_indices = torch.randperm(max_n_grasps)[:n_grasps]
+                n_c_grasp_geoms = c_grasp_geoms[:, n_indices, :, :]
+                n_c_midpoints = c_midpoints[:, n_indices, :]
+                n_c_forces = c_forces[:, n_indices]
+                n_c_labels = c_labels[:, n_indices]
+
                 y_probs, q_z = model.forward(
                     (c_grasp_geoms, c_midpoints, c_forces, c_labels),
                     (t_grasp_geoms, t_midpoints, t_forces),
@@ -143,7 +155,12 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                 )
                 means.append(q_z.loc)
                 y_probs = y_probs.squeeze()
-                val_loss += get_loss(y_probs, t_labels, q_z)[0].item()
+
+                q_z_n, _ = model.forward_until_latents(
+                    (n_c_grasp_geoms, n_c_midpoints, n_c_forces, n_c_labels),
+                    meshes)
+
+                val_loss += get_loss(y_probs, t_labels, q_z, q_z_n)[0].item()
 
                 val_probs.append(y_probs.flatten())
                 val_targets.append(t_labels.flatten())
