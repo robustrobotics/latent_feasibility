@@ -19,8 +19,20 @@ class CustomGraspNeuralProcess(nn.Module):
         self.d_latents = d_latents
 
     def forward(self, contexts, target_xs, meshes):
+        q_z, mesh_enc = self.forward_until_latents(contexts, meshes)
+
+        # Replace True properties with latent samples.
+        target_geoms, target_mids, target_forces = target_xs
+        n_batch, n_grasp, _, n_pts = target_geoms.shape
+        z = q_z.rsample()
+
+        geoms = target_geoms.view(-1, 3, n_pts)
+        geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+        y_pred = self.decoder(geoms_enc, target_mids, target_forces, z, mesh_enc)
+        return y_pred, q_z
+
+    def forward_until_latents(self, contexts, meshes):
         mesh_enc = self.mesh_encoder(meshes)
-        # mesh_enc = torch.zeros_like(mesh_enc)
 
         context_geoms, context_midpoints, context_forces, context_labels = contexts
         n_batch, n_grasp, _, n_geom_pts = context_geoms.shape
@@ -35,16 +47,7 @@ class CustomGraspNeuralProcess(nn.Module):
 
         # Sample via reparameterization trick.
         q_z = torch.distributions.normal.Normal(mu, sigma)
-
-        # Replace True properties with latent samples.
-        target_geoms, target_mids, target_forces = target_xs
-        n_batch, n_grasp, _, n_pts = target_geoms.shape
-        z = q_z.rsample()
-
-        geoms = target_geoms.view(-1, 3, n_pts)
-        geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
-        y_pred = self.decoder(geoms_enc, target_mids, target_forces, z, mesh_enc)
-        return y_pred, q_z
+        return q_z, mesh_enc
 
     def conditional_forward(self, target_xs, meshes, zs):
         """ Forward function that specifies the latents (i.e., no encoder is used). """
