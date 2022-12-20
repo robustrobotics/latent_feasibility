@@ -9,6 +9,8 @@ import torch
 import random
 import os
 
+from learning.models.grasp_np.dataset import CustomGNPGraspDataset
+
 # can pull experiment train and val set details from the train args.pkl folder
 # select a random sample from train and val
 # and see how it does
@@ -69,12 +71,15 @@ def grow_data_and_find_latents(geoms, midpoints, forces, labels, mesh, model):
 
 
 def choose_one_object_and_grasps(dataset):
-    obj_ix = random.randint(0, len(dataset['grasp_data']['labels']))
-    object_meshes = dataset['grasp_data']['object_meshes'][obj_ix]
-    grasp_geometries = dataset['grasp_data']['grasp_geometries'][obj_ix]
-    grasp_midpoints = dataset['grasp_data']['grasp_midpoints'][obj_ix]
-    grasp_forces = dataset['grasp_data']['grasp_forces'][obj_ix]
-    grasp_labels = dataset['grasp_data']['labels'][obj_ix]
+    # we use the loader to get the data for preprocessing to prep for network input
+    loader = CustomGNPGraspDataset(data=dataset)
+    obj_ix = random.randint(0, len(loader))
+    _, entry = loader[obj_ix]
+    object_meshes = entry['object_mesh']
+    grasp_geometries = entry['grasp_geometries']
+    grasp_midpoints = entry['grasp_midpoints']
+    grasp_forces = entry['grasp_forces']
+    grasp_labels = entry['grasp_labels']
     return obj_ix, grasp_forces, grasp_geometries, grasp_labels, grasp_midpoints, object_meshes
 
 
@@ -135,6 +140,7 @@ def plot_progressive_means_and_covars(train_covars, train_log_dir, train_means, 
     plt.xlabel('size of context set')
     plt.title('latent distribution vs. context set size, set %s obj #%i' % (dset, train_obj_ix))
     plt.legend()
+    plt.ylim((-5.0, 5.0))
     output_fname = os.path.join(train_log_dir,
                                 'figures',
                                 dset + '_' + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
@@ -144,6 +150,6 @@ def plot_progressive_means_and_covars(train_covars, train_log_dir, train_means, 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--train-logdir', type=str, required=True, help='training log directory name')
-    parser.add_argument('--seed', type=int, default=10, help='seed for random obj selection')
+    parser.add_argument('--seed', type=int, default=20, help='seed for random obj selection')
     args = parser.parse_args()
     main(args)
