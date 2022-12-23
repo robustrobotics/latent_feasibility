@@ -10,6 +10,7 @@ import random
 import os
 
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset
+from learning.models.grasp_np.train_grasp_np import get_loss
 
 # can pull experiment train and val set details from the train args.pkl folder
 # select a random sample from train and val
@@ -28,8 +29,44 @@ def grow_data_and_find_latents(geoms, midpoints, forces, labels, mesh, model):
     model.eval()
     model.zero_grad()
 
+    max_geoms = torch.unsqueeze(
+        torch.swapaxes(
+            torch.tensor(geoms),
+            1,
+            2
+        ),
+        0
+    )
+    max_midpoints = torch.unsqueeze(
+        torch.tensor(midpoints),
+        0
+    )
+    max_forces = torch.unsqueeze(
+        torch.tensor(forces),
+        0
+    )
+    max_labels = torch.unsqueeze(
+        torch.tensor(labels),
+        0
+    )
+    max_meshes = torch.unsqueeze(
+        torch.swapaxes(
+            torch.tensor(mesh),  # there is only one mesh, since we are only evaluating one object
+            0,
+            1
+        ),
+        0
+    )
+    _, q_z = model.forward(
+        (max_geoms, max_midpoints, max_forces, max_labels),
+        (max_geoms, max_midpoints, max_forces),
+        max_meshes
+    )
+
     means = []
     covars = []
+    kdls = []
+    bces = []
     for n in range(1, len(geoms) + 1):
         print('evaluating with size ' + str(n))
         n_geoms = torch.unsqueeze(
@@ -60,14 +97,21 @@ def grow_data_and_find_latents(geoms, midpoints, forces, labels, mesh, model):
             ),
             0
         )
-        q, _ = model.forward_until_latents(
+        y_probs, q_n = model.forward(
             (n_geoms, n_midpoints, n_forces, n_labels),
+            (max_geoms, max_midpoints, max_forces),
             n_meshes
         )
-        means.append(q.loc.view(1, -1))
-        covars.append(q.scale.view(1, -1))
+        y_probs = y_probs.squeeze()
 
-    return torch.cat(means, dim=0), torch.cat(covars, dim=0)
+        means.append(q_n.loc.view(1, -1))
+        covars.append(q_n.scale.view(1, -1))
+
+        _, bce_loss, kdl_loss = get_loss(y_probs, max_labels.squeeze(), q_z, q_n)
+        bces.append(bce_loss)
+        kdls.append(kdl_loss)
+
+    return torch.cat(means, dim=0), torch.cat(covars, dim=0), torch.tensor(bces), torch.tensor(kdls)
 
 
 def choose_one_object_and_grasps(dataset):
@@ -108,28 +152,29 @@ def main(args):
         choose_one_object_and_grasps(train_set)
 
     # do progressive latent distribution check
-    train_means, train_covars = grow_data_and_find_latents(
+    train_means, train_covars, train_bces, train_klds = grow_data_and_find_latents(
         grasp_geometries, grasp_midpoints, grasp_forces, grasp_labels,
         object_meshes[0],  # it's the same object, so only one mesh is needed
         model
     )
 
     # turn train means and train covars into manipulatable arrays and then plot w/ matplotlib
-    plot_progressive_means_and_covars(train_covars, train_log_dir, train_means, train_obj_ix, 'train')
+    plot_progressive_means_and_covars(train_means, train_covars, train_bces, train_klds, 'train', train_obj_ix,
+                                      train_log_dir)
 
     # repeat for validation objects
     val_obj_ix, grasp_forces, grasp_geometries, grasp_labels, grasp_midpoints, object_meshes = \
         choose_one_object_and_grasps(val_set)
-    val_means, val_covars = grow_data_and_find_latents(
+    val_means, val_covars, val_bces, val_klds = grow_data_and_find_latents(
         grasp_geometries, grasp_midpoints, grasp_forces, grasp_labels,
         object_meshes[0],
         model
     )
-    plot_progressive_means_and_covars(val_covars, train_log_dir, val_means, val_obj_ix, 'val')
+    plot_progressive_means_and_covars(val_means, val_covars, val_bces, val_klds, 'val', val_obj_ix, train_log_dir)
 
 
-def plot_progressive_means_and_covars(train_covars, train_log_dir, train_means, train_obj_ix, dset):
-    means_arr, covars_arr = train_means.detach().numpy(), train_covars.detach().numpy()
+def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, log_dir):
+    means_arr, covars_arr = means.detach().numpy(), covars.detach().numpy()
     xs = np.arange(1, means_arr.shape[0] + 1)
     plt.figure()
     for i in range(means_arr.shape[1]):
@@ -138,18 +183,28 @@ def plot_progressive_means_and_covars(train_covars, train_log_dir, train_means, 
         plt.plot(xs, mean_col, label='latent %i' % i)
         plt.fill_between(xs, mean_col - covar_col, mean_col + covar_col, alpha=0.2)
     plt.xlabel('size of context set')
-    plt.title('latent distribution vs. context set size, set %s obj #%i' % (dset, train_obj_ix))
+    plt.title('latent distribution vs. context set size, set %s obj #%i' % (dset, obj_ix))
     plt.legend()
     plt.ylim((-5.0, 5.0))
-    output_fname = os.path.join(train_log_dir,
+    output_fname = os.path.join(log_dir,
                                 'figures',
-                                dset + '_' + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
+                                dset + '_prog_dist_' + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
+    plt.savefig(output_fname)
+
+    plt.figure()
+    plt.plot(xs, bces.detach().numpy(), label='bces')
+    plt.plot(xs, klds.detach().numpy(), label='klds')
+    plt.legend()
+    plt.title('ELBO terms vs. context set size, set %s obj #%i' % (dset, obj_ix))
+    output_fname = os.path.join(log_dir,
+                                'figures',
+                                dset + '_bce_kld_' + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
     plt.savefig(output_fname)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--train-logdir', type=str, required=True, help='training log directory name')
-    parser.add_argument('--seed', type=int, default=20, help='seed for random obj selection')
+    parser.add_argument('--seed', type=int, default=40, help='seed for random obj selection')
     args = parser.parse_args()
     main(args)

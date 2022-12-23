@@ -15,10 +15,8 @@ from learning.domains.grasping.generate_grasp_datasets import sample_grasp_X, gr
 import sys
 
 def get_dataset_from_grasp(grasp, object_properties, object_ix, object_set):
-    _, X = sample_grasp_X(graspable_body=grasp.graspable_body,
-                property_vector=object_properties,
-                n_points_per_object=512,
-                grasp=grasp)
+    _, X = sample_grasp_X(graspable_body=grasp.graspable_body, property_vector=object_properties,
+                          n_points_per_object=512, curvature_rads=(None, None, None, None), grasp=grasp)
     unlabeled_dataset = {
         'grasp_data': {
             'raw_grasps': [grasp],

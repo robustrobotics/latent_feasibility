@@ -32,6 +32,7 @@ def get_object_list(fname):
         objects = handle.readlines()
     return [o.strip() for o in objects if len(o) > 1]
 
+
 def parse_ignore_file(fname):
     """ Sometimes we can't grasp objects due to geometry. Specify object to skip in an ignore.txt file. """
     if not os.path.exists(fname):
@@ -48,6 +49,7 @@ def parse_ignore_file(fname):
             test_skip.append(int(ox))
 
     return train_skip, test_skip
+
 
 def merge_datasets(dataset_paths, merged_fname):
     """ Create one large dataset file form individual object files."""
@@ -76,6 +78,7 @@ def merge_datasets(dataset_paths, merged_fname):
             'labels': all_labels
         },
         'object_data': single_dataset['object_data'],
+        # TODO: this may also be a problem: we may be saving only one kind of grasp for a DIFFERENT type of object
         'metadata': updated_metadata
     }
 
@@ -94,6 +97,7 @@ if __name__ == '__main__':
     parser.add_argument('--n-points-per-object', type=int, required=True)
     parser.add_argument('--n-fit-grasps', type=int, required=True)
     parser.add_argument('--grasp-noise', type=float, required=True)
+    parser.add_argument('--curvature-radii', type=float, nargs=3, required=True)  # we choose 3 for feature vector ease
     parser.add_argument('--n-processes', type=int, default=1)
     parser.add_argument('--merge', action='store_true', default=False)
     new_args = parser.parse_args()
@@ -171,14 +175,14 @@ if __name__ == '__main__':
         os.mkdir(training_phase_path)
     try:
         TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(os.path.join(data_root_path, 'ignore.txt'))
-    except FileNotFoundError as e: # in case the ignore files don't exist
+    except FileNotFoundError as e:  # in case the ignore files don't exist
         print('[Warning] Could not find .ignore files. Will use all data...')
         TRAIN_IGNORE, TEST_IGNORE = [], []
 
     train_dataset_tasks, train_dataset_paths = [], []
 
     print('[Grasps] Generating train grasps for training phase.')
-    for ox in range(0, len(train_objects)*args.n_property_samples_train):
+    for ox in range(0, len(train_objects) * args.n_property_samples_train):
         if ox in TRAIN_IGNORE:
             continue
         train_grasps_path = os.path.join(training_phase_path, f'train_grasps_object{ox}.pkl')
@@ -190,7 +194,8 @@ if __name__ == '__main__':
                 n_points_per_object=args.n_points_per_object,
                 n_grasps_per_object=args.n_grasps_per_object,
                 object_ix=ox,
-                grasp_noise=args.grasp_noise)
+                grasp_noise=args.grasp_noise,
+                curvature_radii=args.curvature_radii)
             train_dataset_tasks.append(train_grasps_args)
 
     worker_pool.map(generate_datasets, train_dataset_tasks)
@@ -202,7 +207,7 @@ if __name__ == '__main__':
 
     print('[Grasps] Generating validation grasps for training phase.')
     val_dataset_tasks, val_dataset_paths = [], []
-    for ox in range(0, len(train_objects)*args.n_property_samples_train):
+    for ox in range(0, len(train_objects) * args.n_property_samples_train):
         if ox in TRAIN_IGNORE:
             continue
         val_grasps_path = os.path.join(training_phase_path, f'val_grasps_object{ox}.pkl')
@@ -214,7 +219,8 @@ if __name__ == '__main__':
                 n_points_per_object=args.n_points_per_object,
                 n_grasps_per_object=10,
                 object_ix=ox,
-                grasp_noise=args.grasp_noise)
+                grasp_noise=args.grasp_noise,
+                curvature_radii=args.curvature_radii)
             val_dataset_tasks.append(val_grasps_args)
 
     worker_pool.map(generate_datasets, val_dataset_tasks)
@@ -230,7 +236,7 @@ if __name__ == '__main__':
         os.mkdir(fitting_phase_path)
 
     fit_dataset_tasks = []
-    for ox in range(0, min(250, len(test_objects)*args.n_property_samples_test)):
+    for ox in range(0, min(250, len(test_objects) * args.n_property_samples_test)):
         if ox in TEST_IGNORE:
             continue
         print(f'[Grasps] Generating grasps for fitting phase eval for obj {ox}.')
@@ -242,13 +248,14 @@ if __name__ == '__main__':
                 n_points_per_object=args.n_points_per_object,
                 n_grasps_per_object=args.n_fit_grasps,
                 object_ix=ox,
-                grasp_noise=args.grasp_noise)
+                grasp_noise=args.grasp_noise,
+                curvature_radii=args.curvature_radii)
             fit_dataset_tasks.append(fit_grasps_args)
 
     worker_pool.map(generate_datasets, fit_dataset_tasks)
 
     fit_dataset_samegeo_tasks = []
-    for ox in range(0, min(250, len(train_objects)*args.n_property_samples_test)):
+    for ox in range(0, min(250, len(train_objects) * args.n_property_samples_test)):
         if ox in TRAIN_IGNORE:
             continue
         print(f'[Grasps] Generating grasps for fitting phase eval for samegeo obj {ox}.')
@@ -261,13 +268,14 @@ if __name__ == '__main__':
                 n_points_per_object=args.n_points_per_object,
                 n_grasps_per_object=args.n_fit_grasps,
                 object_ix=ox,
-                grasp_noise=args.grasp_noise)
+                grasp_noise=args.grasp_noise,
+                curvature_radii=args.curvature_radii)
             fit_dataset_samegeo_tasks.append(fit_grasps_samegeo_args)
 
     worker_pool.map(generate_datasets, fit_dataset_samegeo_tasks)
 
     fit_dataset_samegeo_tasks = []
-    for ox in range(0, min(100, len(train_objects)*args.n_property_samples_train)):
+    for ox in range(0, min(100, len(train_objects) * args.n_property_samples_train)):
         if ox in TRAIN_IGNORE:
             continue
         print(f'[Grasps] Generating grasps for fitting phase eval for samegeo sameprop obj {ox}.')
@@ -282,7 +290,8 @@ if __name__ == '__main__':
                 n_points_per_object=args.n_points_per_object,
                 n_grasps_per_object=args.n_fit_grasps,
                 object_ix=ox,
-                grasp_noise=0.0)
+                grasp_noise=0.0,
+                curvature_radii=args.curvature_radii)
             fit_dataset_samegeo_tasks.append(fit_grasps_samegeo_args)
 
     worker_pool.map(generate_datasets, fit_dataset_samegeo_tasks)
@@ -295,5 +304,5 @@ if __name__ == '__main__':
     print(f'% Stable: {np.mean(labels)}')
     per_object_stability = []
     for ox in range(0, len(labels), args.n_grasps_per_object):
-        per_object_stability.append(np.mean(labels[ox:(ox+args.n_grasps_per_object)]))
+        per_object_stability.append(np.mean(labels[ox:(ox + args.n_grasps_per_object)]))
     print('Per Object Stability:', np.histogram(per_object_stability, bins=10))

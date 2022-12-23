@@ -13,6 +13,7 @@ class CustomGraspNeuralProcess(nn.Module):
         n_out_geom = 1
         self.encoder = CustomGNPEncoder(d_latents=d_latents, d_mesh=d_mesh)
         self.decoder = CustomGNPDecoder(n_in=3+1+n_out_geom+d_latents+d_mesh, d_latents=d_latents)
+        # TODO: simplify-nn -- remove local geom encoder and just tack on to global pointnet
         self.mesh_encoder = PointNetRegressor(n_in=3, n_out=d_mesh)
         self.grasp_geom_encoder = PointNetRegressor(n_in=3, n_out=n_out_geom)
 
@@ -106,12 +107,14 @@ class CustomGNPEncoder(nn.Module):
         self.pn_grasp = PointNetRegressor(n_in=3+1+1+n_out_geom+d_mesh, n_out=d_latents*2)
         self.d_latents = d_latents
 
+        # TODO: simplify-nn -- add in the curvature and the grasp position data and remove geoms
     def forward(self, geoms_enc, context_midpoints, context_forces, context_labels, meshes):
         """
         :param context_geoms: (batch_size, n_grasps, 3, n_points)
         :param context_midpoints: (batch_size, n_grasps, 3)
         :param context_labels: (batch_size, n_grasps, 1)
         """
+        # TODO: simplify-nn -- add in the curvature and the grasp position data
         n_batch, n_grasp = context_labels.shape
         meshes = meshes[:, None, :].expand(n_batch, n_grasp, -1)
         grasp_input = torch.cat([

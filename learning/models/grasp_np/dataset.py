@@ -23,12 +23,14 @@ class CustomGNPGraspDataset(Dataset):
         dataset for proper functionality.
         """
 
+        # TODO: nn-simplify - add in curvature and finger grasp information
         # Each of these is a list of length #objects.
         (self.cp_grasp_geometries,
          self.cp_grasp_midpoints,
          self.cp_grasp_forces,
          self.cp_grasp_labels,
          self.cp_full_meshes) = self.process_raw_data(context_data)
+        # TODO: nn-simplify - add in curvature and finger grasp information
         (self.hp_grasp_geometries,
          self.hp_grasp_midpoints,
          self.hp_grasp_forces,
@@ -39,7 +41,8 @@ class CustomGNPGraspDataset(Dataset):
     def process_raw_data(self, data):
         if data is None:
             return None, None, None, None, None
-        else:            
+        else:
+            # TODO: nn-simplify - add in curvature and finger grasp information
             grasp_geometries = {}
             for k, v in data['grasp_data']['grasp_geometries'].items():
                 meshes = [arr[:256, :] for arr in v]
@@ -97,7 +100,7 @@ def custom_collate_fn(items):
     context_geoms, context_midpoints, context_forces, context_labels = [], [], [], []
     target_geoms, target_midpoints, target_forces, target_labels = [], [], [], []
     full_meshes = []
-
+    # TODO: include the grasp points and curvature information
     for context_data, heldout_data in items:
         full_meshes.append(heldout_data['object_mesh'][0, :, :].swapaxes(0, 1))
         if context_data is None:

@@ -37,7 +37,8 @@ def sample_unlabeled_data(n_samples, object_set):
     object_grasp_data, object_grasp_ids, object_grasp_forces, object_grasp_labels = [], [], [], []  
     raw_grasps = []
     for nx in range(n_samples):
-        grasp, X = sample_grasp_X(graspable_body, object_properties, n_points_per_object=10000)
+        grasp, X = sample_grasp_X(graspable_body, object_properties, n_points_per_object=10000,
+                                  curvature_rads=(None, None, None, None))
 
         raw_grasps.append(grasp)
         object_grasp_data.append(X)
