@@ -120,7 +120,7 @@ def sample_grasp_X(graspable_body, property_vector, n_points_per_object, curvatu
     ])
     grasp_vectors = np.vstack([grasp_vectors, curvatures])
 
-    mesh_vectors = np.hstack([mesh_points, np.zeros((n_points_per_object, 2), dtype='float32')])
+    mesh_vectors = np.hstack([mesh_points, np.zeros((n_points_per_object, 3), dtype='float32')])
 
     # Concatenate all relevant vectors (points, indicators, properties).
     X = np.vstack([grasp_vectors, mesh_vectors])
