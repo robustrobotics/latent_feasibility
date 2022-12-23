@@ -9,6 +9,7 @@ from pb_robot.planners.antipodalGraspPlanner import GraspSimulationClient
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
+# TODO: X DATA HAS CHANGED FORMAT (SEE GENERATE_GRASP_DATASETS.PY), may not valid anymore
 class GraspDataset(Dataset):
     def __init__(self, data, grasp_encoding='as_points'):
         """

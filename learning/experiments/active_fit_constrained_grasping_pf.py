@@ -16,7 +16,7 @@ import sys
 
 def get_dataset_from_grasp(grasp, object_properties, object_ix, object_set):
     _, X = sample_grasp_X(graspable_body=grasp.graspable_body, property_vector=object_properties,
-                          n_points_per_object=512, curvature_rads=(None, None, None, None), grasp=grasp)
+                          n_points_per_object=512, curvature_rads=(0.005, 0.001, 0.01), grasp=grasp) # TODO: MAGIC CURVATURE NUMBERS ALERT
     unlabeled_dataset = {
         'grasp_data': {
             'raw_grasps': [grasp],
