@@ -80,8 +80,8 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
             # REMEMBER THEM!!!
 
             # TODO: simplify-nn -- add in the curvature and the grasp position data
-            c_grasp_geoms, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
-            t_grasp_geoms, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
+            c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
+            t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
             if torch.cuda.is_available():
                 meshes = meshes.cuda()
 
@@ -93,6 +93,8 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
             # select random indices used for this evaluation and then select data from arrays
             n_indices = torch.randperm(max_n_grasps)[:n_grasps]
             n_c_grasp_geoms = c_grasp_geoms[:, n_indices, :, :]
+            n_c_grasp_points = c_grasp_points[:, n_indices, :, :]
+            n_c_curvatures = c_curvatures[:, n_indices, :, :]
             n_c_midpoints = c_midpoints[:, n_indices, :]
             n_c_forces = c_forces[:, n_indices]
             n_c_labels = c_labels[:, n_indices]
@@ -102,15 +104,15 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
             # TODO: simplify-nn -- add in the curvature and the grasp position data
             # pass forward for max_n_grasps
             y_probs, q_z = model.forward(
-                (c_grasp_geoms, c_midpoints, c_forces, c_labels),
-                (t_grasp_geoms, t_midpoints, t_forces),
+                (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels),
+                (t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
                 meshes
             )
             y_probs = y_probs.squeeze()
 
             # pass forward for n_grasps (but the encoder ONLY)
             q_z_n, _ = model.forward_until_latents(
-                (n_c_grasp_geoms, n_c_midpoints, n_c_forces, n_c_labels),
+                (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
                 meshes)
 
             loss, bce_loss, kld_loss = get_loss(y_probs, t_labels, q_z, q_z_n, alpha=ep)
@@ -137,9 +139,8 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
         with torch.no_grad():
             for bx, (context_data, target_data, meshes) in enumerate(val_dataloader):
 
-                # TODO: simplify-nn -- add in the curvature and the grasp position data
-                c_grasp_geoms, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
-                t_grasp_geoms, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
+                c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
+                t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
                 if torch.cuda.is_available():
                     meshes = meshes.cuda()
 
@@ -150,21 +151,23 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                 # select random indices used for this evaluation and then select data from arrays
                 n_indices = torch.randperm(max_n_grasps)[:n_grasps]
                 n_c_grasp_geoms = c_grasp_geoms[:, n_indices, :, :]
+                n_c_grasp_points = c_grasp_points[:, n_indices, :, :]
+                n_c_curvatures = c_curvatures[:, n_indices, :, :]
                 n_c_midpoints = c_midpoints[:, n_indices, :]
                 n_c_forces = c_forces[:, n_indices]
                 n_c_labels = c_labels[:, n_indices]
 
                 # TODO: simplify-nn -- add in the curvature and the grasp position data
                 y_probs, q_z = model.forward(
-                    (c_grasp_geoms, c_midpoints, c_forces, c_labels),
-                    (t_grasp_geoms, t_midpoints, t_forces),
+                    (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels),
+                    (t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
                     meshes
                 )
                 means.append(q_z.loc)
                 y_probs = y_probs.squeeze()
 
                 q_z_n, _ = model.forward_until_latents(
-                    (n_c_grasp_geoms, n_c_midpoints, n_c_forces, n_c_labels),
+                    (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
                     meshes)
 
                 val_loss += get_loss(y_probs, t_labels, q_z, q_z_n)[0].item()
