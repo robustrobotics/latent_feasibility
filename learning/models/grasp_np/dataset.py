@@ -42,7 +42,7 @@ class CustomGNPGraspDataset(Dataset):
 
     def process_raw_data(self, data):
         if data is None:
-            return None, None, None, None, None
+            return None, None, None, None, None, None, None
         else:
             # TODO: nn-simplify - if curvature works, remove geoms
             grasp_geometries = {}

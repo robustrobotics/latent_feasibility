@@ -98,8 +98,8 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         finger1 = grasp_vector[0, 0:3]
         finger2 = grasp_vector[1, 0:3]
         ee = grasp_vector[2, 0:3]
-        curvatures_finger1 = grasp_vector[3, :]
-        curvatures_finger2 = grasp_vector[4, :]
+        curvatures_finger1 = grasp_vector[3, 0:6]
+        curvatures_finger2 = grasp_vector[4, 0:6]
 
         # TODO: nn-simplify -- should local curvature work, rather than computing the midpoint, just preserve fingers
         midpoint = (finger1 + finger2)/2.0
