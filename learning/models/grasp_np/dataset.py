@@ -141,8 +141,8 @@ def custom_collate_fn(items):
         else:
             # We are testing and will keep context and targets separate.
             context_geoms.append(context_data['grasp_geometries'].swapaxes(1, 2))
-            context_grasp_points.append([context_data['grasp_points']])
-            context_grasp_curvatures.append([context_data['grasp_curvatures']])
+            context_grasp_points.append(context_data['grasp_points'])
+            context_grasp_curvatures.append(context_data['grasp_curvatures'])
             context_midpoints.append(context_data['grasp_midpoints'])
             context_forces.append(context_data['grasp_forces'])
             context_labels.append(context_data['grasp_labels'])
