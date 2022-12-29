@@ -21,7 +21,7 @@ from learning.models.grasp_np.train_grasp_np import get_loss
 LOG_SUPEDIR = 'learning/experiments/logs'
 
 
-def grow_data_and_find_latents(geoms, midpoints, forces, labels, mesh, model):
+def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, labels, mesh, model):
     """
     Iterates through data, and passes data points 0...n through gnp, 0<n<=#data points
     Returns a list of means and covars from each round.
@@ -35,6 +35,14 @@ def grow_data_and_find_latents(geoms, midpoints, forces, labels, mesh, model):
             1,
             2
         ),
+        0
+    )
+    max_gpoints = torch.unsqueeze(
+        torch.tensor(gpoints),
+        0
+    )
+    max_curvatures = torch.unsqueeze(
+        torch.tensor(curvatures),
         0
     )
     max_midpoints = torch.unsqueeze(
@@ -58,8 +66,8 @@ def grow_data_and_find_latents(geoms, midpoints, forces, labels, mesh, model):
         0
     )
     _, q_z = model.forward(
-        (max_geoms, max_midpoints, max_forces, max_labels),
-        (max_geoms, max_midpoints, max_forces),
+        (max_geoms, max_gpoints, max_curvatures, max_midpoints, max_forces, max_labels),
+        (max_geoms, max_gpoints, max_curvatures, max_midpoints, max_forces),
         max_meshes
     )
 
@@ -75,6 +83,14 @@ def grow_data_and_find_latents(geoms, midpoints, forces, labels, mesh, model):
                 1,
                 2
             ),
+            0
+        )
+        n_gpoints = torch.unsqueeze(
+            torch.tensor(gpoints[:n]),
+            0
+        )
+        n_curvatures = torch.unsqueeze(
+            torch.tensor(curvatures[:n]),
             0
         )
         n_midpoints = torch.unsqueeze(
@@ -98,8 +114,8 @@ def grow_data_and_find_latents(geoms, midpoints, forces, labels, mesh, model):
             0
         )
         y_probs, q_n = model.forward(
-            (n_geoms, n_midpoints, n_forces, n_labels),
-            (max_geoms, max_midpoints, max_forces),
+            (n_geoms, n_gpoints, n_curvatures, n_midpoints, n_forces, n_labels),
+            (max_geoms, max_gpoints, max_curvatures, max_midpoints, max_forces),
             n_meshes
         )
         y_probs = y_probs.squeeze()
@@ -121,10 +137,13 @@ def choose_one_object_and_grasps(dataset):
     _, entry = loader[obj_ix]
     object_meshes = entry['object_mesh']
     grasp_geometries = entry['grasp_geometries']
+    grasp_points = entry['grasp_points']
+    grasp_curvatures = entry['grasp_curvatures']
     grasp_midpoints = entry['grasp_midpoints']
     grasp_forces = entry['grasp_forces']
     grasp_labels = entry['grasp_labels']
-    return obj_ix, grasp_forces, grasp_geometries, grasp_labels, grasp_midpoints, object_meshes
+    return obj_ix, grasp_geometries, grasp_points, grasp_curvatures, \
+           grasp_midpoints, grasp_forces, grasp_labels, object_meshes
 
 
 def main(args):
@@ -148,12 +167,13 @@ def main(args):
     model = train_logger.get_neural_process(tx=0)
 
     # choose a random object in train and then do progressive posterior evaluation
-    train_obj_ix, grasp_forces, grasp_geometries, grasp_labels, grasp_midpoints, object_meshes = \
+    train_obj_ix, grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
+    grasp_forces, grasp_labels, object_meshes = \
         choose_one_object_and_grasps(train_set)
 
     # do progressive latent distribution check
     train_means, train_covars, train_bces, train_klds = grow_data_and_find_latents(
-        grasp_geometries, grasp_midpoints, grasp_forces, grasp_labels,
+        grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
         object_meshes[0],  # it's the same object, so only one mesh is needed
         model
     )
@@ -163,10 +183,11 @@ def main(args):
                                       train_log_dir)
 
     # repeat for validation objects
-    val_obj_ix, grasp_forces, grasp_geometries, grasp_labels, grasp_midpoints, object_meshes = \
+    val_obj_ix, grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
+    grasp_forces, grasp_labels, object_meshes = \
         choose_one_object_and_grasps(val_set)
     val_means, val_covars, val_bces, val_klds = grow_data_and_find_latents(
-        grasp_geometries, grasp_midpoints, grasp_forces, grasp_labels,
+        grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
         object_meshes[0],
         model
     )
@@ -185,7 +206,7 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
     plt.xlabel('size of context set')
     plt.title('latent distribution vs. context set size, set %s obj #%i' % (dset, obj_ix))
     plt.legend()
-    plt.ylim((-5.0, 5.0))
+    plt.ylim((-10.0, 10.0))
     output_fname = os.path.join(log_dir,
                                 'figures',
                                 dset + '_prog_dist_' + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
@@ -205,6 +226,6 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--train-logdir', type=str, required=True, help='training log directory name')
-    parser.add_argument('--seed', type=int, default=40, help='seed for random obj selection')
+    parser.add_argument('--seed', type=int, default=10, help='seed for random obj selection')
     args = parser.parse_args()
     main(args)
