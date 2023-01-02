@@ -168,7 +168,7 @@ def run_fitting_phase(args):
             fitting_args.objects_fname = objects_fname
             fitting_args.n_samples = 20
             fitting_args.pretrained_ensemble_exp_path = pretrained_model_path
-            fitting_args.ensemble_tx = 0
+            fitting_args.ensemble_tx = 7
             fitting_args.eval_object_ix = ox
             fitting_args.strategy = args.strategy
             fitting_args.n_particles = 1000
@@ -469,24 +469,33 @@ def run_training_eval(args):
         print(f'[ERROR] Training phase has not yet been executed.')
         sys.exit()
 
-    train_data_fname, val_data_fname, n_objs = \
-        get_training_phase_dataset_args(exp_args.dataset_name)
-    with open(train_data_fname, 'rb') as handle:
-        train_data = pickle.load(handle)
-    with open(val_data_fname, 'rb') as handle:
-        val_data = pickle.load(handle)
+    if args.active:
+        train_logger = ActiveExperimentLogger(
+            exp_path=pretrained_model_path,
+            use_latents=False
+        )
+        dataset, path = train_logger.load_dataset(tx=7)
+        figpath = os.path.join(exp_path, 'figures', 'train-phase')
+        visualize_grasp_gnp_dataset(path, figpath=figpath)
+    else:
+        train_data_fname, val_data_fname, n_objs = \
+            get_training_phase_dataset_args(exp_args.dataset_name)
+        with open(train_data_fname, 'rb') as handle:
+            train_data = pickle.load(handle)
+        with open(val_data_fname, 'rb') as handle:
+            val_data = pickle.load(handle)
 
-    train_logger = ActiveExperimentLogger(
-        exp_path=pretrained_model_path,
-        use_latents=False
-    )
-    gnp = train_logger.get_neural_process(tx=0)
-    if torch.cuda.is_available():
-        gnp.cuda()
-    preds, targets = get_gnp_predictions(train_data, val_data, gnp)
-    preds = (preds > 0.5).float()
-    figpath = os.path.join(exp_path, 'figures', 'train-phase')
-    visualize_grasp_gnp_dataset(val_data_fname, targets==preds, figpath=figpath)
+        train_logger = ActiveExperimentLogger(
+            exp_path=pretrained_model_path,
+            use_latents=False
+        )
+        gnp = train_logger.get_neural_process(tx=0)
+        if torch.cuda.is_available():
+            gnp.cuda()
+        preds, targets = get_gnp_predictions(train_data, val_data, gnp)
+        preds = (preds > 0.5).float()
+        figpath = os.path.join(exp_path, 'figures', 'train-phase')
+        visualize_grasp_gnp_dataset(val_data_fname, targets==preds, figpath=figpath)
 
 
 def run_testing_phase(args):
@@ -541,7 +550,7 @@ def run_testing_phase(args):
             }
         }
     }
-    min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.02
+    min_pstable, max_pstable, min_dist = 0.05, 0.25, 0.02
 
     valid_train_objects = filter_objects(
         object_names=train_objects['object_data']['object_names'],
@@ -673,6 +682,7 @@ if __name__ == '__main__':
     parser.add_argument('--strategy', type=str, choices=['bald', 'random'], default='random')
     parser.add_argument('--constrained', action='store_true', default=False)
     parser.add_argument('--amortize', action='store_true', default=False)
+    parser.add_argument('--active', action='store_true', default=False)
     args = parser.parse_args()
 
     if args.phase == 'create':

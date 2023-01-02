@@ -99,7 +99,10 @@ def custom_collate_fn(items):
     full_meshes = []
 
     for context_data, heldout_data in items:
-        full_meshes.append(heldout_data['object_mesh'][:, :].swapaxes(0, 1))
+        if len(heldout_data['object_mesh'].shape) == 3:
+            full_meshes.append(heldout_data['object_mesh'][0, :, :].swapaxes(0, 1))
+        else:
+            full_meshes.append(heldout_data['object_mesh'][:, :].swapaxes(0, 1))
         if context_data is None:
             all_context_geoms = heldout_data['grasp_geometries']
             all_context_midpoints = heldout_data['grasp_midpoints']

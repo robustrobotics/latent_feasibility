@@ -132,6 +132,7 @@ def visualize_grasp_gnp_dataset(dataset_fname, labels=None, figpath='', prefix='
     object_names = val_data['object_data']['object_names']
     object_properties = val_data['object_data']['object_properties']
 
+    grasp_forces = val_data['grasp_data']['grasp_forces']
     grasp_midpoints = val_data['grasp_data']['grasp_midpoints']
     object_ixs = sorted(list(grasp_midpoints.keys()))
 
@@ -144,11 +145,12 @@ def visualize_grasp_gnp_dataset(dataset_fname, labels=None, figpath='', prefix='
 
         sim_client = GraspSimulationClient(graspable_body, False)
         grasps = grasp_midpoints[object_ix][:100]
-        obj_labels = labels[ox*min(dataset_args.n_grasps_per_object, 100):(ox+1)*min(dataset_args.n_grasps_per_object, 100)]
-
+        # obj_labels = labels[ox*min(dataset_args.n_grasps_per_object, 100):(ox+1)*min(dataset_args.n_grasps_per_object, 100)]
+        obj_labels = labels[object_ix][:100]
+        forces = grasp_forces[object_ix][:100]
         fname = os.path.join(figpath, f'object{object_ix}_{prefix}.png')
         if len(figpath) > 0:
-             sim_client.tm_show_grasps(grasps, obj_labels, fname=fname, acquired=acquired)
+             sim_client.tm_show_grasps(grasps, obj_labels, forces, fname=fname, acquired=acquired)
         else:
             sim_client.tm_show_grasps(grasps, obj_labels, acquired=acquired)
         sim_client.disconnect()

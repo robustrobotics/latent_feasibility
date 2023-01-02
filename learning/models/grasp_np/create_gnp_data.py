@@ -48,7 +48,7 @@ def transform_points(points, finger1, finger2, ee, viz_data=False):
         ax1.set_xlabel('x')
         ax1.set_ylabel('y')
         ax1.set_zlabel('z')
-        
+
         ax2.set_xlabel('x')
         ax2.set_ylabel('y')
         ax2.set_zlabel('z')

@@ -1,5 +1,6 @@
 import copy
 import multiprocessing as mp
+import os
 import pickle
 import time
 
@@ -61,7 +62,15 @@ def add_grasps(grasp_dict, new_grasps):
 
 def get_train_and_fit_objects(pretrained_ensemble_path, use_latents, fit_objects_fname, fit_object_ix):
     train_logger = ActiveExperimentLogger(exp_path=pretrained_ensemble_path)
-    with open(train_logger.args.train_dataset_fname, 'rb') as handle:
+    if hasattr(train_logger.args, 'train_dataset_fname'):
+        train_fname = train_logger.args.train_dataset_fname
+    else:
+        train_fname = os.path.join(
+            'learning/data/grasping',
+            train_logger.args.data_root,
+            'grasps/training_phase/train_grasps.pkl',
+        )
+    with open(train_fname, 'rb') as handle:
         train_dataset = pickle.load(handle)
 
     train_objects = train_dataset['object_data']

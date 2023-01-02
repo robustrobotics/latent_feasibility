@@ -36,14 +36,14 @@ def particle_bald(predictions, weights, eps=1e-5):
     return bald
 
 def find_informative_tower(pf, object_set, logger, args):
-    data_sampler_fn = lambda n: sample_unlabeled_data_fit(n_samples=n, object_set=object_set)
+    data_sampler_fn = lambda n: sample_unlabeled_data_fit(n_samples_per_object=n, object_set=object_set)
 
     # This is necessary if we're using a weighted particle filter.
     sampling_dist = ParticleDistribution(
         pf.particles.particles,
         pf.particles.weights/np.sum(pf.particles.weights)
     )
-    resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
+    resampled_parts = sample_particle_distribution(sampling_dist, num_samples=100)
 
     all_grasps = []
     all_preds = []
@@ -56,7 +56,7 @@ def find_informative_tower(pf, object_set, logger, args):
 
     pred_vec = torch.Tensor(np.stack(all_preds))
     # scores = particle_bald(pred_vec, pf.particles.weights)
-    scores = particle_bald(pred_vec, np.ones_like(pf.particles.weights)[:50])
+    scores = particle_bald(pred_vec, np.ones_like(pf.particles.weights)[:100])
     print('Scores:', scores)
     acquire_ix = np.argsort(scores)[::-1][0]
 
@@ -74,7 +74,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
 
         # Choose a tower to build that includes the new block.
         if strategy == 'random':
-            data_sampler_fn = lambda n: sample_unlabeled_data_fit(n_samples=n, object_set=object_set)
+            data_sampler_fn = lambda n: sample_unlabeled_data_fit(n_samples_per_object=n, object_set=object_set)
             grasp_dataset = data_sampler_fn(1)
         elif strategy == 'bald':
             grasp_dataset = find_informative_tower(pf, object_set, logger, args)
@@ -137,7 +137,7 @@ def run_particle_filter_fitting(args):
             exp_path=args.pretrained_ensemble_exp_path,
             use_latents=False
         )
-        likelihood_model = train_logger.get_neural_process(tx=0)
+        likelihood_model = train_logger.get_neural_process(tx=args.ensemble_tx)
         if torch.cuda.is_available():
             likelihood_model.cuda()
         likelihood_model.eval()

@@ -128,7 +128,7 @@ class ActiveExperimentLogger:
         try:
             with open(path, 'rb') as handle:
                 dataset = pickle.load(handle)
-            return dataset
+            return dataset, path
         except:
             print(f'active_{tx}.pkl not found on path')
             return None

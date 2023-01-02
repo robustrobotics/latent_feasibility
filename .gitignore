@@ -25,3 +25,6 @@ learning/experiments/logs/
 *.zip
 learning/active/experiments/
 .idea
+learning/experiments/metadata/*
+ignore.txt
+

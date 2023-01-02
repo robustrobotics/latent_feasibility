@@ -524,14 +524,14 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
                 grasps = grasps.cuda()
                 object_ixs = object_ixs.cuda()
 
-            for ix in range(0, latent_samples.shape[0]//20):
+            for ix in range(0, latent_samples.shape[0]//100):
                 pred = self.likelihood.forward(X=grasps[:, :-5, :],
                                                object_ids=object_ixs.long(),
-                                               N_samples=20,
+                                               N_samples=100,
                                                collapse_latents=True, 
                                                collapse_ensemble=True,
                                                pf_latent_ix=self.object_ix,
-                                               latent_samples=latent_samples[ix*20:(ix+1)*20,:]).squeeze()
+                                               latent_samples=latent_samples[ix*100:(ix+1)*100,:]).squeeze()
                 bernoulli_probs.append(pred.cpu().detach().numpy())
         return np.concatenate(bernoulli_probs)
 
@@ -589,7 +589,7 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
     """
     A ParticleBelief that is compatible with a GraspNeuralProcess object.
     """
-    def get_particle_likelihoods(self, particles, observation, batch_size=50):
+    def get_particle_likelihoods(self, particles, observation, batch_size=100):
         """
         Compute the likelihood of an obervation for each particle.
         :param particles: NxD matrix of particles.

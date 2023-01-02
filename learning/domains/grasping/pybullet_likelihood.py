@@ -1,9 +1,8 @@
-from learning.domains.grasping.active_utils import sample_unlabeled_data
 import numpy as np
 import pickle
 
 from block_utils import ParticleDistribution
-from learning.domains.grasping.active_utils import sample_unlabeled_data
+from learning.domains.grasping.active_utils import sample_unlabeled_data_fit
 from learning.domains.grasping.generate_grasp_datasets import vector_from_graspablebody
 from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspableBodySampler, GraspStabilityChecker
 
@@ -72,6 +71,6 @@ if __name__ == '__main__':
     likelihood = PBLikelihood(object_name=object_name, n_samples=5, batch_size=50)
     particles = likelihood.init_particles(100)
 
-    grasp = sample_unlabeled_data(1, object_set)
+    grasp = sample_unlabeled_data_fit(1, object_set)
     probs = likelihood.get_particle_likelihoods(particles.particles, grasp)
     print(probs)

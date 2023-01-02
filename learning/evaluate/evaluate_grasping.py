@@ -11,7 +11,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.axes_grid1 import ImageGrid
 from sklearn.metrics import recall_score, precision_score, balanced_accuracy_score, f1_score, confusion_matrix, accuracy_score, average_precision_score
 from torch.utils.data import DataLoader
-from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, get_train_and_fit_objects
+from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data_fit, get_labels, get_train_and_fit_objects
 from learning.active.acquire import bald
 
 from block_utils import ParticleDistribution
