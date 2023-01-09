@@ -78,10 +78,11 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
     covars = []
     kdls = []
     bces = []
-    order = torch.randperm(50)
-    for n in range(1, len(geoms) + 1):
+    n_elts = len(geoms)
+    order = torch.randperm(n_elts)
+    for n in range(1, n_elts + 1):
         print('evaluating with size ' + str(n))
-        selected_elts = order[:n]
+        selected_elts = order[:n].numpy()
         n_geoms = torch.unsqueeze(
             torch.swapaxes(
                 torch.tensor(geoms[selected_elts]),
@@ -132,7 +133,11 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
         bces.append(bce_loss)
         kdls.append(kdl_loss)
 
-    return torch.cat(means, dim=0), torch.cat(covars, dim=0), torch.tensor(bces), torch.tensor(kdls)
+    # TODO: there is a way to evaluate models without tracking grads - find it
+    return torch.cat(means, dim=0).detach().numpy(), \
+        torch.cat(covars, dim=0).detach().numpy(), \
+        torch.tensor(bces).detach().numpy(), \
+        torch.tensor(kdls).detach().numpy()
 
 
 def choose_one_object_and_grasps(dataset):
@@ -179,8 +184,8 @@ def main(args):
     num_rounds = args.orders_per_object
     all_rounds_train_means = np.zeros((num_rounds, len(grasp_geometries), NUM_LATENTS))
     all_rounds_train_covars = np.zeros((num_rounds, len(grasp_geometries), NUM_LATENTS))
-    all_rounds_train_bces = np.zeros(num_rounds, len(grasp_geometries))
-    all_rounds_train_klds = np.zeros(num_rounds, len(grasp_geometries))
+    all_rounds_train_bces = np.zeros((num_rounds, len(grasp_geometries)))
+    all_rounds_train_klds = np.zeros((num_rounds, len(grasp_geometries)))
 
     # do progressive latent distribution check
     for i in range(num_rounds):
@@ -190,9 +195,8 @@ def main(args):
             object_meshes[0],  # it's the same object, so only one mesh is needed
             model
         )
-        # TODO: check if dimensionality is working out
-        all_rounds_train_means[i, :] = train_means
-        all_rounds_train_covars[i, :] = train_covars
+        all_rounds_train_means[i, :, :] = train_means
+        all_rounds_train_covars[i, :, :] = train_covars
         all_rounds_train_bces[i, :] = train_bces
         all_rounds_train_klds[i, :] = train_klds
 
@@ -206,11 +210,11 @@ def main(args):
     grasp_forces, grasp_labels, object_meshes = \
         choose_one_object_and_grasps(val_set)
 
-    # we re-clear all of the data arrays for easier debugging
+    # we re-clear all data arrays for easier debugging
     all_rounds_train_means = np.zeros((num_rounds, len(grasp_geometries), NUM_LATENTS))
     all_rounds_train_covars = np.zeros((num_rounds, len(grasp_geometries), NUM_LATENTS))
-    all_rounds_train_bces = np.zeros(num_rounds, len(grasp_geometries))
-    all_rounds_train_klds = np.zeros(num_rounds, len(grasp_geometries))
+    all_rounds_train_bces = np.zeros((num_rounds, len(grasp_geometries)))
+    all_rounds_train_klds = np.zeros((num_rounds, len(grasp_geometries)))
 
     for i in range(num_rounds):
         print('val order #%i' % i)
@@ -221,8 +225,8 @@ def main(args):
         )
         all_rounds_train_means[i, :, :] = val_means
         all_rounds_train_covars[i, :, :] = val_covars
-        all_rounds_train_bces[i, :, :] = val_bces
-        all_rounds_train_klds[i, :, :] = val_klds
+        all_rounds_train_bces[i, :] = val_bces
+        all_rounds_train_klds[i, :] = val_klds
 
     # plot_progressive_means_and_covars(val_means, val_covars, val_bces, val_klds, 'val', val_obj_ix, train_log_dir)
 
