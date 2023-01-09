@@ -20,6 +20,7 @@ from learning.models.grasp_np.train_grasp_np import get_loss
 
 # they are ordered in lists of 500, and in grasps, there is a maximum of 50 grasps to use
 
+NUM_LATENTS = 5
 LOG_SUPEDIR = 'learning/experiments/logs'
 
 
@@ -176,8 +177,8 @@ def main(args):
         choose_one_object_and_grasps(train_set)
 
     num_rounds = args.orders_per_object
-    all_rounds_train_means = np.zeros(num_rounds, len(grasp_geometries))
-    all_rounds_train_covars = np.zeros(num_rounds, len(grasp_geometries))
+    all_rounds_train_means = np.zeros((num_rounds, len(grasp_geometries), NUM_LATENTS))
+    all_rounds_train_covars = np.zeros((num_rounds, len(grasp_geometries), NUM_LATENTS))
     all_rounds_train_bces = np.zeros(num_rounds, len(grasp_geometries))
     all_rounds_train_klds = np.zeros(num_rounds, len(grasp_geometries))
 
@@ -189,6 +190,7 @@ def main(args):
             object_meshes[0],  # it's the same object, so only one mesh is needed
             model
         )
+        # TODO: check if dimensionality is working out
         all_rounds_train_means[i, :] = train_means
         all_rounds_train_covars[i, :] = train_covars
         all_rounds_train_bces[i, :] = train_bces
@@ -196,17 +198,17 @@ def main(args):
 
     # TODO: adjust plotting with seaborn
     # turn train means and train covars into manipulatable arrays and then plot w/ matplotlib
-    plot_progressive_means_and_covars(train_means, train_covars, train_bces, train_klds, 'train', train_obj_ix,
-                                      train_log_dir)
+    # plot_progressive_means_and_covars(train_means, train_covars, train_bces, train_klds, 'train', train_obj_ix,
+    #                                   train_log_dir)
 
     # repeat for validation objects
     val_obj_ix, grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
     grasp_forces, grasp_labels, object_meshes = \
         choose_one_object_and_grasps(val_set)
 
-    num_rounds = args.orders_per_object
-    all_rounds_train_means = np.zeros(num_rounds, len(grasp_geometries))
-    all_rounds_train_covars = np.zeros(num_rounds, len(grasp_geometries))
+    # we re-clear all of the data arrays for easier debugging
+    all_rounds_train_means = np.zeros((num_rounds, len(grasp_geometries), NUM_LATENTS))
+    all_rounds_train_covars = np.zeros((num_rounds, len(grasp_geometries), NUM_LATENTS))
     all_rounds_train_bces = np.zeros(num_rounds, len(grasp_geometries))
     all_rounds_train_klds = np.zeros(num_rounds, len(grasp_geometries))
 
@@ -217,12 +219,12 @@ def main(args):
             object_meshes[0],
             model
         )
-        all_rounds_train_means[i, :] = val_means
-        all_rounds_train_covars[i, :] = val_covars
-        all_rounds_train_bces[i, :] = val_bces
-        all_rounds_train_klds[i, :] = val_klds
+        all_rounds_train_means[i, :, :] = val_means
+        all_rounds_train_covars[i, :, :] = val_covars
+        all_rounds_train_bces[i, :, :] = val_bces
+        all_rounds_train_klds[i, :, :] = val_klds
 
-    plot_progressive_means_and_covars(val_means, val_covars, val_bces, val_klds, 'val', val_obj_ix, train_log_dir)
+    # plot_progressive_means_and_covars(val_means, val_covars, val_bces, val_klds, 'val', val_obj_ix, train_log_dir)
 
 # TODO:
 # should we plot each run as a multiple time series? can we get variance data in there? that may be per parameter
