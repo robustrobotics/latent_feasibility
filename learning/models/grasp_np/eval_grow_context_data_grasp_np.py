@@ -3,6 +3,8 @@ from learning.active.utils import ActiveExperimentLogger
 from datetime import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
 import argparse
 import pickle
 import torch
@@ -23,7 +25,7 @@ LOG_SUPEDIR = 'learning/experiments/logs'
 
 def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, labels, mesh, model):
     """
-    Iterates through data, and passes data points 0...n through gnp, 0<n<=#data points
+    Chooses random order to iterate through data, and passes data points 0...n through gnp, 0<n<=#data points
     Returns a list of means and covars from each round.
     """
     model.eval()
@@ -75,34 +77,36 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
     covars = []
     kdls = []
     bces = []
+    order = torch.randperm(50)
     for n in range(1, len(geoms) + 1):
         print('evaluating with size ' + str(n))
+        selected_elts = order[:n]
         n_geoms = torch.unsqueeze(
             torch.swapaxes(
-                torch.tensor(geoms[:n]),
+                torch.tensor(geoms[selected_elts]),
                 1,
                 2
             ),
             0
         )
         n_gpoints = torch.unsqueeze(
-            torch.tensor(gpoints[:n]),
+            torch.tensor(gpoints[selected_elts]),
             0
         )
         n_curvatures = torch.unsqueeze(
-            torch.tensor(curvatures[:n]),
+            torch.tensor(curvatures[selected_elts]),
             0
         )
         n_midpoints = torch.unsqueeze(
-            torch.tensor(midpoints[:n]),
+            torch.tensor(midpoints[selected_elts]),
             0
         )
         n_forces = torch.unsqueeze(
-            torch.tensor(forces[:n]),
+            torch.tensor(forces[selected_elts]),
             0
         )
         n_labels = torch.unsqueeze(
-            torch.tensor(labels[:n]),
+            torch.tensor(labels[selected_elts]),
             0
         )
         n_meshes = torch.unsqueeze(
@@ -171,13 +175,26 @@ def main(args):
     grasp_forces, grasp_labels, object_meshes = \
         choose_one_object_and_grasps(train_set)
 
-    # do progressive latent distribution check
-    train_means, train_covars, train_bces, train_klds = grow_data_and_find_latents(
-        grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
-        object_meshes[0],  # it's the same object, so only one mesh is needed
-        model
-    )
+    num_rounds = args.orders_per_object
+    all_rounds_train_means = np.zeros(num_rounds, len(grasp_geometries))
+    all_rounds_train_covars = np.zeros(num_rounds, len(grasp_geometries))
+    all_rounds_train_bces = np.zeros(num_rounds, len(grasp_geometries))
+    all_rounds_train_klds = np.zeros(num_rounds, len(grasp_geometries))
 
+    # do progressive latent distribution check
+    for i in range(num_rounds):
+        print('train order #%i' % i)
+        train_means, train_covars, train_bces, train_klds = grow_data_and_find_latents(
+            grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
+            object_meshes[0],  # it's the same object, so only one mesh is needed
+            model
+        )
+        all_rounds_train_means[i, :] = train_means
+        all_rounds_train_covars[i, :] = train_covars
+        all_rounds_train_bces[i, :] = train_bces
+        all_rounds_train_klds[i, :] = train_klds
+
+    # TODO: adjust plotting with seaborn
     # turn train means and train covars into manipulatable arrays and then plot w/ matplotlib
     plot_progressive_means_and_covars(train_means, train_covars, train_bces, train_klds, 'train', train_obj_ix,
                                       train_log_dir)
@@ -186,14 +203,29 @@ def main(args):
     val_obj_ix, grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
     grasp_forces, grasp_labels, object_meshes = \
         choose_one_object_and_grasps(val_set)
-    val_means, val_covars, val_bces, val_klds = grow_data_and_find_latents(
-        grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
-        object_meshes[0],
-        model
-    )
+
+    num_rounds = args.orders_per_object
+    all_rounds_train_means = np.zeros(num_rounds, len(grasp_geometries))
+    all_rounds_train_covars = np.zeros(num_rounds, len(grasp_geometries))
+    all_rounds_train_bces = np.zeros(num_rounds, len(grasp_geometries))
+    all_rounds_train_klds = np.zeros(num_rounds, len(grasp_geometries))
+
+    for i in range(num_rounds):
+        print('val order #%i' % i)
+        val_means, val_covars, val_bces, val_klds = grow_data_and_find_latents(
+            grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
+            object_meshes[0],
+            model
+        )
+        all_rounds_train_means[i, :] = val_means
+        all_rounds_train_covars[i, :] = val_covars
+        all_rounds_train_bces[i, :] = val_bces
+        all_rounds_train_klds[i, :] = val_klds
+
     plot_progressive_means_and_covars(val_means, val_covars, val_bces, val_klds, 'val', val_obj_ix, train_log_dir)
 
-
+# TODO:
+# should we plot each run as a multiple time series? can we get variance data in there? that may be per parameter
 def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, log_dir):
     means_arr, covars_arr = means.detach().numpy(), covars.detach().numpy()
     xs = np.arange(1, means_arr.shape[0] + 1)
@@ -227,5 +259,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--train-logdir', type=str, required=True, help='training log directory name')
     parser.add_argument('--seed', type=int, default=10, help='seed for random obj selection')
+    parser.add_argument('--orders-per-object', type=int, default=50, help='number of data collection orders per object')
+    parser.add_argument('--full-run', action='store_true', default=False,
+                        help='run on full training and validation dataset objects')
     args = parser.parse_args()
     main(args)
