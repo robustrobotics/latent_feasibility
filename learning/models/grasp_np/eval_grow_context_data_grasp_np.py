@@ -282,6 +282,7 @@ def plot_roc_auc_curves(all_roc_aucs, dset, log_dir):
                                 'figures',
                                 dset + '_roc_'
                                 + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
+    plt.savefig(output_fname)
 
 
 
