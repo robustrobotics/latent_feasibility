@@ -28,57 +28,50 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
     Returns a list of means and covars from each round.
     """
     model.eval()
-    model.zero_grad()
 
-    max_geoms = torch.swapaxes(torch.tensor(geoms), 2, 3)
-    max_gpoints = torch.tensor(gpoints)
-    max_curvatures = torch.tensor(curvatures)
-    max_midpoints = torch.tensor(midpoints)
-    max_forces = torch.tensor(forces)
-    max_labels = torch.tensor(labels)
-    max_meshes = torch.swapaxes(torch.tensor(mesh), 1, 2)
-    _, q_z = model.forward(
-        (max_geoms, max_gpoints, max_curvatures, max_midpoints, max_forces, max_labels),
-        (max_geoms, max_gpoints, max_curvatures, max_midpoints, max_forces),
-        max_meshes
-    )
-
-    means = []
-    covars = []
-    kdls = []
-    bces = []
-    n_elts = geoms.shape[1]
-    order = torch.randperm(n_elts)
-    for n in range(1, n_elts + 1):
-        print('evaluating with size ' + str(n))
-        selected_elts = order[:n].numpy()
-
-        n_geoms = torch.swapaxes(geoms[:, selected_elts], 2, 3)
-        n_gpoints = torch.tensor(gpoints[:, selected_elts])
-        n_curvatures = torch.tensor(curvatures[:, selected_elts])
-        n_midpoints = torch.tensor(midpoints[:, selected_elts])
-        n_forces = torch.tensor(forces[:, selected_elts])
-        n_labels = torch.tensor(labels[:, selected_elts])
-        n_meshes = torch.swapaxes(mesh, 1, 2)
-        y_probs, q_n = model.forward(
-            (n_geoms, n_gpoints, n_curvatures, n_midpoints, n_forces, n_labels),
-            (max_geoms, max_gpoints, max_curvatures, max_midpoints, max_forces),
-            n_meshes
+    with torch.no_grad():
+        geoms = torch.swapaxes(geoms, 2, 3)
+        meshes = torch.swapaxes(torch.tensor(mesh), 1, 2)
+        _, q_z = model.forward(
+            (geoms, gpoints, curvatures, midpoints, forces, labels),
+            (geoms, gpoints, curvatures, midpoints, forces),
+            meshes
         )
-        y_probs = y_probs.squeeze()
 
-        means.append(q_n.loc.view(1, -1))
-        covars.append(q_n.scale.view(1, -1))
+        means = []
+        covars = []
+        kdls = []
+        bces = []
+        n_elts = geoms.shape[1]
+        order = torch.randperm(n_elts)
+        for n in range(1, n_elts + 1):
+            print('evaluating with size ' + str(n))
+            selected_elts = order[:n].numpy()
 
-        _, bce_loss, kdl_loss = get_loss(y_probs, max_labels.squeeze(), q_z, q_n)
-        bces.append(bce_loss)
-        kdls.append(kdl_loss)
+            n_geoms = geoms[:, selected_elts]
+            n_gpoints = gpoints[:, selected_elts]
+            n_curvatures = curvatures[:, selected_elts]
+            n_midpoints = midpoints[:, selected_elts]
+            n_forces = forces[:, selected_elts]
+            n_labels = labels[:, selected_elts]
+            y_probs, q_n = model.forward(
+                (n_geoms, n_gpoints, n_curvatures, n_midpoints, n_forces, n_labels),
+                (max_geoms, max_gpoints, max_curvatures, max_midpoints, max_forces),
+                mesh
+            )
+            y_probs = y_probs.squeeze()
 
-    # TODO: there is a way to evaluate models without tracking grads - find it
-    return torch.cat(means, dim=0).detach().numpy(), \
-        torch.cat(covars, dim=0).detach().numpy(), \
-        torch.tensor(bces).detach().numpy(), \
-        torch.tensor(kdls).detach().numpy()
+            means.append(q_n.loc.view(1, -1))
+            covars.append(q_n.scale.view(1, -1))
+
+            _, bce_loss, kdl_loss = get_loss(y_probs, max_labels.squeeze(), q_z, q_n)
+            bces.append(bce_loss)
+            kdls.append(kdl_loss)
+
+        return torch.cat(means, dim=0).numpy(), \
+            torch.cat(covars, dim=0).numpy(), \
+            torch.tensor(bces).numpy(), \
+            torch.tensor(kdls).numpy()
 
 
 def choose_one_object_and_grasps(dataset):
@@ -187,7 +180,7 @@ def main(args):
 # (2) plot bce/kld as normal
 def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, log_dir):
     xs = np.arange(1, means.shape[1] + 1)
-    plt.figure()
+    plt.figure(figsize=(16, 4))
     for i_latent_var in range(means.shape[2]):
         ax = plt.subplot(5, 1, i_latent_var + 1)
         ax.set_title('latent %i, set %s, obj #%i' % (i_latent_var, dset, obj_ix))
@@ -197,7 +190,6 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
             ax.plot(xs, mean_col, label='round %i' % i_round_num)
             ax.fill_between(xs, mean_col - covar_col, mean_col + covar_col, alpha=0.2)
             ax.set_xlabel('size of context set')
-    plt.ylim((-10.0, 10.0))
     output_fname = os.path.join(log_dir,
                                 'figures',
                                 dset + '_prog_dist_' + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
