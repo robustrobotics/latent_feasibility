@@ -22,7 +22,7 @@ NUM_LATENTS = 5
 LOG_SUPEDIR = 'learning/experiments/logs'
 
 
-def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, labels, mesh, model):
+def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, labels, meshes, model):
     """
     Chooses random order to iterate through data, and passes data points 0...n through gnp, 0<n<=#data points
     Returns a list of means and covars from each round.
@@ -31,7 +31,7 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
 
     with torch.no_grad():
         geoms = torch.swapaxes(geoms, 2, 3)
-        meshes = torch.swapaxes(torch.tensor(mesh), 1, 2)
+        meshes = torch.swapaxes(meshes, 1, 2)
         _, q_z = model.forward(
             (geoms, gpoints, curvatures, midpoints, forces, labels),
             (geoms, gpoints, curvatures, midpoints, forces),
@@ -56,15 +56,15 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
             n_labels = labels[:, selected_elts]
             y_probs, q_n = model.forward(
                 (n_geoms, n_gpoints, n_curvatures, n_midpoints, n_forces, n_labels),
-                (max_geoms, max_gpoints, max_curvatures, max_midpoints, max_forces),
-                mesh
+                (geoms, gpoints, curvatures, midpoints, forces),
+                meshes
             )
             y_probs = y_probs.squeeze()
 
             means.append(q_n.loc.view(1, -1))
             covars.append(q_n.scale.view(1, -1))
 
-            _, bce_loss, kdl_loss = get_loss(y_probs, max_labels.squeeze(), q_z, q_n)
+            _, bce_loss, kdl_loss = get_loss(y_probs, labels.squeeze(), q_z, q_n)
             bces.append(bce_loss)
             kdls.append(kdl_loss)
 
@@ -180,9 +180,9 @@ def main(args):
 # (2) plot bce/kld as normal
 def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, log_dir):
     xs = np.arange(1, means.shape[1] + 1)
-    plt.figure(figsize=(16, 4))
+    plt.figure(figsize=(20, 4))
     for i_latent_var in range(means.shape[2]):
-        ax = plt.subplot(5, 1, i_latent_var + 1)
+        ax = plt.subplot(1, 5, i_latent_var + 1)
         ax.set_title('latent %i, set %s, obj #%i' % (i_latent_var, dset, obj_ix))
         for i_round_num in range(means.shape[0]):
             mean_col = means[i_round_num, :, i_latent_var]
