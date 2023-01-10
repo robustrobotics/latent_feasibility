@@ -47,7 +47,7 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
         n_elts = geoms.shape[1]
         order = torch.randperm(n_elts)
         for n in range(1, n_elts + 1):
-            print('evaluating with size ' + str(n))
+            # print('evaluating with size ' + str(n))
             selected_elts = order[:n].numpy()
 
             n_geoms = geoms[:, selected_elts]
@@ -127,7 +127,7 @@ def main(args):
 
     # do progressive latent distribution check
     for i in range(num_rounds):
-        print('train order #%i' % i)
+        # print('train order #%i' % i)
         train_means, train_covars, train_bces, train_klds = grow_data_and_find_latents(
             grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
             object_meshes,  # it's the same object, so only one mesh is needed
@@ -157,7 +157,7 @@ def main(args):
     all_rounds_val_klds = np.zeros((num_rounds, num_grasps))
 
     for i in range(num_rounds):
-        print('val order #%i' % i)
+        # print('val order #%i' % i)
         val_means, val_covars, val_bces, val_klds = grow_data_and_find_latents(
             grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
             object_meshes,
@@ -209,7 +209,8 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
         'round': list(range(bces.shape[0])) * (bces.shape[1] + klds.shape[1]),
         'value': np.concatenate([bces.flatten(order='C'), klds.flatten(order='C')])}
     loss_data = pd.DataFrame(data=d)
-    sns.lineplot(x='acquisition', y='value', hue='loss_component', data=loss_data)
+    sns.relplot(x='acquisition', y='value', col='loss_component',
+                kind='line', data=loss_data, facet_kws=dict(sharey=False))
     output_fname = os.path.join(log_dir,
                                 'figures',
                                 dset + '_obj' + str(obj_ix) + '_bce_kld_'
