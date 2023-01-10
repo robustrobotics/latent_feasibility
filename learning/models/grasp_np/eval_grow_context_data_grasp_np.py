@@ -32,42 +32,13 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
     model.eval()
     model.zero_grad()
 
-    max_geoms = torch.unsqueeze(
-        torch.swapaxes(
-            torch.tensor(geoms),
-            1,
-            2
-        ),
-        0
-    )
-    max_gpoints = torch.unsqueeze(
-        torch.tensor(gpoints),
-        0
-    )
-    max_curvatures = torch.unsqueeze(
-        torch.tensor(curvatures),
-        0
-    )
-    max_midpoints = torch.unsqueeze(
-        torch.tensor(midpoints),
-        0
-    )
-    max_forces = torch.unsqueeze(
-        torch.tensor(forces),
-        0
-    )
-    max_labels = torch.unsqueeze(
-        torch.tensor(labels),
-        0
-    )
-    max_meshes = torch.unsqueeze(
-        torch.swapaxes(
-            torch.tensor(mesh),  # there is only one mesh, since we are only evaluating one object
-            0,
-            1
-        ),
-        0
-    )
+    max_geoms = torch.swapaxes(torch.tensor(geoms), 2, 3)
+    max_gpoints = torch.tensor(gpoints)
+    max_curvatures = torch.tensor(curvatures)
+    max_midpoints = torch.tensor(midpoints)
+    max_forces = torch.tensor(forces)
+    max_labels = torch.tensor(labels)
+    max_meshes = torch.swapaxes(torch.tensor(mesh), 1, 2)
     _, q_z = model.forward(
         (max_geoms, max_gpoints, max_curvatures, max_midpoints, max_forces, max_labels),
         (max_geoms, max_gpoints, max_curvatures, max_midpoints, max_forces),
@@ -83,42 +54,14 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
     for n in range(1, n_elts + 1):
         print('evaluating with size ' + str(n))
         selected_elts = order[:n].numpy()
-        n_geoms = torch.unsqueeze(
-            torch.swapaxes(
-                torch.tensor(geoms[selected_elts]),
-                1,
-                2
-            ),
-            0
-        )
-        n_gpoints = torch.unsqueeze(
-            torch.tensor(gpoints[selected_elts]),
-            0
-        )
-        n_curvatures = torch.unsqueeze(
-            torch.tensor(curvatures[selected_elts]),
-            0
-        )
-        n_midpoints = torch.unsqueeze(
-            torch.tensor(midpoints[selected_elts]),
-            0
-        )
-        n_forces = torch.unsqueeze(
-            torch.tensor(forces[selected_elts]),
-            0
-        )
-        n_labels = torch.unsqueeze(
-            torch.tensor(labels[selected_elts]),
-            0
-        )
-        n_meshes = torch.unsqueeze(
-            torch.swapaxes(
-                torch.tensor(mesh),  # there is only one mesh, since we are only evaluating one object
-                0,
-                1
-            ),
-            0
-        )
+
+        n_geoms = torch.swapaxes(geoms[selected_elts], 2, 3)
+        n_gpoints = torch.tensor(gpoints[selected_elts])
+        n_curvatures = torch.tensor(curvatures[selected_elts])
+        n_midpoints = torch.tensor(midpoints[selected_elts])
+        n_forces = torch.tensor(forces[selected_elts])
+        n_labels = torch.tensor(labels[selected_elts])
+        n_meshes = torch.swapaxes(mesh, 1, 2)
         y_probs, q_n = model.forward(
             (n_geoms, n_gpoints, n_curvatures, n_midpoints, n_forces, n_labels),
             (max_geoms, max_gpoints, max_curvatures, max_midpoints, max_forces),
@@ -141,19 +84,20 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
 
 
 def choose_one_object_and_grasps(dataset):
-    # we use the loader to get the data for preprocessing to prep for network input
+    # we use the loader to get data preprocessing
     loader = CustomGNPGraspDataset(data=dataset)
     obj_ix = random.randint(0, len(loader))
     _, entry = loader[obj_ix]
-    object_meshes = entry['object_mesh']
-    grasp_geometries = entry['grasp_geometries']
-    grasp_points = entry['grasp_points']
-    grasp_curvatures = entry['grasp_curvatures']
-    grasp_midpoints = entry['grasp_midpoints']
-    grasp_forces = entry['grasp_forces']
-    grasp_labels = entry['grasp_labels']
+    # only one object, so only one mesh is needed
+    object_meshes = torch.unsqueeze(torch.tensor(entry['object_mesh'][0]), 0)
+    grasp_geometries = torch.unsqueeze(torch.tensor(entry['grasp_geometries']), 0)
+    grasp_points = torch.unsqueeze(torch.tensor(entry['grasp_points']), 0)
+    grasp_curvatures = torch.unsqueeze(torch.tensor(entry['grasp_curvatures']), 0)
+    grasp_midpoints = torch.unsqueeze(torch.tensor(entry['grasp_midpoints']), 0)
+    grasp_forces = torch.unsqueeze(torch.tensor(entry['grasp_forces']), 0)
+    grasp_labels = torch.unsqueeze(torch.tensor(entry['grasp_labels']), 0)
     return obj_ix, grasp_geometries, grasp_points, grasp_curvatures, \
-           grasp_midpoints, grasp_forces, grasp_labels, object_meshes
+        grasp_midpoints, grasp_forces, grasp_labels, object_meshes
 
 
 def main(args):
@@ -178,7 +122,7 @@ def main(args):
 
     # choose a random object in train and then do progressive posterior evaluation
     train_obj_ix, grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
-    grasp_forces, grasp_labels, object_meshes = \
+        grasp_forces, grasp_labels, object_meshes = \
         choose_one_object_and_grasps(train_set)
 
     num_rounds = args.orders_per_object
@@ -192,7 +136,7 @@ def main(args):
         print('train order #%i' % i)
         train_means, train_covars, train_bces, train_klds = grow_data_and_find_latents(
             grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
-            object_meshes[0],  # it's the same object, so only one mesh is needed
+            object_meshes,  # it's the same object, so only one mesh is needed
             model
         )
         all_rounds_train_means[i, :, :] = train_means
@@ -207,7 +151,7 @@ def main(args):
 
     # repeat for validation objects
     val_obj_ix, grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
-    grasp_forces, grasp_labels, object_meshes = \
+        grasp_forces, grasp_labels, object_meshes = \
         choose_one_object_and_grasps(val_set)
 
     # we re-clear all data arrays for easier debugging
@@ -229,6 +173,7 @@ def main(args):
         all_rounds_train_klds[i, :] = val_klds
 
     # plot_progressive_means_and_covars(val_means, val_covars, val_bces, val_klds, 'val', val_obj_ix, train_log_dir)
+
 
 # TODO:
 # should we plot each run as a multiple time series? can we get variance data in there? that may be per parameter
