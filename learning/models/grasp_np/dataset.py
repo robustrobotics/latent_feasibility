@@ -102,10 +102,11 @@ def custom_collate_fn(items, rand_grasp_num=True):
         max_context = items[0][1]['grasp_geometries'].shape[0] + 1
         if rand_grasp_num:
             n_context = np.random.randint(low=40, high=max_context)
+            max_target = max_context - n_context
+            n_target = np.random.randint(max_target)
         else:
             n_context = max_context
-        max_target = max_context - n_context
-        n_target = np.random.randint(max_target)
+            n_target = 0
     # print(f'n_context: {n_context}\tn_target: {n_target}')
 
     context_geoms, context_grasp_points, context_grasp_curvatures, context_midpoints, context_forces, context_labels = \
@@ -189,7 +190,7 @@ def custom_collate_fn(items, rand_grasp_num=True):
     )
 
 
-def custom_collate_function_all_grasps(items):
+def custom_collate_fn_all_grasps(items):
     return custom_collate_fn(items, rand_grasp_num=False)
 
 

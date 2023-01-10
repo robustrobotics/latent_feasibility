@@ -1,3 +1,5 @@
+from torch.utils.data import DataLoader
+
 from learning.active.utils import ActiveExperimentLogger
 
 from datetime import datetime
@@ -11,7 +13,7 @@ import torch
 import random
 import os
 
-from learning.models.grasp_np.dataset import CustomGNPGraspDataset
+from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn_all_grasps
 from learning.models.grasp_np.train_grasp_np import get_loss
 
 # can pull experiment train and val set details from the train args.pkl folder
@@ -30,10 +32,7 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
     Returns a list of means and covars from each round.
     """
     model.eval()
-
     with torch.no_grad():
-        geoms = torch.swapaxes(geoms, 2, 3)
-        meshes = torch.swapaxes(meshes, 1, 2)
         _, q_z = model.forward(
             (geoms, gpoints, curvatures, midpoints, forces, labels),
             (geoms, gpoints, curvatures, midpoints, forces),
@@ -63,33 +62,44 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
             )
             y_probs = y_probs.squeeze()
 
-            means.append(q_n.loc.view(1, -1))
-            covars.append(q_n.scale.view(1, -1))
+            means.append(torch.unsqueeze(q_n.loc, 1)) # add dimension so we can do a batched cat
+            covars.append(torch.unsqueeze(q_n.scale, 1))
 
             _, bce_loss, kdl_loss = get_loss(y_probs, labels.squeeze(), q_z, q_n)
             bces.append(bce_loss)
             kdls.append(kdl_loss)
 
-        return torch.cat(means, dim=0).numpy(), \
-            torch.cat(covars, dim=0).numpy(), \
+        return torch.cat(means, dim=1).numpy(), \
+            torch.cat(covars, dim=1).numpy(), \
             torch.tensor(bces).numpy(), \
             torch.tensor(kdls).numpy()
 
 
-def choose_one_object_and_grasps(dataset):
+def choose_one_object_and_grasps(dataset, obj_ix):
     # we use the loader to get data preprocessing
     loader = CustomGNPGraspDataset(data=dataset)
-    obj_ix = random.randint(0, len(loader))
     _, entry = loader[obj_ix]
     # only one object, so only one mesh is needed
-    object_meshes = torch.unsqueeze(torch.tensor(entry['object_mesh'][0]), 0)
-    grasp_geometries = torch.unsqueeze(torch.tensor(entry['grasp_geometries']), 0)
+    object_meshes = torch.unsqueeze(
+        torch.swapaxes(
+            torch.tensor(entry['object_mesh'][0]),
+            0, 1
+        ),
+        0
+    )
+    grasp_geometries = torch.unsqueeze(
+        torch.swapaxes(
+            torch.tensor(entry['grasp_geometries']),
+            1, 2
+        ),
+        0
+    )
     grasp_points = torch.unsqueeze(torch.tensor(entry['grasp_points']), 0)
     grasp_curvatures = torch.unsqueeze(torch.tensor(entry['grasp_curvatures']), 0)
     grasp_midpoints = torch.unsqueeze(torch.tensor(entry['grasp_midpoints']), 0)
     grasp_forces = torch.unsqueeze(torch.tensor(entry['grasp_forces']), 0)
     grasp_labels = torch.unsqueeze(torch.tensor(entry['grasp_labels']), 0)
-    return obj_ix, grasp_geometries, grasp_points, grasp_curvatures, \
+    return grasp_geometries, grasp_points, grasp_curvatures, \
         grasp_midpoints, grasp_forces, grasp_labels, object_meshes
 
 
@@ -113,65 +123,86 @@ def main(args):
     )
     model = train_logger.get_neural_process(tx=0)
 
-    # choose a random object in train and then do progressive posterior evaluation
-    train_obj_ix, grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
-        grasp_forces, grasp_labels, object_meshes = \
-        choose_one_object_and_grasps(train_set)
-
     num_rounds = args.orders_per_object
-    num_grasps = grasp_geometries.shape[1]
-    all_rounds_train_means = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
-    all_rounds_train_covars = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
-    all_rounds_train_bces = np.zeros((num_rounds, num_grasps))
-    all_rounds_train_klds = np.zeros((num_rounds, num_grasps))
+    # iterate through individual objects we must plot and then plot each chart
+    for obj_ix in args.plot_train_objs:
+        grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
+            grasp_forces, grasp_labels, object_meshes = \
+            choose_one_object_and_grasps(train_set, obj_ix=obj_ix)
 
-    # do progressive latent distribution check
-    for i in range(num_rounds):
-        # print('train order #%i' % i)
-        train_means, train_covars, train_bces, train_klds = grow_data_and_find_latents(
-            grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
-            object_meshes,  # it's the same object, so only one mesh is needed
-            model
+        num_grasps = grasp_geometries.shape[1]
+        all_rounds_train_means = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
+        all_rounds_train_covars = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
+        all_rounds_train_bces = np.zeros((num_rounds, num_grasps))
+        all_rounds_train_klds = np.zeros((num_rounds, num_grasps))
+
+        # do progressive latent distribution check
+        for i in range(num_rounds):
+            # print('train order #%i' % i)
+            train_means, train_covars, train_bces, train_klds = grow_data_and_find_latents(
+                grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
+                object_meshes,  # it's the same object, so only one mesh is needed
+                model
+            )
+            all_rounds_train_means[i, :, :] = train_means[0] # unsqueeze since we get everything batched
+            all_rounds_train_covars[i, :, :] = train_covars[0]
+            all_rounds_train_bces[i, :] = train_bces
+            all_rounds_train_klds[i, :] = train_klds
+
+        # turn train means and train covars into manipulatable arrays and then plot w/ matplotlib
+        plot_progressive_means_and_covars(all_rounds_train_means,
+                                          all_rounds_train_covars,
+                                          all_rounds_train_bces,
+                                          all_rounds_train_klds, 'train', obj_ix, train_log_dir)
+
+        # repeat for validation objects
+    for obj_ix in args.plot_val_objs:
+        grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
+            grasp_forces, grasp_labels, object_meshes = \
+            choose_one_object_and_grasps(val_set, obj_ix=obj_ix)
+
+        # we re-clear all data arrays for easier debugging
+        num_grasps = grasp_geometries.shape[1]
+        all_rounds_val_means = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
+        all_rounds_val_covars = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
+        all_rounds_val_bces = np.zeros((num_rounds, num_grasps))
+        all_rounds_val_klds = np.zeros((num_rounds, num_grasps))
+
+        for i in range(num_rounds):
+            # print('val order #%i' % i)
+            val_means, val_covars, val_bces, val_klds = grow_data_and_find_latents(
+                grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
+                object_meshes,
+                model
+            )
+            all_rounds_val_means[i, :, :] = val_means[0] # unsqueeze since we get everything batched
+            all_rounds_val_covars[i, :, :] = val_covars[0]
+            all_rounds_val_bces[i, :] = val_bces
+            all_rounds_val_klds[i, :] = val_klds
+
+        plot_progressive_means_and_covars(all_rounds_val_means,
+                                          all_rounds_val_covars,
+                                          all_rounds_val_bces,
+                                          all_rounds_val_klds, 'val', obj_ix, train_log_dir)
+
+    # perform training and validation-set wide performance evaluation
+    if args.full_run:
+        # construct dataloader
+        train_dataset = CustomGNPGraspDataset(data=train_set)
+        train_dataloader = DataLoader(
+            dataset=train_dataset,
+            batch_size=64,
+            collate_fn=custom_collate_fn_all_grasps
         )
-        all_rounds_train_means[i, :, :] = train_means
-        all_rounds_train_covars[i, :, :] = train_covars
-        all_rounds_train_bces[i, :] = train_bces
-        all_rounds_train_klds[i, :] = train_klds
 
-    # turn train means and train covars into manipulatable arrays and then plot w/ matplotlib
-    plot_progressive_means_and_covars(all_rounds_train_means,
-                                      all_rounds_train_covars,
-                                      all_rounds_train_bces,
-                                      all_rounds_train_klds, 'train', train_obj_ix, train_log_dir)
+        for i, (context_data, target_data, meshes) in enumerate(train_dataloader):
+            grasp_geoms, grasp_points, curvatures, midpoints, forces, labels = context_data
 
-    # repeat for validation objects
-    val_obj_ix, grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
-        grasp_forces, grasp_labels, object_meshes = \
-        choose_one_object_and_grasps(val_set)
-
-    # we re-clear all data arrays for easier debugging
-    num_grasps = grasp_geometries.shape[1]
-    all_rounds_val_means = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
-    all_rounds_val_covars = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
-    all_rounds_val_bces = np.zeros((num_rounds, num_grasps))
-    all_rounds_val_klds = np.zeros((num_rounds, num_grasps))
-
-    for i in range(num_rounds):
-        # print('val order #%i' % i)
-        val_means, val_covars, val_bces, val_klds = grow_data_and_find_latents(
-            grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
-            object_meshes,
-            model
-        )
-        all_rounds_val_means[i, :, :] = val_means
-        all_rounds_val_covars[i, :, :] = val_covars
-        all_rounds_val_bces[i, :] = val_bces
-        all_rounds_val_klds[i, :] = val_klds
-
-    plot_progressive_means_and_covars(all_rounds_val_means,
-                                      all_rounds_val_covars,
-                                      all_rounds_val_bces,
-                                      all_rounds_val_klds, 'val', val_obj_ix, train_log_dir)
+            train_means, train_covars, train_bces, train_klds = grow_data_and_find_latents(
+                grasp_geoms, grasp_points, curvatures, midpoints, forces, labels,
+                meshes,
+                model
+            )
 
 
 def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, log_dir):
@@ -217,23 +248,17 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
                                 + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
     plt.savefig(output_fname)
 
-    # plt.figure()
-    # plt.plot(xs, bces.detach().numpy(), label='bces')
-    # plt.plot(xs, klds.detach().numpy(), label='klds')
-    # plt.legend()
-    # plt.title('ELBO terms vs. context set size, set %s obj #%i' % (dset, obj_ix))
-    # output_fname = os.path.join(log_dir,
-    #                             'figures',
-    #                             dset + '_bce_kld_' + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
-    # plt.savefig(output_fname)
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--train-logdir', type=str, required=True, help='training log directory name')
-    parser.add_argument('--seed', type=int, default=10, help='seed for random obj selection')
     parser.add_argument('--orders-per-object', type=int, default=50, help='number of data collection orders per object')
+    parser.add_argument('--plot-train-objs', type=int, nargs='*', default=[],
+                        help='specific training objects to plots, indexed by object ids in train_grasps.pkl')
+    parser.add_argument('--plot-val-objs', type=int, nargs='*', default=[],
+                        help='specific objects objects to plot, as specified by object ids val_grasps.pkl')
     parser.add_argument('--full-run', action='store_true', default=False,
                         help='run on full training and validation dataset objects')
+    parser.add_argument('--seed', type=int, default=10, help='seed for random obj selection')
     args = parser.parse_args()
     main(args)
