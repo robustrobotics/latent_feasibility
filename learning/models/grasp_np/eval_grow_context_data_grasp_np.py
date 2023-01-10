@@ -2,6 +2,8 @@ from learning.active.utils import ActiveExperimentLogger
 
 from datetime import datetime
 import numpy as np
+import pandas as pd
+import seaborn as sns
 import matplotlib.pyplot as plt
 import argparse
 import pickle
@@ -172,13 +174,8 @@ def main(args):
                                       all_rounds_val_klds, 'val', val_obj_ix, train_log_dir)
 
 
-# TODO:
-# should we plot each run as a multiple time series? can we get variance data in there? that may be per parameter
-
-# plotting new latent data
-# (1) separate each latent var in its own plot, one per dimension
-# (2) plot bce/kld as normal
 def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, log_dir):
+    # plot latent sequence as time evolves
     xs = np.arange(1, means.shape[1] + 1)
     plt.figure(figsize=(20, 4))
     for i_latent_var in range(means.shape[2]):
@@ -192,7 +189,31 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
             ax.set_xlabel('size of context set')
     output_fname = os.path.join(log_dir,
                                 'figures',
-                                dset + '_prog_dist_' + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
+                                dset + '_obj' + str(obj_ix) + '_prog_dist_'
+                                + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
+    plt.savefig(output_fname)
+
+    # plot average bce and kld curves
+    # construct dataframe for seaborn plotting
+    plt.figure()
+    d = {'acquisition':
+        np.concatenate([
+            np.hstack(
+                [np.arange(bces.shape[1]).reshape(-1, 1)] * bces.shape[0]
+            ).flatten(),
+            np.hstack(
+                [np.arange(klds.shape[1]).reshape(-1, 1)] * klds.shape[0]
+            ).flatten()
+        ]),
+        'loss_component': ['bce'] * bces.size + ['kld'] * klds.size,
+        'round': list(range(bces.shape[0])) * (bces.shape[1] + klds.shape[1]),
+        'value': np.concatenate([bces.flatten(order='C'), klds.flatten(order='C')])}
+    loss_data = pd.DataFrame(data=d)
+    sns.lineplot(x='acquisition', y='value', hue='loss_component', data=loss_data)
+    output_fname = os.path.join(log_dir,
+                                'figures',
+                                dset + '_obj' + str(obj_ix) + '_bce_kld_'
+                                + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
     plt.savefig(output_fname)
 
     # plt.figure()
