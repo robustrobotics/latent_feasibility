@@ -91,7 +91,7 @@ class CustomGNPGraspDataset(Dataset):
         return len(self.hp_grasp_geometries)
 
 
-def custom_collate_fn(items):
+def custom_collate_fn(items, rand_grasp_num=True):
     """
     Decide how many context and target points to add.
     """
@@ -100,7 +100,10 @@ def custom_collate_fn(items):
         n_target = items[0][1]['grasp_geometries'].shape[0]
     else:
         max_context = items[0][1]['grasp_geometries'].shape[0] + 1
-        n_context = np.random.randint(low=40, high=max_context)
+        if rand_grasp_num:
+            n_context = np.random.randint(low=40, high=max_context)
+        else:
+            n_context = max_context
         max_target = max_context - n_context
         n_target = np.random.randint(max_target)
     # print(f'n_context: {n_context}\tn_target: {n_target}')
@@ -184,6 +187,10 @@ def custom_collate_fn(items):
          target_labels),
         full_meshes
     )
+
+
+def custom_collate_function_all_grasps(items):
+    return custom_collate_fn(items, rand_grasp_num=False)
 
 
 if __name__ == '__main__':
