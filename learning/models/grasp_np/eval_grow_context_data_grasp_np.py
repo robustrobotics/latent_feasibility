@@ -6,6 +6,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from sklearn.metrics import roc_auc_score
 import matplotlib.pyplot as plt
 import argparse
 import pickle
@@ -43,6 +44,7 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
         covars = []
         kdls = []
         bces = []
+        roc_aucs = []
         n_elts = geoms.shape[1]
         order = torch.randperm(n_elts)
         for n in range(1, n_elts + 1):
@@ -62,17 +64,20 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
             )
             y_probs = y_probs.squeeze()
 
-            means.append(torch.unsqueeze(q_n.loc, 1)) # add dimension so we can do a batched cat
+            means.append(torch.unsqueeze(q_n.loc, 1))  # add dimension so we can do a batched cat
             covars.append(torch.unsqueeze(q_n.scale, 1))
 
             _, bce_loss, kdl_loss = get_loss(y_probs, labels.squeeze(), q_z, q_n)
+            roc_score = roc_auc_score(labels.squeeze(), y_probs)
             bces.append(bce_loss)
             kdls.append(kdl_loss)
+            roc_aucs.append(roc_score)
 
         return torch.cat(means, dim=1).numpy(), \
             torch.cat(covars, dim=1).numpy(), \
             torch.tensor(bces).numpy(), \
-            torch.tensor(kdls).numpy()
+            torch.tensor(kdls).numpy(), \
+            np.array(roc_aucs)
 
 
 def choose_one_object_and_grasps(dataset, obj_ix):
@@ -139,12 +144,12 @@ def main(args):
         # do progressive latent distribution check
         for i in range(num_rounds):
             # print('train order #%i' % i)
-            train_means, train_covars, train_bces, train_klds = grow_data_and_find_latents(
+            train_means, train_covars, train_bces, train_klds, _ = grow_data_and_find_latents(
                 grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
                 object_meshes,  # it's the same object, so only one mesh is needed
                 model
             )
-            all_rounds_train_means[i, :, :] = train_means[0] # unsqueeze since we get everything batched
+            all_rounds_train_means[i, :, :] = train_means[0]  # unsqueeze since we get everything batched
             all_rounds_train_covars[i, :, :] = train_covars[0]
             all_rounds_train_bces[i, :] = train_bces
             all_rounds_train_klds[i, :] = train_klds
@@ -170,12 +175,12 @@ def main(args):
 
         for i in range(num_rounds):
             # print('val order #%i' % i)
-            val_means, val_covars, val_bces, val_klds = grow_data_and_find_latents(
+            val_means, val_covars, val_bces, val_klds, _ = grow_data_and_find_latents(
                 grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
                 object_meshes,
                 model
             )
-            all_rounds_val_means[i, :, :] = val_means[0] # unsqueeze since we get everything batched
+            all_rounds_val_means[i, :, :] = val_means[0]  # unsqueeze since we get everything batched
             all_rounds_val_covars[i, :, :] = val_covars[0]
             all_rounds_val_bces[i, :] = val_bces
             all_rounds_val_klds[i, :] = val_klds
@@ -195,14 +200,26 @@ def main(args):
             collate_fn=custom_collate_fn_all_grasps
         )
 
-        for i, (context_data, target_data, meshes) in enumerate(train_dataloader):
-            grasp_geoms, grasp_points, curvatures, midpoints, forces, labels = context_data
-
-            train_means, train_covars, train_bces, train_klds = grow_data_and_find_latents(
-                grasp_geoms, grasp_points, curvatures, midpoints, forces, labels,
-                meshes,
-                model
+        all_rounds_roc_auc = np.zeros(
+            (
+                len(train_dataloader),
+                num_rounds,
+                len(train_set['grasp_data']['grasp_points'][0])
             )
+        )
+        for i_batch, (context_data, target_data, meshes) in enumerate(train_dataloader):
+            grasp_geoms, grasp_points, curvatures, midpoints, forces, labels = context_data
+            print('batch: ' + str(i_batch))
+
+            for i_round in range(num_rounds):
+                print('round: ' + str(i_round))
+                _, _, _, _, all_rounds_roc_auc[i_batch, i_round, :] = grow_data_and_find_latents(
+                    grasp_geoms, grasp_points, curvatures, midpoints, forces, labels,
+                    meshes,
+                    model
+                )
+
+        plot_roc_auc_curves(all_rounds_roc_auc, 'train', train_log_dir)
 
 
 def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, log_dir):
@@ -247,6 +264,25 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
                                 dset + '_obj' + str(obj_ix) + '_bce_kld_'
                                 + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
     plt.savefig(output_fname)
+
+
+def plot_roc_auc_curves(all_roc_aucs, dset, log_dir):
+    # set up dataframe to use for plotting (yes, this long-form specification is very hacky)
+    n_batch, n_round, n_acquisitions = all_roc_aucs.shape
+    d = {
+        'batch': np.array([[i_batch for _ in range(n_acquisitions * n_round)] for i_batch in range(n_batch)]).flatten(),
+        'acquisition': list(np.arange(n_acquisitions)) * (n_batch * n_round),
+        'round': np.array([[i_round for _ in range(n_acquisitions)] for i_round in range(n_round)] * n_batch).flatten(),
+        'value': all_roc_aucs.flatten(),
+    }
+    roc_data = pd.DataFrame(data=d)
+    plt.figure()
+    sns.lineplot(x='acquisition', y='value', data=roc_data)
+    output_fname = os.path.join(log_dir,
+                                'figures',
+                                dset + '_roc_'
+                                + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
+
 
 
 if __name__ == '__main__':
