@@ -172,7 +172,7 @@ def main(args):
             all_rounds_train_means[i, :, :] = train_means[0]  # unsqueeze since we get everything batched
             all_rounds_train_covars[i, :, :] = train_covars[0]
             all_rounds_train_bces[i, :] = train_bces
-            all_rounds_train_klds[i, :] = train_klds\
+            all_rounds_train_klds[i, :] = train_klds
 
             val_means, val_covars, val_bces, val_klds, _ = grow_data_and_find_latents(
                 context_points=context_points,
@@ -187,8 +187,8 @@ def main(args):
 
         plot_progressive_means_and_covars(all_rounds_train_means,
                                           all_rounds_train_covars,
-                                          all_rounds_train_bces,
-                                          all_rounds_train_klds, 'train_val', obj_ix, train_log_dir)
+                                          'train_val', obj_ix, train_log_dir)
+        # TODO: redo bce + kld fun for dataframing so we can also use on the full dataset
 
     # perform training and validation-set wide performance evaluation
     if args.full_run:
@@ -282,10 +282,10 @@ def main(args):
         else:
             pr_data = pd.read_pickle(pr_fname)
 
-        plot_pr_curves(pr_data, 'train', train_log_dir)
+        plot_prs(pr_data, 'train', train_log_dir)
 
 
-def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, log_dir):
+def plot_progressive_means_and_covars(means, covars, dset, obj_ix, log_dir):
     # plot latent sequence as time evolves
     # this is done in matplotlib since seaborn gets in the way of the covar-bar setting
     xs = np.arange(1, means.shape[1] + 1)
@@ -305,6 +305,8 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
                                 + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
     plt.savefig(output_fname)
 
+
+def plot_bces_and_klds(bces, klds, dset, obj_ix, log_dir):
     # plot average bce and kld curves
     # construct dataframe for seaborn plotting
     plt.figure()
@@ -327,7 +329,7 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
     plt.savefig(output_fname)
 
 
-def plot_pr_curves(pr_data, dset, log_dir):
+def plot_prs(pr_data, dset, log_dir):
     sns.lineplot(x='acquisition', y='value', hue='phase', data=pr_data)
     output_fname = os.path.join(log_dir,
                                 'figures',
