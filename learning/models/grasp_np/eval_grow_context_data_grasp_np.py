@@ -6,7 +6,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score
 import matplotlib.pyplot as plt
 import argparse
 import pickle
@@ -44,7 +44,7 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
         covars = []
         kdls = []
         bces = []
-        roc_aucs = []
+        pr_scores = []
         n_elts = geoms.shape[1]
         order = torch.randperm(n_elts)
         for n in range(1, n_elts + 1):
@@ -68,16 +68,16 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
             covars.append(torch.unsqueeze(q_n.scale, 1))
 
             _, bce_loss, kdl_loss = get_loss(y_probs, labels.squeeze(), q_z, q_n)
-            roc_score = roc_auc_score(labels.squeeze(), y_probs)
+            pr_score = average_precision_score(labels.squeeze(), y_probs)
             bces.append(bce_loss)
             kdls.append(kdl_loss)
-            roc_aucs.append(roc_score)
+            pr_scores.append(pr_score)
 
         return torch.cat(means, dim=1).numpy(), \
             torch.cat(covars, dim=1).numpy(), \
             torch.tensor(bces).numpy(), \
             torch.tensor(kdls).numpy(), \
-            np.array(roc_aucs)
+            np.array(pr_scores)
 
 
 def choose_one_object_and_grasps(dataset, obj_ix):
@@ -200,7 +200,7 @@ def main(args):
             collate_fn=custom_collate_fn_all_grasps
         )
 
-        all_rounds_roc_auc = np.zeros(
+        all_rounds_pr_scores = np.zeros(
             (
                 len(train_dataloader),
                 num_rounds,
@@ -213,13 +213,13 @@ def main(args):
 
             for i_round in range(num_rounds):
                 print('round: ' + str(i_round))
-                _, _, _, _, all_rounds_roc_auc[i_batch, i_round, :] = grow_data_and_find_latents(
+                _, _, _, _, all_rounds_pr_scores[i_batch, i_round, :] = grow_data_and_find_latents(
                     grasp_geoms, grasp_points, curvatures, midpoints, forces, labels,
                     meshes,
                     model
                 )
 
-        plot_roc_auc_curves(all_rounds_roc_auc, 'train', train_log_dir)
+        plot_pr_curves(all_rounds_pr_scores, 'train', train_log_dir)
 
 
 def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, log_dir):
@@ -266,21 +266,21 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
     plt.savefig(output_fname)
 
 
-def plot_roc_auc_curves(all_roc_aucs, dset, log_dir):
+def plot_pr_curves(all_pr_scores, dset, log_dir):
     # set up dataframe to use for plotting (yes, this long-form specification is very hacky)
-    n_batch, n_round, n_acquisitions = all_roc_aucs.shape
+    n_batch, n_round, n_acquisitions = all_pr_scores.shape
     d = {
         'batch': np.array([[i_batch for _ in range(n_acquisitions * n_round)] for i_batch in range(n_batch)]).flatten(),
         'acquisition': list(np.arange(n_acquisitions)) * (n_batch * n_round),
         'round': np.array([[i_round for _ in range(n_acquisitions)] for i_round in range(n_round)] * n_batch).flatten(),
-        'value': all_roc_aucs.flatten(),
+        'value': all_pr_scores.flatten(),
     }
     roc_data = pd.DataFrame(data=d)
     plt.figure()
     sns.lineplot(x='acquisition', y='value', data=roc_data)
     output_fname = os.path.join(log_dir,
                                 'figures',
-                                dset + '_roc_'
+                                dset + '_pr_'
                                 + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
     plt.savefig(output_fname)
 
