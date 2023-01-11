@@ -23,6 +23,7 @@ from learning.models.grasp_np.train_grasp_np import get_loss
 
 # they are ordered in lists of 500, and in grasps, there is a maximum of 50 grasps to use
 
+DATE_FORMAT = '%m%d%Y_%H%M%S'
 NUM_LATENTS = 5
 LOG_SUPEDIR = 'learning/experiments/logs'
 
@@ -80,10 +81,10 @@ def grow_data_and_find_latents(context_points, target_points, meshes, model):
             pr_scores.append(pr_score)
 
         return torch.cat(means, dim=1).numpy(), \
-               torch.cat(covars, dim=1).numpy(), \
-               torch.tensor(bces).numpy(), \
-               torch.tensor(kdls).numpy(), \
-               np.array(pr_scores)
+            torch.cat(covars, dim=1).numpy(), \
+            torch.tensor(bces).numpy(), \
+            torch.tensor(kdls).numpy(), \
+            np.array(pr_scores)
 
 
 def choose_one_object_and_grasps(dataset, obj_ix):
@@ -111,7 +112,7 @@ def choose_one_object_and_grasps(dataset, obj_ix):
     grasp_forces = torch.unsqueeze(torch.tensor(entry['grasp_forces']), 0)
     grasp_labels = torch.unsqueeze(torch.tensor(entry['grasp_labels']), 0)
     return grasp_geometries, grasp_points, grasp_curvatures, \
-           grasp_midpoints, grasp_forces, grasp_labels, object_meshes
+        grasp_midpoints, grasp_forces, grasp_labels, object_meshes
 
 
 def main(args):
@@ -134,24 +135,24 @@ def main(args):
     )
     model = train_logger.get_neural_process(tx=0)
 
-    num_rounds = args.orders_per_object
+    n_rounds = args.orders_per_object
     # iterate through individual objects we must plot and then plot each chart
     for obj_ix in args.plot_train_objs:
         train_geoms, train_gpoints, train_curvatures, train_midpoints, \
-        train_forces, train_labels, object_meshes = \
+            train_forces, train_labels, object_meshes = \
             choose_one_object_and_grasps(train_set, obj_ix=obj_ix)
 
-        num_grasps = train_geoms.shape[1]
-        all_rounds_train_means = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
-        all_rounds_train_covars = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
-        all_rounds_train_bces = np.zeros((num_rounds, num_grasps))
-        all_rounds_train_klds = np.zeros((num_rounds, num_grasps))
+        n_acquisitions = train_geoms.shape[1]
+        all_rounds_train_means = np.zeros((n_rounds, n_acquisitions, NUM_LATENTS))
+        all_rounds_train_covars = np.zeros((n_rounds, n_acquisitions, NUM_LATENTS))
+        all_rounds_train_bces = np.zeros((n_rounds, n_acquisitions))
+        all_rounds_train_klds = np.zeros((n_rounds, n_acquisitions))
 
         context_points = (train_geoms, train_gpoints, train_curvatures,
                           train_midpoints, train_forces, train_labels)
 
         # do progressive latent distribution check
-        for i in range(num_rounds):
+        for i in range(n_rounds):
             # print('train order #%i' % i)
             train_means, train_covars, train_bces, train_klds, _ = grow_data_and_find_latents(
                 context_points=context_points,
@@ -184,13 +185,13 @@ def main(args):
                          val_midpoints, val_forces, val_labels)
 
         # we re-clear all data arrays for easier debugging
-        num_grasps = train_geoms.shape[1]
-        all_rounds_val_means = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
-        all_rounds_val_covars = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
-        all_rounds_val_bces = np.zeros((num_rounds, num_grasps))
-        all_rounds_val_klds = np.zeros((num_rounds, num_grasps))
+        n_acquisitions = train_geoms.shape[1]
+        all_rounds_val_means = np.zeros((n_rounds, n_acquisitions, NUM_LATENTS))
+        all_rounds_val_covars = np.zeros((n_rounds, n_acquisitions, NUM_LATENTS))
+        all_rounds_val_bces = np.zeros((n_rounds, n_acquisitions))
+        all_rounds_val_klds = np.zeros((n_rounds, n_acquisitions))
 
-        for i in range(num_rounds):
+        for i in range(n_rounds):
             # print('val order #%i' % i)
             val_means, val_covars, val_bces, val_klds, _ = grow_data_and_find_latents(
                 context_points=context_points,
@@ -218,26 +219,69 @@ def main(args):
             collate_fn=custom_collate_fn_all_grasps
         )
 
-        all_rounds_pr_scores = np.zeros(
-            (
-                len(train_dataloader),
-                num_rounds,
-                len(train_set['grasp_data']['grasp_points'][0])
-            )
-        )
-        for i_batch, (context_data, target_data, meshes) in enumerate(train_dataloader):
-            print('batch: ' + str(i_batch))
+        output_fname_template = os.path.join(train_log_dir,
+                                             'datasets',
+                                             'train_%s.pkl')
 
-            for i_round in range(num_rounds):
-                print('round: ' + str(i_round))
-                _, _, _, _, all_rounds_pr_scores[i_batch, i_round, :] = \
-                    grow_data_and_find_latents(context_data, target_data, meshes, model)
+        pr_fname = output_fname_template % 'precision_recall'
+        if os.path.exists(pr_fname):
+            choice = input('[Warning] Processed data from %s exists. Redo progression computation? (yes/no)')
+        else:
+            choice = 'yes'
 
-        plot_pr_curves(all_rounds_pr_scores, 'train', train_log_dir)
+        if choice == 'yes':
+            # we're saving all the data that comes out of the computation since it's so expensive
+            n_batches = len(train_dataloader)
+            n_acquisitions = len(train_set['grasp_data']['grasp_points'][0])
+
+            all_rounds_means = np.zeros((n_batches, n_rounds, n_acquisitions, NUM_LATENTS))
+            all_rounds_covars = np.zeros((n_batches, n_rounds, n_acquisitions, NUM_LATENTS))
+            all_rounds_bces = np.zeros((n_batches, n_rounds, n_acquisitions))
+            all_rounds_klds = np.zeros((n_batches, n_rounds, n_acquisitions))
+            all_rounds_pr_scores = np.zeros((n_batches, n_rounds, n_acquisitions))
+
+            for i_batch, (context_data, target_data, meshes) in enumerate(train_dataloader):
+                print('batch: ' + str(i_batch))
+
+                for i_round in range(n_rounds):
+                    print('round: ' + str(i_round))
+                    all_rounds_means[i_batch, i_round, :, :], \
+                        all_rounds_covars[i_batch, i_round, :, :], \
+                        all_rounds_bces[i_batch, i_round, :], \
+                        all_rounds_klds[i_batch, i_round, :], \
+                        all_rounds_pr_scores[i_batch, i_round, :] = \
+                        grow_data_and_find_latents(context_data, target_data, meshes, model)
+
+            # construct dataframes and save them
+            mi = pd.MultiIndex.from_product([['mean', 'covar'],
+                                             range(n_batches),
+                                             range(n_rounds),
+                                             range(n_acquisitions),
+                                             range(NUM_LATENTS)],
+                                            names=['normal_param', 'batch', 'round', 'acquisition', 'latent'])
+            normal_data = pd.DataFrame(data=np.concatenate([all_rounds_means.flatten(), all_rounds_covars.flatten()]),
+                                       index=mi, columns=['value'])
+            normal_data.to_pickle(output_fname_template % 'normal')
+
+            mi = pd.MultiIndex.from_product([['bce', 'kld'], range(n_batches), range(n_rounds), range(n_acquisitions)],
+                                            names=['loss_component', 'batch', 'round', 'acquisition'])
+            loss_data = pd.DataFrame(data=np.concatenate([all_rounds_bces.flatten(), all_rounds_klds.flatten()]),
+                                     index=mi, columns=['value'])
+            loss_data.to_picle(output_fname_template % 'loss')
+
+            mi = pd.MultiIndex.from_product([range(n_batches), range(n_rounds), range(n_acquisitions)],
+                                            names=['batch', 'round', 'acquisition'])
+            pr_data = pd.DataFrame(data=all_rounds_pr_scores.flatten(), index=mi, columns=['value'])
+            pr_data.to_pickle(pr_fname)
+        else:
+            pr_data = pd.read_pickle(pr_fname)
+
+        plot_pr_curves(pr_data, 'train', train_log_dir)
 
 
 def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, log_dir):
     # plot latent sequence as time evolves
+    # this is done in matplotlib since seaborn gets in the way of the covar-bar setting
     xs = np.arange(1, means.shape[1] + 1)
     plt.figure(figsize=(20, 4))
     for i_latent_var in range(means.shape[2]):
@@ -260,7 +304,7 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
     plt.figure()
     n_round, n_acquisition = bces.shape
     mi = pd.MultiIndex.from_product([['bce', 'kld'], range(n_round), range(n_acquisition)],
-                       names=['loss_component', 'round', 'acquisition'])
+                                    names=['loss_component', 'round', 'acquisition'])
 
     # flattening row-first (numpy default, which is specified by 'C') will give us
     # the ordering that the Dataframe construction expects with multi-indexed axes
@@ -268,7 +312,7 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
                              index=mi, columns=['value'])
     plt.title('loss components, dset %s, object#%i' % (dset, obj_ix))
     fg = sns.relplot(x='acquisition', y='value', col='loss_component',
-                kind='line', data=loss_data, facet_kws=dict(sharey=False))
+                     kind='line', data=loss_data, facet_kws=dict(sharey=False))
     fg.set_titles(col_template="{col_name}, set %s, object %i" % (dset, obj_ix))
     output_fname = os.path.join(log_dir,
                                 'figures',
@@ -277,15 +321,7 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
     plt.savefig(output_fname)
 
 
-def plot_pr_curves(all_pr_scores, dset, log_dir):
-    # setup dataframes for seaborn
-    n_batch, n_round, n_acquisitions = all_pr_scores.shape
-    mi = pd.MultiIndex.from_product([range(n_batch), range(n_round), n_acquisitions],
-                                    names=['batch', 'round', 'acquisition'])
-    pr_data = pd.DataFrame(data=all_pr_scores.flatten(), index=mi, columns=['value'])
-    plt.figure()
-
-    # plot!
+def plot_pr_curves(pr_data, dset, log_dir):
     sns.lineplot(x='acquisition', y='value', data=pr_data)
     output_fname = os.path.join(log_dir,
                                 'figures',
