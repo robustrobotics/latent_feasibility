@@ -29,7 +29,8 @@ LOG_SUPEDIR = 'learning/experiments/logs'
 
 
 # TODO: (1) Add in validation set to full eval (test!)
-#       (2) add in ROC eval for single objects
+#       (2) add in ROC eval for single objects (and merge train and val)
+#       (3) split out individual plotting functions to be used for both sets of data
 
 
 def grow_data_and_find_latents(context_points, target_points, meshes, model):
@@ -136,42 +137,6 @@ def main(args):
     model = train_logger.get_neural_process(tx=0)
 
     n_rounds = args.orders_per_object
-    # iterate through individual objects we must plot and then plot each chart
-    for obj_ix in args.plot_train_objs:
-        train_geoms, train_gpoints, train_curvatures, train_midpoints, \
-            train_forces, train_labels, object_meshes = \
-            choose_one_object_and_grasps(train_set, obj_ix=obj_ix)
-
-        n_acquisitions = train_geoms.shape[1]
-        all_rounds_train_means = np.zeros((n_rounds, n_acquisitions, NUM_LATENTS))
-        all_rounds_train_covars = np.zeros((n_rounds, n_acquisitions, NUM_LATENTS))
-        all_rounds_train_bces = np.zeros((n_rounds, n_acquisitions))
-        all_rounds_train_klds = np.zeros((n_rounds, n_acquisitions))
-
-        context_points = (train_geoms, train_gpoints, train_curvatures,
-                          train_midpoints, train_forces, train_labels)
-
-        # do progressive latent distribution check
-        for i in range(n_rounds):
-            # print('train order #%i' % i)
-            train_means, train_covars, train_bces, train_klds, _ = grow_data_and_find_latents(
-                context_points=context_points,
-                target_points=context_points,
-                meshes=object_meshes,  # it's the same object, so only one mesh is needed
-                model=model
-            )
-            all_rounds_train_means[i, :, :] = train_means[0]  # unsqueeze since we get everything batched
-            all_rounds_train_covars[i, :, :] = train_covars[0]
-            all_rounds_train_bces[i, :] = train_bces
-            all_rounds_train_klds[i, :] = train_klds
-
-        # turn train means and train covars into manipulatable arrays and then plot w/ matplotlib
-        plot_progressive_means_and_covars(all_rounds_train_means,
-                                          all_rounds_train_covars,
-                                          all_rounds_train_bces,
-                                          all_rounds_train_klds, 'train', obj_ix, train_log_dir)
-
-        # repeat for validation objects
     for obj_ix in args.plot_val_objs:
         train_geoms, train_gpoints, train_curvatures, train_midpoints, train_forces, train_labels, object_meshes = \
             choose_one_object_and_grasps(train_set, obj_ix=obj_ix)
@@ -186,6 +151,11 @@ def main(args):
 
         # we re-clear all data arrays for easier debugging
         n_acquisitions = train_geoms.shape[1]
+        all_rounds_train_means = np.zeros((n_rounds, n_acquisitions, NUM_LATENTS))
+        all_rounds_train_covars = np.zeros((n_rounds, n_acquisitions, NUM_LATENTS))
+        all_rounds_train_bces = np.zeros((n_rounds, n_acquisitions))
+        all_rounds_train_klds = np.zeros((n_rounds, n_acquisitions))
+
         all_rounds_val_means = np.zeros((n_rounds, n_acquisitions, NUM_LATENTS))
         all_rounds_val_covars = np.zeros((n_rounds, n_acquisitions, NUM_LATENTS))
         all_rounds_val_bces = np.zeros((n_rounds, n_acquisitions))
@@ -193,6 +163,17 @@ def main(args):
 
         for i in range(n_rounds):
             # print('val order #%i' % i)
+            train_means, train_covars, train_bces, train_klds, _ = grow_data_and_find_latents(
+                context_points=context_points,
+                target_points=context_points,
+                meshes=object_meshes,  # it's the same object, so only one mesh is needed
+                model=model
+            )
+            all_rounds_train_means[i, :, :] = train_means[0]  # unsqueeze since we get everything batched
+            all_rounds_train_covars[i, :, :] = train_covars[0]
+            all_rounds_train_bces[i, :] = train_bces
+            all_rounds_train_klds[i, :] = train_klds\
+
             val_means, val_covars, val_bces, val_klds, _ = grow_data_and_find_latents(
                 context_points=context_points,
                 target_points=target_points,
@@ -204,10 +185,10 @@ def main(args):
             all_rounds_val_bces[i, :] = val_bces
             all_rounds_val_klds[i, :] = val_klds
 
-        plot_progressive_means_and_covars(all_rounds_val_means,
-                                          all_rounds_val_covars,
-                                          all_rounds_val_bces,
-                                          all_rounds_val_klds, 'val', obj_ix, train_log_dir)
+        plot_progressive_means_and_covars(all_rounds_train_means,
+                                          all_rounds_train_covars,
+                                          all_rounds_train_bces,
+                                          all_rounds_train_klds, 'train_val', obj_ix, train_log_dir)
 
     # perform training and validation-set wide performance evaluation
     if args.full_run:
@@ -360,10 +341,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--train-logdir', type=str, required=True, help='training log directory name')
     parser.add_argument('--orders-per-object', type=int, default=50, help='number of data collection orders per object')
-    parser.add_argument('--plot-train-objs', type=int, nargs='*', default=[],
-                        help='specific training objects to plots, indexed by object ids in train_grasps.pkl')
-    parser.add_argument('--plot-val-objs', type=int, nargs='*', default=[],
-                        help='specific objects objects to plot, as specified by object ids val_grasps.pkl')
+    parser.add_argument('--plot-objs', type=int, nargs='*', default=[],
+                        help='specific objects on which to run analysis, '
+                             'indexed by object ids train_grasps.pkl/val_grasps.pkl')
     parser.add_argument('--full-run', action='store_true', default=False,
                         help='run on full training and validation dataset objects')
     parser.add_argument('--seed', type=int, default=10, help='seed for random obj selection')
