@@ -30,8 +30,6 @@ LOG_SUPEDIR = 'learning/experiments/logs'
 # TODO: (1) save dataframes containing data output from these procedures since they are expensive to run
 #       (2) separate plotting scripts
 
-# TODO: Rework grow_and_find_latents to better represent training paradigm for validation
-
 
 def grow_data_and_find_latents(context_points, target_points, meshes, model):
     """
@@ -279,7 +277,6 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
     plt.savefig(output_fname)
 
 
-# TODO: debug ordering -> write a conversion function
 def plot_pr_curves(all_pr_scores, dset, log_dir):
     # setup dataframes for seaborn
     n_batch, n_round, n_acquisitions = all_pr_scores.shape
