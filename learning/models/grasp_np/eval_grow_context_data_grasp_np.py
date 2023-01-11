@@ -28,7 +28,7 @@ NUM_LATENTS = 5
 LOG_SUPEDIR = 'learning/experiments/logs'
 
 
-# TODO: (1) Add in validation set to full eval
+# TODO: (1) Add in validation set to full eval (test!)
 #       (2) add in ROC eval for single objects
 
 
@@ -213,10 +213,15 @@ def main(args):
     if args.full_run:
         # construct dataloader
         train_dataset = CustomGNPGraspDataset(data=train_set)
-        train_dataloader = DataLoader(
-            dataset=train_dataset,
-            batch_size=64,
-            collate_fn=custom_collate_fn_all_grasps
+        val_dataset = CustomGNPGraspDataset(data=val_set, context_data=train_set)
+
+        batch_size = 64
+
+        val_dataloader = DataLoader(
+            dataset=val_dataset,
+            collate_fn=custom_collate_fn_all_grasps,
+            batch_size=batch_size,
+            shuffle=False,
         )
 
         output_fname_template = os.path.join(train_log_dir,
@@ -231,46 +236,66 @@ def main(args):
 
         if choice == 'yes':
             # we're saving all the data that comes out of the computation since it's so expensive
-            n_batches = len(train_dataloader)
+            n_batches = len(val_dataloader)
             n_acquisitions = len(train_set['grasp_data']['grasp_points'][0])
 
-            all_rounds_means = np.zeros((n_batches, n_rounds, n_acquisitions, NUM_LATENTS))
-            all_rounds_covars = np.zeros((n_batches, n_rounds, n_acquisitions, NUM_LATENTS))
-            all_rounds_bces = np.zeros((n_batches, n_rounds, n_acquisitions))
-            all_rounds_klds = np.zeros((n_batches, n_rounds, n_acquisitions))
-            all_rounds_pr_scores = np.zeros((n_batches, n_rounds, n_acquisitions))
+            # the first dimension represents 'training' for 0 and 'val' for 1
+            all_rounds_means = np.zeros((2, n_batches, n_rounds, n_acquisitions, NUM_LATENTS))
+            all_rounds_covars = np.zeros((2, n_batches, n_rounds, n_acquisitions, NUM_LATENTS))
+            all_rounds_bces = np.zeros((2, n_batches, n_rounds, n_acquisitions))
+            all_rounds_klds = np.zeros((2, n_batches, n_rounds, n_acquisitions))
+            all_rounds_pr_scores = np.zeros((2, n_batches, n_rounds, n_acquisitions))
 
-            for i_batch, (context_data, target_data, meshes) in enumerate(train_dataloader):
+            # since we max out on number of grasps given in the context_set, and since we do not shuffle
+            # the data, the context_data found below is the same as the context_data and the target_data
+            # from the train set. So we can get away with evaluation without iterating through
+            # because that information is redundant
+            for i_batch, (context_data, target_data, meshes) in enumerate(val_dataloader):
                 print('batch: ' + str(i_batch))
 
                 for i_round in range(n_rounds):
                     print('round: ' + str(i_round))
-                    all_rounds_means[i_batch, i_round, :, :], \
-                        all_rounds_covars[i_batch, i_round, :, :], \
-                        all_rounds_bces[i_batch, i_round, :], \
-                        all_rounds_klds[i_batch, i_round, :], \
-                        all_rounds_pr_scores[i_batch, i_round, :] = \
+                    all_rounds_means[0, i_batch, i_round, :, :], \
+                        all_rounds_covars[0, i_batch, i_round, :, :], \
+                        all_rounds_bces[0, i_batch, i_round, :], \
+                        all_rounds_klds[0, i_batch, i_round, :], \
+                        all_rounds_pr_scores[0, i_batch, i_round, :] = \
+                        grow_data_and_find_latents(context_data, context_data, meshes, model)
+
+                    all_rounds_means[1, i_batch, i_round, :, :], \
+                        all_rounds_covars[1, i_batch, i_round, :, :], \
+                        all_rounds_bces[1, i_batch, i_round, :], \
+                        all_rounds_klds[1, i_batch, i_round, :], \
+                        all_rounds_pr_scores[1, i_batch, i_round, :] = \
                         grow_data_and_find_latents(context_data, target_data, meshes, model)
 
             # construct dataframes and save them
-            mi = pd.MultiIndex.from_product([['mean', 'covar'],
+            mi = pd.MultiIndex.from_product([['train', 'validation'],
+                                             ['mean', 'covar'],
                                              range(n_batches),
                                              range(n_rounds),
                                              range(n_acquisitions),
                                              range(NUM_LATENTS)],
-                                            names=['normal_param', 'batch', 'round', 'acquisition', 'latent'])
+                                            names=['phase', 'normal_param', 'batch', 'round', 'acquisition', 'latent'])
             normal_data = pd.DataFrame(data=np.concatenate([all_rounds_means.flatten(), all_rounds_covars.flatten()]),
                                        index=mi, columns=['value'])
             normal_data.to_pickle(output_fname_template % 'normal')
 
-            mi = pd.MultiIndex.from_product([['bce', 'kld'], range(n_batches), range(n_rounds), range(n_acquisitions)],
-                                            names=['loss_component', 'batch', 'round', 'acquisition'])
+            mi = pd.MultiIndex.from_product([['train', 'validaton'],
+                                             ['bce', 'kld'],
+                                             range(n_batches),
+                                             range(n_rounds),
+                                             range(n_acquisitions)],
+                                            names=['phase', 'loss_component', 'batch', 'round', 'acquisition'])
             loss_data = pd.DataFrame(data=np.concatenate([all_rounds_bces.flatten(), all_rounds_klds.flatten()]),
                                      index=mi, columns=['value'])
             loss_data.to_picle(output_fname_template % 'loss')
 
-            mi = pd.MultiIndex.from_product([range(n_batches), range(n_rounds), range(n_acquisitions)],
-                                            names=['batch', 'round', 'acquisition'])
+            mi = pd.MultiIndex.from_product([['train', 'validation'],
+                                             range(n_batches),
+                                             range(n_rounds),
+                                             range(n_acquisitions)],
+                                            names=['phase', 'batch', 'round', 'acquisition'])
             pr_data = pd.DataFrame(data=all_rounds_pr_scores.flatten(), index=mi, columns=['value'])
             pr_data.to_pickle(pr_fname)
         else:
@@ -322,7 +347,7 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
 
 
 def plot_pr_curves(pr_data, dset, log_dir):
-    sns.lineplot(x='acquisition', y='value', data=pr_data)
+    sns.lineplot(x='acquisition', y='value', hue='phase', data=pr_data)
     output_fname = os.path.join(log_dir,
                                 'figures',
                                 dset + '_pr_'
