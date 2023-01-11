@@ -244,21 +244,18 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
     # plot average bce and kld curves
     # construct dataframe for seaborn plotting
     plt.figure()
-    d = {'acquisition':
-        np.concatenate([
-            np.hstack(
-                [np.arange(bces.shape[1]).reshape(-1, 1)] * bces.shape[0]
-            ).flatten(),
-            np.hstack(
-                [np.arange(klds.shape[1]).reshape(-1, 1)] * klds.shape[0]
-            ).flatten()
-        ]),
-        'loss_component': ['bce'] * bces.size + ['kld'] * klds.size,
-        'round': list(range(bces.shape[0])) * (bces.shape[1] + klds.shape[1]),
-        'value': np.concatenate([bces.flatten(order='C'), klds.flatten(order='C')])}
-    loss_data = pd.DataFrame(data=d)
-    sns.relplot(x='acquisition', y='value', col='loss_component',
+    n_round, n_acquisition = bces.shape
+    mi = pd.MultiIndex.from_product([['bce', 'kld'], range(n_round), range(n_acquisition)],
+                       names=['loss_component', 'round', 'acquisition'])
+
+    # flattening row-first (numpy default, which is specified by 'C') will give us
+    # the ordering that the Dataframe construction expects with multi-indexed axes
+    loss_data = pd.DataFrame(data=np.concatenate([bces.flatten(order='C'), klds.flatten(order='C')]),
+                             index=mi, columns=['value'])
+    plt.title('loss components, dset %s, object#%i' % (dset, obj_ix))
+    fg = sns.relplot(x='acquisition', y='value', col='loss_component',
                 kind='line', data=loss_data, facet_kws=dict(sharey=False))
+    fg.set_titles(col_template="{col_name}, set %s, object %i" % (dset, obj_ix))
     output_fname = os.path.join(log_dir,
                                 'figures',
                                 dset + '_obj' + str(obj_ix) + '_bce_kld_'
@@ -267,17 +264,15 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
 
 
 def plot_pr_curves(all_pr_scores, dset, log_dir):
-    # set up dataframe to use for plotting (yes, this long-form specification is very hacky)
+    # setup dataframes for seaborn
     n_batch, n_round, n_acquisitions = all_pr_scores.shape
-    d = {
-        'batch': np.array([[i_batch for _ in range(n_acquisitions * n_round)] for i_batch in range(n_batch)]).flatten(),
-        'acquisition': list(np.arange(n_acquisitions)) * (n_batch * n_round),
-        'round': np.array([[i_round for _ in range(n_acquisitions)] for i_round in range(n_round)] * n_batch).flatten(),
-        'value': all_pr_scores.flatten(),
-    }
-    roc_data = pd.DataFrame(data=d)
+    mi = pd.MultiIndex.from_product([range(n_batch), range(n_round), n_acquisitions],
+                                    names=['batch', 'round', 'acquisition'])
+    pr_data = pd.DataFrame(data=all_pr_scores.flatten(), index=mi, columns=['value'])
     plt.figure()
-    sns.lineplot(x='acquisition', y='value', data=roc_data)
+
+    # plot!
+    sns.lineplot(x='acquisition', y='value', data=pr_data)
     output_fname = os.path.join(log_dir,
                                 'figures',
                                 dset + '_pr_'
