@@ -27,16 +27,24 @@ NUM_LATENTS = 5
 LOG_SUPEDIR = 'learning/experiments/logs'
 
 
-def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, labels, meshes, model):
+# TODO: (1) save dataframes containing data output from these procedures since they are expensive to run
+#       (2) separate plotting scripts
+
+# TODO: Rework grow_and_find_latents to better represent training paradigm for validation
+
+
+def grow_data_and_find_latents(context_points, target_points, meshes, model):
     """
     Chooses random order to iterate through data, and passes data points 0...n through gnp, 0<n<=#data points
     Returns a list of means and covars from each round.
     """
+    c_geoms, c_gpoints, c_curvatures, c_midpoints, c_forces, c_labels = context_points
+    t_geoms, t_gpoints, t_curvatures, t_midpoints, t_forces, t_labels = target_points
     model.eval()
     with torch.no_grad():
         _, q_z = model.forward(
-            (geoms, gpoints, curvatures, midpoints, forces, labels),
-            (geoms, gpoints, curvatures, midpoints, forces),
+            (c_geoms, c_gpoints, c_curvatures, c_midpoints, c_forces, c_labels),
+            (c_geoms, c_gpoints, c_curvatures, c_midpoints, c_forces),
             meshes
         )
 
@@ -45,21 +53,21 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
         kdls = []
         bces = []
         pr_scores = []
-        n_elts = geoms.shape[1]
+        n_elts = c_geoms.shape[1]
         order = torch.randperm(n_elts)
         for n in range(1, n_elts + 1):
             # print('evaluating with size ' + str(n))
             selected_elts = order[:n].numpy()
 
-            n_geoms = geoms[:, selected_elts]
-            n_gpoints = gpoints[:, selected_elts]
-            n_curvatures = curvatures[:, selected_elts]
-            n_midpoints = midpoints[:, selected_elts]
-            n_forces = forces[:, selected_elts]
-            n_labels = labels[:, selected_elts]
+            n_geoms = c_geoms[:, selected_elts]
+            n_gpoints = c_gpoints[:, selected_elts]
+            n_curvatures = c_curvatures[:, selected_elts]
+            n_midpoints = c_midpoints[:, selected_elts]
+            n_forces = c_forces[:, selected_elts]
+            n_labels = c_labels[:, selected_elts]
             y_probs, q_n = model.forward(
                 (n_geoms, n_gpoints, n_curvatures, n_midpoints, n_forces, n_labels),
-                (geoms, gpoints, curvatures, midpoints, forces),
+                (t_geoms, t_gpoints, t_curvatures, t_midpoints, t_forces),
                 meshes
             )
             y_probs = y_probs.squeeze()
@@ -67,17 +75,17 @@ def grow_data_and_find_latents(geoms, gpoints, curvatures, midpoints, forces, la
             means.append(torch.unsqueeze(q_n.loc, 1))  # add dimension so we can do a batched cat
             covars.append(torch.unsqueeze(q_n.scale, 1))
 
-            _, bce_loss, kdl_loss = get_loss(y_probs, labels.squeeze(), q_z, q_n)
-            pr_score = average_precision_score(labels.squeeze(), y_probs)
+            _, bce_loss, kdl_loss = get_loss(y_probs, c_labels.squeeze(), q_z, q_n)
+            pr_score = average_precision_score(t_labels.squeeze(), y_probs)
             bces.append(bce_loss)
             kdls.append(kdl_loss)
             pr_scores.append(pr_score)
 
         return torch.cat(means, dim=1).numpy(), \
-            torch.cat(covars, dim=1).numpy(), \
-            torch.tensor(bces).numpy(), \
-            torch.tensor(kdls).numpy(), \
-            np.array(pr_scores)
+               torch.cat(covars, dim=1).numpy(), \
+               torch.tensor(bces).numpy(), \
+               torch.tensor(kdls).numpy(), \
+               np.array(pr_scores)
 
 
 def choose_one_object_and_grasps(dataset, obj_ix):
@@ -105,7 +113,7 @@ def choose_one_object_and_grasps(dataset, obj_ix):
     grasp_forces = torch.unsqueeze(torch.tensor(entry['grasp_forces']), 0)
     grasp_labels = torch.unsqueeze(torch.tensor(entry['grasp_labels']), 0)
     return grasp_geometries, grasp_points, grasp_curvatures, \
-        grasp_midpoints, grasp_forces, grasp_labels, object_meshes
+           grasp_midpoints, grasp_forces, grasp_labels, object_meshes
 
 
 def main(args):
@@ -131,23 +139,27 @@ def main(args):
     num_rounds = args.orders_per_object
     # iterate through individual objects we must plot and then plot each chart
     for obj_ix in args.plot_train_objs:
-        grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
-            grasp_forces, grasp_labels, object_meshes = \
+        train_geoms, train_gpoints, train_curvatures, train_midpoints, \
+        train_forces, train_labels, object_meshes = \
             choose_one_object_and_grasps(train_set, obj_ix=obj_ix)
 
-        num_grasps = grasp_geometries.shape[1]
+        num_grasps = train_geoms.shape[1]
         all_rounds_train_means = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
         all_rounds_train_covars = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
         all_rounds_train_bces = np.zeros((num_rounds, num_grasps))
         all_rounds_train_klds = np.zeros((num_rounds, num_grasps))
 
+        context_points = (train_geoms, train_gpoints, train_curvatures,
+                          train_midpoints, train_forces, train_labels)
+
         # do progressive latent distribution check
         for i in range(num_rounds):
             # print('train order #%i' % i)
             train_means, train_covars, train_bces, train_klds, _ = grow_data_and_find_latents(
-                grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
-                object_meshes,  # it's the same object, so only one mesh is needed
-                model
+                context_points=context_points,
+                target_points=context_points,
+                meshes=object_meshes,  # it's the same object, so only one mesh is needed
+                model=model
             )
             all_rounds_train_means[i, :, :] = train_means[0]  # unsqueeze since we get everything batched
             all_rounds_train_covars[i, :, :] = train_covars[0]
@@ -162,12 +174,19 @@ def main(args):
 
         # repeat for validation objects
     for obj_ix in args.plot_val_objs:
-        grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, \
-            grasp_forces, grasp_labels, object_meshes = \
+        train_geoms, train_gpoints, train_curvatures, train_midpoints, train_forces, train_labels, object_meshes = \
+            choose_one_object_and_grasps(train_set, obj_ix=obj_ix)
+
+        val_geoms, val_gpoints, val_curvatures, val_midpoints, val_forces, val_labels, _ = \
             choose_one_object_and_grasps(val_set, obj_ix=obj_ix)
 
+        context_points = (train_geoms, train_gpoints, train_curvatures,
+                          train_midpoints, train_forces, train_labels)
+        target_points = (val_geoms, val_gpoints, val_curvatures,
+                         val_midpoints, val_forces, val_labels)
+
         # we re-clear all data arrays for easier debugging
-        num_grasps = grasp_geometries.shape[1]
+        num_grasps = train_geoms.shape[1]
         all_rounds_val_means = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
         all_rounds_val_covars = np.zeros((num_rounds, num_grasps, NUM_LATENTS))
         all_rounds_val_bces = np.zeros((num_rounds, num_grasps))
@@ -176,9 +195,10 @@ def main(args):
         for i in range(num_rounds):
             # print('val order #%i' % i)
             val_means, val_covars, val_bces, val_klds, _ = grow_data_and_find_latents(
-                grasp_geometries, grasp_points, grasp_curvatures, grasp_midpoints, grasp_forces, grasp_labels,
-                object_meshes,
-                model
+                context_points=context_points,
+                target_points=target_points,
+                meshes=object_meshes,
+                model=model
             )
             all_rounds_val_means[i, :, :] = val_means[0]  # unsqueeze since we get everything batched
             all_rounds_val_covars[i, :, :] = val_covars[0]
@@ -208,16 +228,12 @@ def main(args):
             )
         )
         for i_batch, (context_data, target_data, meshes) in enumerate(train_dataloader):
-            grasp_geoms, grasp_points, curvatures, midpoints, forces, labels = context_data
             print('batch: ' + str(i_batch))
 
             for i_round in range(num_rounds):
                 print('round: ' + str(i_round))
-                _, _, _, _, all_rounds_pr_scores[i_batch, i_round, :] = grow_data_and_find_latents(
-                    grasp_geoms, grasp_points, curvatures, midpoints, forces, labels,
-                    meshes,
-                    model
-                )
+                _, _, _, _, all_rounds_pr_scores[i_batch, i_round, :] = \
+                    grow_data_and_find_latents(context_data, target_data, meshes, model)
 
         plot_pr_curves(all_rounds_pr_scores, 'train', train_log_dir)
 
@@ -266,6 +282,7 @@ def plot_progressive_means_and_covars(means, covars, bces, klds, dset, obj_ix, l
     plt.savefig(output_fname)
 
 
+# TODO: debug ordering -> write a conversion function
 def plot_pr_curves(all_pr_scores, dset, log_dir):
     # set up dataframe to use for plotting (yes, this long-form specification is very hacky)
     n_batch, n_round, n_acquisitions = all_pr_scores.shape
@@ -282,8 +299,8 @@ def plot_pr_curves(all_pr_scores, dset, log_dir):
                                 'figures',
                                 dset + '_pr_'
                                 + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
+    plt.title(dset + ' performance, average precision')
     plt.savefig(output_fname)
-
 
 
 if __name__ == '__main__':
