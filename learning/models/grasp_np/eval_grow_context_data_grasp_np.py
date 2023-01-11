@@ -28,8 +28,8 @@ NUM_LATENTS = 5
 LOG_SUPEDIR = 'learning/experiments/logs'
 
 
-# TODO: (1) save dataframes containing data output from these procedures since they are expensive to run
-#       (2) separate plotting scripts
+# TODO: (1) Add in validation set to full eval
+#       (2) add in ROC eval for single objects
 
 
 def grow_data_and_find_latents(context_points, target_points, meshes, model):
