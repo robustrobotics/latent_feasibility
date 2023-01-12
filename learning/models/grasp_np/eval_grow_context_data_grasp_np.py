@@ -28,9 +28,6 @@ NUM_LATENTS = 5
 LOG_SUPEDIR = 'learning/experiments/logs'
 
 
-# TODO: (1) Add in validation set to full eval (test!)
-
-
 def grow_data_and_find_latents(context_points, target_points, meshes, model):
     """
     Chooses random order to iterate through data, and passes data points 0...n through gnp, 0<n<=#data points
