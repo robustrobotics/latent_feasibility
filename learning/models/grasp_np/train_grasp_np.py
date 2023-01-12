@@ -44,14 +44,18 @@ def get_accuracy(y_probs, target_ys, test=False, save=False):
     return acc
 
 
-def get_loss(y_probs, target_ys, q_z, q_z_n, alpha=1):
+def get_loss(y_probs, target_ys, q_z, q_z_n, alpha=1, use_informed_prior=True, bce_scale_factor=1.0):
     bce_loss = F.binary_cross_entropy(y_probs.squeeze(), target_ys.squeeze(), reduction='sum')
 
     # beta = min(alpha / 100., 1)
     # beta = 1. / (1 + np.exp(-0.05 * (alpha - 50)))  # TODO: Is this still necessary?
     beta = 1
-
-    kld_loss = beta * torch.distributions.kl_divergence(q_z, q_z_n).sum()
+    if use_informed_prior:
+        kld_loss = beta * torch.distributions.kl_divergence(q_z, q_z_n).sum()
+        bce_loss = bce_loss * bce_scale_factor
+    else:
+        p_z = torch.distributions.normal.Normal(torch.zeros_like(q_z.loc), torch.ones_like(q_z.scale))
+        kld_loss = beta * torch.distributions.kl_divergence(q_z, p_z).sum()
     # kld_loss = 0
     # weight = (1 + alpha)
     return bce_loss + kld_loss, bce_loss, kld_loss
@@ -65,6 +69,9 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
 
     best_loss = 10000
     best_weights = None
+
+    val_loss_bce_scale_factor = float(len(val_dataloader.dataset.hp_grasp_geometries[0])) / \
+                                 len(val_dataloader.dataset.cp_grasp_geometries[0])
 
     alpha = 0.
     for ep in range(n_epochs):
@@ -115,7 +122,8 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                 (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
                 meshes)
 
-            loss, bce_loss, kld_loss = get_loss(y_probs, t_labels, q_z, q_z_n, alpha=ep)
+            loss, bce_loss, kld_loss = get_loss(y_probs, t_labels, q_z, q_z_n,
+                                                alpha=ep, use_informed_prior=args.informed_prior_loss)
             if bx == 0:
                 print(f'Loss: {loss.item()}\tBCE: {bce_loss}\tKLD: {kld_loss}')
 
@@ -139,8 +147,10 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
         with torch.no_grad():
             for bx, (context_data, target_data, meshes) in enumerate(val_dataloader):
 
-                c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
-                t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
+                c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = \
+                    check_to_cuda(context_data)
+                t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = \
+                    check_to_cuda(target_data)
                 if torch.cuda.is_available():
                     meshes = meshes.cuda()
 
@@ -170,7 +180,9 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                     (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
                     meshes)
 
-                val_loss += get_loss(y_probs, t_labels, q_z, q_z_n)[0].item()
+                val_loss += get_loss(y_probs, t_labels, q_z, q_z_n,
+                                     use_informed_prior=args.informed_prior_loss,
+                                     bce_scale_factor=val_loss_bce_scale_factor)[0].item()
 
                 val_probs.append(y_probs.flatten())
                 val_targets.append(t_labels.flatten())
