@@ -202,7 +202,6 @@ def main(args):
         plot_bces_and_klds(loss_data, 'train+val', train_log_dir, obj_ix=obj_ix)
         plot_prs(pr_data, 'train+val', train_log_dir, obj_ix=obj_ix)
 
-        # TODO: redo bce + kld fun for dataframing so we can also use on the full dataset
 
     # perform training and validation-set wide performance evaluation
     if args.full_run:
