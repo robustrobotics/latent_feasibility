@@ -188,7 +188,7 @@ def main(args):
                                          ['train', 'validaton'],
                                          range(n_rounds),
                                          range(n_acquisitions)],
-                                        names=['phase', 'loss_component', 'round', 'acquisition'])
+                                        names=['loss_component', 'phase', 'round', 'acquisition'])
         loss_data = pd.DataFrame(data=np.concatenate([all_rounds_bces.flatten(), all_rounds_klds.flatten()]),
                                  index=mi, columns=['value'])
         mi = pd.MultiIndex.from_product([['train', 'validation'],
@@ -270,7 +270,7 @@ def main(args):
                                              range(n_rounds),
                                              range(n_acquisitions),
                                              range(NUM_LATENTS)],
-                                            names=['phase', 'normal_param', 'object', 'round', 'acquisition', 'latent'])
+                                            names=['normal_param', 'phase', 'object', 'round', 'acquisition', 'latent'])
             normal_data = pd.DataFrame(data=np.concatenate([all_rounds_means.flatten(), all_rounds_covars.flatten()]),
                                        index=mi, columns=['value'])
             normal_data.to_pickle(output_fname_template % 'normal')
@@ -280,7 +280,7 @@ def main(args):
                                              range(n_batches),
                                              range(n_rounds),
                                              range(n_acquisitions)],
-                                            names=['phase', 'loss_component', 'batch', 'round', 'acquisition'])
+                                            names=['loss_component', 'phase', 'batch', 'round', 'acquisition'])
             loss_data = pd.DataFrame(data=np.concatenate([all_rounds_bces.flatten(), all_rounds_klds.flatten()]),
                                      index=mi, columns=['value'])
             loss_data.to_pickle(loss_fname)
