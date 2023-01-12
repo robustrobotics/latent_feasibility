@@ -29,7 +29,6 @@ LOG_SUPEDIR = 'learning/experiments/logs'
 
 
 # TODO: (1) Add in validation set to full eval (test!)
-#       (2) add in ROC eval for single objects (and merge train and val (test!)
 
 
 def grow_data_and_find_latents(context_points, target_points, meshes, model):
@@ -74,7 +73,7 @@ def grow_data_and_find_latents(context_points, target_points, meshes, model):
             means.append(torch.unsqueeze(q_n.loc, 1))  # add dimension so we can do a batched cat
             covars.append(torch.unsqueeze(q_n.scale, 1))
 
-            _, bce_loss, kdl_loss = get_loss(y_probs, c_labels.squeeze(), q_z, q_n)
+            _, bce_loss, kdl_loss = get_loss(y_probs, t_labels.squeeze(), q_z, q_n)
             pr_score = average_precision_score(t_labels.squeeze(), y_probs)
             bces.append(bce_loss)
             kdls.append(kdl_loss)
@@ -118,6 +117,8 @@ def choose_one_object_and_grasps(dataset, obj_ix):
 def main(args):
     # set the seed for repeatability in figure making
     random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
 
     # load in the models and datasets for evaluation
     train_log_dir = os.path.join(LOG_SUPEDIR, args.train_logdir)
@@ -136,7 +137,7 @@ def main(args):
     model = train_logger.get_neural_process(tx=0)
 
     n_rounds = args.orders_per_object
-    for obj_ix in args.plot_val_objs:
+    for obj_ix in args.plot_objs:
         train_geoms, train_gpoints, train_curvatures, train_midpoints, train_forces, train_labels, object_meshes = \
             choose_one_object_and_grasps(train_set, obj_ix=obj_ix)
 
@@ -199,9 +200,8 @@ def main(args):
                                         names=['phase', 'round', 'acquisition'])
         pr_data = pd.DataFrame(data=all_rounds_prs.flatten(), index=mi, columns=['value'])
 
-        plot_bces_and_klds(loss_data, 'train+val', train_log_dir, obj_ix=obj_ix)
-        plot_prs(pr_data, 'train+val', train_log_dir, obj_ix=obj_ix)
-
+        plot_bces_and_klds(loss_data, 'train_val', train_log_dir, obj_ix=obj_ix)
+        plot_prs(pr_data, 'train_val', train_log_dir, obj_ix=obj_ix)
 
     # perform training and validation-set wide performance evaluation
     if args.full_run:
@@ -345,6 +345,7 @@ def plot_bces_and_klds(loss_data, dset, log_dir, obj_ix=None):
 
 
 def plot_prs(pr_data, dset, log_dir, obj_ix=None):
+    plt.figure()
     sns.lineplot(x='acquisition', y='value', hue='phase', data=pr_data)
 
     if obj_ix is not None:
