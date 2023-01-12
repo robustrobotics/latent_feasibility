@@ -187,8 +187,8 @@ def main(args):
                                           'train_val', obj_ix, train_log_dir)
 
         # set up dataframes for plotting the remainder
-        mi = pd.MultiIndex.from_product([['train', 'validaton'],
-                                         ['bce', 'kld'],
+        mi = pd.MultiIndex.from_product([['bce', 'kld'],
+                                         ['train', 'validaton'],
                                          range(n_rounds),
                                          range(n_acquisitions)],
                                         names=['phase', 'loss_component', 'round', 'acquisition'])
@@ -206,7 +206,6 @@ def main(args):
     # perform training and validation-set wide performance evaluation
     if args.full_run:
         # construct dataloader
-        train_dataset = CustomGNPGraspDataset(data=train_set)
         val_dataset = CustomGNPGraspDataset(data=val_set, context_data=train_set)
 
         batch_size = 64
@@ -225,7 +224,7 @@ def main(args):
         loss_fname = output_fname_template % 'loss'
         pr_fname = output_fname_template % 'precision_recall'
         if os.path.exists(pr_fname) and os.path.exists(loss_fname):
-            choice = input('[Warning] Processed data from %s exists. Redo progression computation? (yes/no)')
+            choice = input('[Warning] Processed data exists. Redo progression computation? (yes/no)')
         else:
             choice = 'yes'
 
@@ -235,8 +234,9 @@ def main(args):
             n_acquisitions = len(train_set['grasp_data']['grasp_points'][0])
 
             # the first dimension represents 'training' for 0 and 'val' for 1
-            all_rounds_means = np.zeros((2, n_batches, n_rounds, n_acquisitions, NUM_LATENTS))
-            all_rounds_covars = np.zeros((2, n_batches, n_rounds, n_acquisitions, NUM_LATENTS))
+            # means and covars are indexed by object id, bce, kld, pr indexed by batch num
+            all_rounds_means = np.zeros((2, len(val_dataset), n_rounds, n_acquisitions, NUM_LATENTS))
+            all_rounds_covars = np.zeros((2, len(val_dataset), n_rounds, n_acquisitions, NUM_LATENTS))
             all_rounds_bces = np.zeros((2, n_batches, n_rounds, n_acquisitions))
             all_rounds_klds = np.zeros((2, n_batches, n_rounds, n_acquisitions))
             all_rounds_pr_scores = np.zeros((2, n_batches, n_rounds, n_acquisitions))
@@ -250,34 +250,36 @@ def main(args):
 
                 for i_round in range(n_rounds):
                     print('round: ' + str(i_round))
-                    all_rounds_means[0, i_batch, i_round, :, :], \
-                        all_rounds_covars[0, i_batch, i_round, :, :], \
+                    start_ix = batch_size * i_round
+                    end_ix = start_ix + len(context_data[0])
+                    all_rounds_means[0, start_ix:end_ix, i_round, :, :], \
+                        all_rounds_covars[0, start_ix:end_ix, i_round, :, :], \
                         all_rounds_bces[0, i_batch, i_round, :], \
                         all_rounds_klds[0, i_batch, i_round, :], \
                         all_rounds_pr_scores[0, i_batch, i_round, :] = \
                         grow_data_and_find_latents(context_data, context_data, meshes, model)
 
-                    all_rounds_means[1, i_batch, i_round, :, :], \
-                        all_rounds_covars[1, i_batch, i_round, :, :], \
+                    all_rounds_means[1, start_ix:end_ix, i_round, :, :], \
+                        all_rounds_covars[1, start_ix:end_ix, i_round, :, :], \
                         all_rounds_bces[1, i_batch, i_round, :], \
                         all_rounds_klds[1, i_batch, i_round, :], \
                         all_rounds_pr_scores[1, i_batch, i_round, :] = \
                         grow_data_and_find_latents(context_data, target_data, meshes, model)
 
             # construct dataframes and save them
-            mi = pd.MultiIndex.from_product([['train', 'validation'],
-                                             ['mean', 'covar'],
-                                             range(n_batches),
+            mi = pd.MultiIndex.from_product([['mean', 'covar'],
+                                             ['train', 'validation'],
+                                             range(len(val_dataset)),
                                              range(n_rounds),
                                              range(n_acquisitions),
                                              range(NUM_LATENTS)],
-                                            names=['phase', 'normal_param', 'batch', 'round', 'acquisition', 'latent'])
+                                            names=['phase', 'normal_param', 'object', 'round', 'acquisition', 'latent'])
             normal_data = pd.DataFrame(data=np.concatenate([all_rounds_means.flatten(), all_rounds_covars.flatten()]),
                                        index=mi, columns=['value'])
             normal_data.to_pickle(output_fname_template % 'normal')
 
-            mi = pd.MultiIndex.from_product([['train', 'validaton'],
-                                             ['bce', 'kld'],
+            mi = pd.MultiIndex.from_product([['bce', 'kld'],
+                                             ['train', 'validation'],
                                              range(n_batches),
                                              range(n_rounds),
                                              range(n_acquisitions)],
@@ -326,7 +328,6 @@ def plot_bces_and_klds(loss_data, dset, log_dir, obj_ix=None):
     # plot average bce and kld curves
     # construct dataframe for seaborn plotting
     plt.figure()
-    plt.title('loss components, dset %s, object#%i' % (dset, obj_ix))
     fg = sns.relplot(x='acquisition', y='value', col='loss_component', hue='phase',
                      kind='line', data=loss_data, facet_kws=dict(sharey=False))
     if obj_ix is not None:
@@ -339,7 +340,7 @@ def plot_bces_and_klds(loss_data, dset, log_dir, obj_ix=None):
         fg.set_titles(col_template="{col_name}, set %s" % dset)
         output_fname = os.path.join(log_dir,
                                     'figures',
-                                    dset + '_full_set_bce_kld_'
+                                    'full_set_bce_kld_'
                                     + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
     plt.savefig(output_fname)
 
@@ -357,7 +358,7 @@ def plot_prs(pr_data, dset, log_dir, obj_ix=None):
     else:
         output_fname = os.path.join(log_dir,
                                     'figures',
-                                    dset + '_pr_'
+                                    'full_set_pr_'
                                     + datetime.now().strftime('%m%d%Y_%H%M%S') + '.png')
         plt.title(dset + ' performance, average precision')
 
