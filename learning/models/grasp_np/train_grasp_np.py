@@ -181,7 +181,7 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10, use_informed_pri
                     meshes)
 
                 val_loss += get_loss(y_probs, t_labels, q_z, q_z_n,
-                                     use_informed_prior=args.informed_prior_loss,
+                                     use_informed_prior=use_informed_prior,
                                      bce_scale_factor=val_loss_bce_scale_factor)[0].item()
 
                 val_probs.append(y_probs.flatten())
