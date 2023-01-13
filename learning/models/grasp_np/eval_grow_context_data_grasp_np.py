@@ -15,7 +15,7 @@ import random
 import os
 
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn_all_grasps
-from learning.models.grasp_np.train_grasp_np import get_loss
+from learning.models.grasp_np.train_grasp_np import get_loss, check_to_cuda
 
 # can pull experiment train and val set details from the train args.pkl folder
 # select a random sample from train and val
@@ -33,8 +33,13 @@ def grow_data_and_find_latents(context_points, target_points, meshes, model):
     Chooses random order to iterate through data, and passes data points 0...n through gnp, 0<n<=#data points
     Returns a list of means and covars from each round.
     """
-    c_geoms, c_gpoints, c_curvatures, c_midpoints, c_forces, c_labels = context_points
-    t_geoms, t_gpoints, t_curvatures, t_midpoints, t_forces, t_labels = target_points
+    c_geoms, c_gpoints, c_curvatures, c_midpoints, c_forces, c_labels = check_to_cuda(context_points)
+    t_geoms, t_gpoints, t_curvatures, t_midpoints, t_forces, t_labels = check_to_cuda(target_points)
+
+    if torch.cuda.is_available():
+        model.cuda()
+        meshes = meshes.cuda()
+
     model.eval()
     with torch.no_grad():
         _, q_z = model.forward(
@@ -71,15 +76,15 @@ def grow_data_and_find_latents(context_points, target_points, meshes, model):
             covars.append(torch.unsqueeze(q_n.scale, 1))
 
             _, bce_loss, kdl_loss = get_loss(y_probs, t_labels.squeeze(), q_z, q_n)
-            pr_score = average_precision_score(t_labels.squeeze(), y_probs)
+            pr_score = average_precision_score(t_labels.squeeze().cpu(), y_probs.cpu())
             bces.append(bce_loss)
             kdls.append(kdl_loss)
             pr_scores.append(pr_score)
 
-        return torch.cat(means, dim=1).numpy(), \
-            torch.cat(covars, dim=1).numpy(), \
-            torch.tensor(bces).numpy(), \
-            torch.tensor(kdls).numpy(), \
+        return torch.cat(means, dim=1).cpu().numpy(), \
+            torch.cat(covars, dim=1).cpu().numpy(), \
+            torch.tensor(bces).cpu().numpy(), \
+            torch.tensor(kdls).cpu().numpy(), \
             np.array(pr_scores)
 
 
@@ -365,7 +370,7 @@ def plot_prs(pr_data, dset, log_dir, obj_ix=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--train-logdir', type=str, required=True, help='training log directory name')
-    parser.add_argument('--orders-per-object', type=int, default=50, help='number of data collection orders per object')
+    parser.add_argument('--orders-per-object', type=int, default=10, help='number of data collection orders per object')
     parser.add_argument('--plot-objs', type=int, nargs='*', default=[],
                         help='specific objects on which to run analysis, '
                              'indexed by object ids train_grasps.pkl/val_grasps.pkl')
