@@ -61,7 +61,7 @@ def get_loss(y_probs, target_ys, q_z, q_z_n, alpha=1, use_informed_prior=True, b
     return bce_loss + kld_loss, bce_loss, kld_loss
 
 
-def train(train_dataloader, val_dataloader, model, n_epochs=10):
+def train(train_dataloader, val_dataloader, model, n_epochs=10, use_informed_prior=True):
     if torch.cuda.is_available():
         model = model.cuda()
 
@@ -70,8 +70,8 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
     best_loss = 10000
     best_weights = None
 
-    val_loss_bce_scale_factor = float(len(val_dataloader.dataset.hp_grasp_geometries[0])) / \
-                                 len(val_dataloader.dataset.cp_grasp_geometries[0])
+    val_loss_bce_scale_factor = float(len(train_dataloader.dataset.hp_grasp_geometries[0])) / \
+                                 len(val_dataloader.dataset.hp_grasp_geometries[0])
 
     alpha = 0.
     for ep in range(n_epochs):
@@ -123,7 +123,7 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                 meshes)
 
             loss, bce_loss, kld_loss = get_loss(y_probs, t_labels, q_z, q_z_n,
-                                                alpha=ep, use_informed_prior=args.informed_prior_loss)
+                                                alpha=ep, use_informed_prior=use_informed_prior)
             if bx == 0:
                 print(f'Loss: {loss.item()}\tBCE: {bce_loss}\tKLD: {kld_loss}')
 
@@ -249,7 +249,8 @@ def run(args):
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
         model=model,
-        n_epochs=args.n_epochs
+        n_epochs=args.n_epochs,
+        use_informed_prior=args.informed_prior_loss
     )
 
     # save model
