@@ -75,7 +75,9 @@ def grow_data_and_find_latents(context_points, target_points, meshes, model):
             means.append(torch.unsqueeze(q_n.loc, 1))  # add dimension so we can do a batched cat
             covars.append(torch.unsqueeze(q_n.scale, 1))
 
-            _, bce_loss, kdl_loss = get_loss(y_probs, t_labels.squeeze(), q_z, q_n)
+            _, bce_loss, kdl_loss = get_loss(y_probs, t_labels.squeeze(), q_z, q_n,
+                                             use_informed_prior=True,
+                                             bce_scale_factor=float(len(c_geoms[0])) / len(t_geoms[0]))
             pr_score = average_precision_score(t_labels.squeeze().cpu(), y_probs.cpu())
             bces.append(bce_loss)
             kdls.append(kdl_loss)
@@ -210,7 +212,7 @@ def main(args):
         # construct dataloader
         val_dataset = CustomGNPGraspDataset(data=val_set, context_data=train_set)
 
-        batch_size = 64
+        batch_size = 128
 
         val_dataloader = DataLoader(
             dataset=val_dataset,
@@ -249,11 +251,10 @@ def main(args):
             # because that information is redundant
             for i_batch, (context_data, target_data, meshes) in enumerate(val_dataloader):
                 print('batch: ' + str(i_batch))
-
+                start_ix = batch_size * i_batch
+                end_ix = start_ix + len(context_data[0])
                 for i_round in range(n_rounds):
                     print('round: ' + str(i_round))
-                    start_ix = batch_size * i_round
-                    end_ix = start_ix + len(context_data[0])
                     all_rounds_means[0, start_ix:end_ix, i_round, :, :], \
                         all_rounds_covars[0, start_ix:end_ix, i_round, :, :], \
                         all_rounds_bces[0, i_batch, i_round, :], \
@@ -331,7 +332,7 @@ def plot_bces_and_klds(loss_data, dset, log_dir, obj_ix=None):
     # construct dataframe for seaborn plotting
     plt.figure()
     fg = sns.relplot(x='acquisition', y='value', col='loss_component', hue='phase',
-                     kind='line', data=loss_data, facet_kws=dict(sharey=False))
+                     kind='line', data=loss_data, facet_kws=dict(sharey=False), errorbar='pi')
     if obj_ix is not None:
         fg.set_titles(col_template="{col_name}, set %s, object %i" % (dset, obj_ix))
         output_fname = os.path.join(log_dir,
@@ -349,7 +350,7 @@ def plot_bces_and_klds(loss_data, dset, log_dir, obj_ix=None):
 
 def plot_prs(pr_data, dset, log_dir, obj_ix=None):
     plt.figure()
-    sns.lineplot(x='acquisition', y='value', hue='phase', data=pr_data)
+    sns.lineplot(x='acquisition', y='value', hue='phase', data=pr_data, errorbar='pi')
 
     if obj_ix is not None:
         output_fname = os.path.join(log_dir,
