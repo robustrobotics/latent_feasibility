@@ -20,13 +20,14 @@ def check_to_cuda(tensor_list):
         return tensor_list
 
 
-def get_accuracy(y_probs, target_ys, test=False, save=False):
+def get_accuracy(y_probs, target_ys, test=False, save=False, object_properties=None):
     assert (y_probs.shape == target_ys.shape)
     if test == True:
         if y_probs.shape[0] > 100000:
             n_grasps = 50
         else:
             n_grasps = 10
+
         per_obj_probs = y_probs.view(-1, n_grasps)
         per_obj_target = target_ys.view(-1, n_grasps)
         per_obj_acc = ((per_obj_probs > 0.5) == per_obj_target).float().mean(dim=1)
@@ -41,26 +42,17 @@ def get_accuracy(y_probs, target_ys, test=False, save=False):
                 pickle.dump((y_probs.cpu().numpy(), target_ys.cpu().numpy()), handle)
 
     acc = ((y_probs > 0.5) == target_ys).float().mean()
+    # if not object_properties is None and acc > 0.9 and test:
+    #     bad_indices = np.arange(500)[per_obj_acc.cpu().numpy() < 0.6]
+    #     for ix in bad_indices:
+    #         print(object_properties[ix])
+    #     import IPython; IPython.embed()
     return acc
 
 
-def get_loss(y_probs, target_ys, q_z, q_z_n, alpha=1, val=False):
+def get_loss(y_probs, target_ys):
     bce_loss = F.binary_cross_entropy(y_probs.squeeze(), target_ys.squeeze(), reduction='sum')
-
-    # beta = min(alpha / 100., 1)
-    # beta = 1. / (1 + np.exp(-0.05 * (alpha - 50)))  # TODO: Is this still necessary?
-    beta = 1.
-
-    # kld_loss = beta * torch.distributions.kl_divergence(q_z, q_z_n).sum()
-    p_z = torch.distributions.normal.Normal(torch.zeros_like(q_z.loc), torch.ones_like(q_z.scale))
-    kld_loss = beta * torch.distributions.kl_divergence(q_z, p_z).sum()
-    # kld_loss = 0
-    # weight = (1 + alpha)
-    if val:
-        return 5*bce_loss + kld_loss, bce_loss, kld_loss
-    else:
-        return bce_loss + kld_loss, bce_loss, kld_loss
-
+    return bce_loss
 
 def train(train_dataloader, val_dataloader, model, n_epochs=10):
     if torch.cuda.is_available():
@@ -85,51 +77,32 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
             # REMEMBER THEM!!!
 
             # TODO: simplify-nn -- add in the curvature and the grasp position data
-            c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
-            t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
+            c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels, object_props = check_to_cuda(context_data)
+            # t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels, object_props = check_to_cuda(target_data)
             if torch.cuda.is_available():
                 meshes = meshes.cuda()
-
-            # sample a sub collection of the target set to better represent model adaptation phase in training
-            max_n_grasps = c_grasp_geoms.shape[1]
-            n_grasps = torch.randint(low=1, high=max_n_grasps, size=(1,))
-
-            # TODO: simplify-nn -- add in the curvature and the grasp position data
-            # select random indices used for this evaluation and then select data from arrays
-            # n_indices = torch.randperm(max_n_grasps)[:n_grasps]
-            # n_c_grasp_geoms = c_grasp_geoms[:, n_indices, :, :]
-            # n_c_grasp_points = c_grasp_points[:, n_indices, :, :]
-            # n_c_curvatures = c_curvatures[:, n_indices, :, :]
-            # n_c_midpoints = c_midpoints[:, n_indices, :]
-            # n_c_forces = c_forces[:, n_indices]
-            # n_c_labels = c_labels[:, n_indices]
 
             optimizer.zero_grad()
 
             # TODO: simplify-nn -- add in the curvature and the grasp position data
             # pass forward for max_n_grasps
-            y_probs, q_z = model.forward(
-                (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels),
-                (t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
-                meshes
+            y_probs = model.conditional_forward(
+                (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces),
+                meshes,
+                object_props
             )
             y_probs = y_probs.squeeze()
 
-            # pass forward for n_grasps (but the encoder ONLY)
-            # q_z_n, _ = model.forward_until_latents(
-            #     (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
-            #     meshes)
-
-            loss, bce_loss, kld_loss = get_loss(y_probs, t_labels, q_z, None, alpha=ep)
+            loss = get_loss(y_probs, c_labels)
             if bx == 0:
-                print(f'Loss: {loss.item()}\tBCE: {bce_loss}\tKLD: {kld_loss}')
+                print(f'Loss: {loss.item()}')
 
             loss.backward()
             optimizer.step()
 
             epoch_loss += loss.item()
             train_probs.append(y_probs.flatten())
-            train_targets.append(t_labels.flatten())
+            train_targets.append(c_labels.flatten())
 
         epoch_loss /= len(train_dataloader.dataset)
         train_acc = get_accuracy(
@@ -143,41 +116,21 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
         val_loss, val_probs, val_targets = 0, [], []
         with torch.no_grad():
             for bx, (context_data, target_data, meshes) in enumerate(val_dataloader):
-
-                c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
-                t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
+                
+                t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels, object_props = check_to_cuda(target_data)
                 if torch.cuda.is_available():
                     meshes = meshes.cuda()
 
                 # TODO: simplify-nn -- add in the curvature and the grasp position data
-                # sample a sub collection of the target set to better represent model adaptation phase in training
-                max_n_grasps = c_grasp_geoms.shape[1]
-                n_grasps = torch.randint(low=1, high=max_n_grasps, size=(1,))
-                # select random indices used for this evaluation and then select data from arrays
-                # n_indices = torch.randperm(max_n_grasps)[:n_grasps]
-                # n_c_grasp_geoms = c_grasp_geoms[:, n_indices, :, :]
-                # n_c_grasp_points = c_grasp_points[:, n_indices, :, :]
-                # n_c_curvatures = c_curvatures[:, n_indices, :, :]
-                # n_c_midpoints = c_midpoints[:, n_indices, :]
-                # n_c_forces = c_forces[:, n_indices]
-                # n_c_labels = c_labels[:, n_indices]
-
-                # TODO: simplify-nn -- add in the curvature and the grasp position data
-                y_probs, q_z = model.forward(
-                    (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels),
+                y_probs = model.conditional_forward(
                     (t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
-                    meshes
+                    meshes,
+                    object_props
                 )
-                means.append(q_z.loc)
                 y_probs = y_probs.squeeze()
 
-                # q_z_n, _ = model.forward_until_latents(
-                #     (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
-                #     meshes)
 
-                b_loss, b_bce, b_kld = get_loss(y_probs, t_labels, q_z, None, val=True)
-                #print(b_loss, b_bce, b_kld)
-                val_loss += b_loss.item()
+                val_loss += get_loss(y_probs, t_labels).item()
 
                 val_probs.append(y_probs.flatten())
                 val_targets.append(t_labels.flatten())
@@ -186,9 +139,11 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
             val_acc = get_accuracy(
                 torch.cat(val_probs),
                 torch.cat(val_targets),
-                test=True, save=True
+                test=True, save=True,
+                object_properties=val_dataloader.dataset.object_properties
             )
-            print(f'Val Loss: {val_loss}\tVal Acc: {val_acc}')
+            # import IPython; IPython.embed()
+            print(f'Val Loss: {val_loss}\tVal Acc: {val_acc}\t% Stable: {np.mean(c_labels.cpu().numpy())}')
 
             if val_loss < best_loss:
                 best_loss = val_loss
@@ -214,7 +169,7 @@ def run(args):
     logger = ActiveExperimentLogger.setup_experiment_directory(args)
 
     # build the model # args.5
-    model = CustomGraspNeuralProcess(d_latents=args.d_latents)
+    model = CustomGraspNeuralProcess(d_latents=5)
 
     # load datasets
     with open(args.train_dataset_fname, 'rb') as handle:
@@ -228,13 +183,13 @@ def run(args):
     train_dataloader = DataLoader(
         dataset=train_dataset,
         batch_size=args.batch_size,
-        collate_fn=custom_collate_fn,
-        shuffle=True
+        collate_fn=lambda items: custom_collate_fn(items, True),
+        shuffle=True,
     )
 
     val_dataloader = DataLoader(
         dataset=val_dataset_eval,
-        collate_fn=custom_collate_fn,
+        collate_fn=lambda items: custom_collate_fn(items, True),
         batch_size=args.batch_size,
         shuffle=False
     )
@@ -260,7 +215,6 @@ if __name__ == '__main__':
     parser.add_argument('--train-dataset-fname', type=str, required=True)
     parser.add_argument('--val-dataset-fname', type=str, required=True)
     parser.add_argument('--exp-name', type=str, required=True)
-    parser.add_argument('--d-latents', type=int, required=True)
     parser.add_argument('--n-epochs', type=int, required=True)
     parser.add_argument('--batch-size', type=int, required=True)
     args = parser.parse_args()

@@ -144,7 +144,7 @@ class PointNetClassifier(nn.Module):
     def __init__(self, n_in):
         super(PointNetClassifier, self).__init__()
 
-        n_enc = 512
+        n_enc = 1024
         self.feat = PointNetEncoder(global_feat=False, feature_transform=False, channel=n_in, n_out=n_enc)
 
         self.fc1 = nn.Linear(n_enc+n_enc//16, n_enc//2)  # 1024, 512
@@ -174,6 +174,7 @@ class PointNetRegressor(nn.Module):
         n_enc = 512
         self.feat = PointNetEncoder(global_feat=False, feature_transform=False, channel=n_in, n_out=n_enc)
 
+        self.n_out = n_out
         self.fc1 = nn.Linear(n_enc+n_enc//16, n_enc//2)  # 1024, 512
         self.fc2 = nn.Linear(n_enc//2, n_enc//4)  # 512, 256
         self.fc3 = nn.Linear(n_enc//4, n_out)  # 256, 1
@@ -182,7 +183,12 @@ class PointNetRegressor(nn.Module):
         self.bn2 = nn.BatchNorm1d(n_enc//4)  # 256
         self.nonlin = nn.ReLU()
 
-    def forward(self, x):
+    def forward(self, x, return_size=False):
+        if return_size:
+            dims = x.max(dim=2)[0]
+            volume = dims.prod(dim=1, keepdim=True)
+            return torch.cat([dims, volume], dim=1)
+            import IPython; IPython.embed()
         x, trans, trans_feat = self.feat(x)
         n_batch, n_feat, n_pts = x.shape
         x = x.swapaxes(1, 2).reshape(-1, n_feat)

@@ -274,27 +274,27 @@ if __name__ == '__main__':
 
     worker_pool.map(generate_datasets, fit_dataset_samegeo_tasks)
 
-    fit_dataset_samegeo_tasks = []
-    for ox in range(0, min(100, len(train_objects) * args.n_property_samples_train)):
-        if ox in TRAIN_IGNORE:
-            continue
-        print(f'[Grasps] Generating grasps for fitting phase eval for samegeo sameprop obj {ox}.')
-        fit_grasps_samegeo_sameprop_path = os.path.join(
-            fitting_phase_path,
-            f'fit_grasps_train_geo_trainprop_object{ox}.pkl'
-        )
-        if not os.path.exists(fit_grasps_samegeo_sameprop_path):
-            fit_grasps_samegeo_args = SimpleNamespace(
-                fname=fit_grasps_samegeo_sameprop_path,
-                objects_fname=train_objects_path,
-                n_points_per_object=args.n_points_per_object,
-                n_grasps_per_object=args.n_fit_grasps,
-                object_ix=ox,
-                grasp_noise=0.0,
-                curvature_radii=args.curvature_radii)
-            fit_dataset_samegeo_tasks.append(fit_grasps_samegeo_args)
+    # fit_dataset_samegeo_tasks = []
+    # for ox in range(0, min(100, len(train_objects) * args.n_property_samples_train)):
+    #     if ox in TRAIN_IGNORE:
+    #         continue
+    #     print(f'[Grasps] Generating grasps for fitting phase eval for samegeo sameprop obj {ox}.')
+    #     fit_grasps_samegeo_sameprop_path = os.path.join(
+    #         fitting_phase_path,
+    #         f'fit_grasps_train_geo_trainprop_object{ox}.pkl'
+    #     )
+    #     if not os.path.exists(fit_grasps_samegeo_sameprop_path):
+    #         fit_grasps_samegeo_args = SimpleNamespace(
+    #             fname=fit_grasps_samegeo_sameprop_path,
+    #             objects_fname=train_objects_path,
+    #             n_points_per_object=args.n_points_per_object,
+    #             n_grasps_per_object=args.n_fit_grasps,
+    #             object_ix=ox,
+    #             grasp_noise=0.0,
+    #             curvature_radii=args.curvature_radii)
+    #         fit_dataset_samegeo_tasks.append(fit_grasps_samegeo_args)
 
-    worker_pool.map(generate_datasets, fit_dataset_samegeo_tasks)
+    # worker_pool.map(generate_datasets, fit_dataset_samegeo_tasks)
 
     # Show dataset statistics.
     with open(train_grasps_path, 'rb') as handle:

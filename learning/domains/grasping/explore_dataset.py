@@ -200,6 +200,34 @@ def analyze_objects(objects_all):
     plt.show()
     print(np.min(inertia), np.max(inertia))
 
+def compare_object_labels(train_fname, val_fname, ox):
+    with open(train_fname, 'rb') as handle:
+        train_data = pickle.load(handle)
+    with open(val_fname, 'rb') as handle:
+        val_data = pickle.load(handle)
+    dataset_args = val_data['metadata']
+
+    object_name = val_data['object_data']['object_names'][ox]
+    object_properties = val_data['object_data']['object_properties'][ox]
+    
+    train_midpoints = train_data['grasp_data']['grasp_midpoints'][ox]
+    train_labels = train_data['grasp_data']['labels'][ox]
+    train_forces = train_data['grasp_data']['grasp_forces'][ox]
+    val_midpoints = val_data['grasp_data']['grasp_midpoints'][ox]
+    val_labels = val_data['grasp_data']['labels'][ox]
+    val_forces = train_data['grasp_data']['grasp_forces'][ox]
+    graspable_body = graspablebody_from_vector(object_name, object_properties)
+
+    sim_client = GraspSimulationClient(graspable_body, False)
+
+    # fname = os.path.join(figpath, f'{prefix}object{ix}.png')
+    # if len(figpath) > 0:
+    #         sim_client.tm_show_grasps(grasps, obj_labels, fname=fname)
+    # else:
+    sim_client.tm_show_grasps(train_midpoints, train_labels, train_forces)
+    sim_client.tm_show_grasps(val_midpoints, val_labels, val_forces)
+    sim_client.disconnect()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -224,7 +252,7 @@ if __name__ == '__main__':
     if not os.path.exists(train_meshes_path):
         os.mkdir(train_meshes_path)
     # generate_object_grid(train_objects, train_meshes_path)
-    
+
 
     val_objects_path = os.path.join(dataset_root, 'objects', 'test_geo_test_props.pkl')
     with open(val_objects_path, 'rb') as handle:
@@ -240,9 +268,16 @@ if __name__ == '__main__':
     figpath = os.path.join(dataset_figpath, 'train_grasps')
     if not os.path.exists(figpath):
         os.mkdir(figpath)
-    with open(train_grasps, 'rb') as handle:
-        train_grasps = pickle.load(handle)
-    analyze_objects(train_grasps)
+    # with open(train_grasps, 'rb') as handle:
+    #     train_grasps = pickle.load(handle)
+    train_grasps = os.path.join(dataset_root, 'grasps', 'training_phase', 'train_grasps.pkl')
+    val_grasps = os.path.join(dataset_root, 'grasps', 'training_phase', 'val_grasps.pkl')
+    compare_object_labels(
+        train_grasps,
+        val_grasps,
+        6903
+    )
+    # analyze_objects(train_grasps)
     sys.exit()
     # visualize_grasp_dataset(train_grasps, figpath=figpath)
 

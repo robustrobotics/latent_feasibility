@@ -1,4 +1,5 @@
 import argparse
+import gc
 import pickle
 import sys
 
@@ -12,7 +13,7 @@ from pb_robot.planners.antipodalGraspPlanner import (
     GraspableBody,
     GraspStabilityChecker
 )
-
+import pybullet as p
 
 def vector_from_graspablebody(graspable_body):
     """ Represent the intrinsic parameters of a body as a vector. """
@@ -40,7 +41,6 @@ def sample_grasp_X(graspable_body, property_vector, n_points_per_object, curvatu
     mesh_points = np.hstack([mesh_points,
                              np.ones((n_points_per_object, 1), dtype='float32')])
     mesh_points = (sim_client.mesh_tform @ (mesh_points.T)).T[:, 0:3]
-    sim_client.disconnect()
 
     # Sample grasp.
     if grasp is None:
@@ -52,6 +52,7 @@ def sample_grasp_X(graspable_body, property_vector, n_points_per_object, curvatu
             grasp = grasp_sampler.sample_grasp(force=force, show_trimesh=False)
         except Exception as e:
             grasp_sampler.disconnect()
+            sim_client.disconnect()
             raise e
         grasp_sampler.disconnect()
 
@@ -127,6 +128,7 @@ def sample_grasp_X(graspable_body, property_vector, n_points_per_object, curvatu
     props = np.broadcast_to(property_vector, (X.shape[0], len(property_vector)))
     X = np.hstack([X, props])
 
+    sim_client.disconnect()
     return grasp, X
 
 
@@ -159,6 +161,13 @@ def generate_datasets(dataset_args):
                                         show_pybullet=False,
                                         recompute_inertia=True)
         print('PBID:', labeler.sim_client.pb_client_id)
+        # TODO: Check dynamic properties.
+        dyn = p.getDynamicsInfo(labeler.sim_client.body_id, -1, labeler.sim_client.pb_client_id)
+        print(f'Mass: {dyn[0]}/{graspable_body.mass}\tFriction: {dyn[1]}/{graspable_body.friction}\tCoM:{dyn[3]}/{graspable_body.com}')
+        gb_string = '%.3f %.3f %.3f %.3f %.3f' % (graspable_body.mass, graspable_body.friction, graspable_body.com[0], graspable_body.com[1], graspable_body.com[2])
+        pb_string = '%.3f %.3f %.3f %.3f %.3f' % (dyn[0], dyn[1], dyn[3][0], dyn[3][1], dyn[3][2])
+        # assert gb_string == pb_string
+        
         for grasp_ix in range(0, dataset_args.n_grasps_per_object):
             print('Grasp %d/%d...' % (grasp_ix, dataset_args.n_grasps_per_object))
 

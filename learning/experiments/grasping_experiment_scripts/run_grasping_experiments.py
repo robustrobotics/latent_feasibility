@@ -115,10 +115,10 @@ def run_fitting_phase(args):
     # Run fitting phase for all objects that have not yet been fitted
     # (each has a standard name in the experiment logs).
     for geo_type, objects_fname, n_objects, ignore in zip(
-        ['train_geo', 'test_geo'],
-        [train_geo_fname, test_geo_fname],
-        [n_train_geo, n_test_geo],
-        [TRAIN_IGNORE, TEST_IGNORE]
+        ['test_geo', 'train_geo'],
+        [test_geo_fname, train_geo_fname],
+        [n_test_geo, n_train_geo],
+        [TEST_IGNORE, TRAIN_IGNORE]
     ):
         # Get object data.
         with open(objects_fname, 'rb') as handle:
@@ -290,7 +290,7 @@ def run_training_phase(args):
         training_args.exp_name = f'grasp_{exp_args.exp_name}_train'
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
-        training_args.n_epochs = 100
+        training_args.n_epochs = 200
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 32
         training_args.use_latents = False # NOTE: this is a workaround for pointnet + latents,
@@ -353,7 +353,6 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
 
         avg_min_dist = np.mean(dists_to_closest)
         p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-        
         if avg_min_dist < min_dist_threshold:
             continue
         if p_stable < min_pstable or p_stable > max_pstable:
@@ -417,7 +416,7 @@ def run_testing_phase(args):
             }
         }
     }
-    min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.02
+    min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.01
 
     valid_train_objects = filter_objects(
         object_names=train_objects['object_data']['object_names'],

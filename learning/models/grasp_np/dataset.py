@@ -38,6 +38,7 @@ class CustomGNPGraspDataset(Dataset):
          self.hp_grasp_forces,
          self.hp_grasp_labels,
          self.hp_full_meshes) = self.process_raw_data(data)
+
         self.object_indices = sorted(self.hp_grasp_geometries.keys())
 
     def process_raw_data(self, data):
@@ -53,6 +54,11 @@ class CustomGNPGraspDataset(Dataset):
                         n_dup = 256 - meshes[mx].shape[0]
                         meshes[mx] = np.concatenate([meshes[mx], meshes[mx][:n_dup, :]], axis=0)
                 grasp_geometries[k] = np.array(meshes).astype('float32')
+
+            object_properties = {
+                ox: props for ox, props in enumerate(data['object_data']['object_properties'])
+            }
+            self.object_properties = convert_dict_to_float32(object_properties)
 
             grasp_points = convert_dict_to_float32(data['grasp_data']['grasp_points'])
             grasp_curvatures = convert_dict_to_float32(data['grasp_data']['grasp_curvatures'])
@@ -70,20 +76,22 @@ class CustomGNPGraspDataset(Dataset):
             cp_data = {
                 'object_mesh': self.cp_full_meshes[ox] / 0.1,
                 'grasp_geometries': self.cp_grasp_geometries[ox] / 0.02,
-                'grasp_points': self.cp_grasp_points[ox] / 0.01,
+                'grasp_points': self.cp_grasp_points[ox] / 0.1,
                 'grasp_curvatures': self.cp_grasp_curvatures[ox] / 0.01,
                 'grasp_forces': (self.cp_grasp_forces[ox] - 12.5) / 7.5,
                 'grasp_midpoints': self.cp_grasp_midpoints[ox] / 0.1,
-                'grasp_labels': self.cp_grasp_labels[ox]
+                'grasp_labels': self.cp_grasp_labels[ox],
+                'object_properties': self.object_properties[ox] / 0.1
             }
         hp_data = {
             'object_mesh': self.hp_full_meshes[ox] / 0.1,
             'grasp_geometries': self.hp_grasp_geometries[ox] / 0.02,
-            'grasp_points': self.hp_grasp_points[ox] / 0.01,
+            'grasp_points': self.hp_grasp_points[ox] / 0.1,
             'grasp_curvatures': self.hp_grasp_curvatures[ox] / 0.01,
             'grasp_forces': (self.hp_grasp_forces[ox] - 12.5) / 7.5,
             'grasp_midpoints': self.hp_grasp_midpoints[ox] / 0.1,
-            'grasp_labels': self.hp_grasp_labels[ox]
+            'grasp_labels': self.hp_grasp_labels[ox],
+            'object_properties': self.object_properties[ox] / 0.1
         }
         return cp_data, hp_data
 
@@ -91,7 +99,7 @@ class CustomGNPGraspDataset(Dataset):
         return len(self.hp_grasp_geometries)
 
 
-def custom_collate_fn(items):
+def custom_collate_fn(items, include_propeties=False):
     """
     Decide how many context and target points to add.
     """
@@ -103,15 +111,22 @@ def custom_collate_fn(items):
         n_context = np.random.randint(low=40, high=max_context)
         max_target = max_context - n_context
         n_target = np.random.randint(max_target)
+
+    if include_propeties:
+        n_context = 50
     # print(f'n_context: {n_context}\tn_target: {n_target}')
 
     context_geoms, context_grasp_points, context_grasp_curvatures, context_midpoints, context_forces, context_labels = \
         [], [], [], [], [], []
     target_geoms, target_grasp_points, target_grasp_curvatures, target_midpoints, target_forces, target_labels = \
         [], [], [], [], [], []
+    object_properties = []
+
     full_meshes = []
     for context_data, heldout_data in items:
         full_meshes.append(heldout_data['object_mesh'][0, :, :].swapaxes(0, 1))
+
+        object_properties.append(heldout_data['object_properties'])
         if context_data is None:
             all_context_geoms = heldout_data['grasp_geometries']
             all_context_grasp_points = heldout_data['grasp_points']
@@ -160,6 +175,14 @@ def custom_collate_fn(items):
     context_midpoints = torch.Tensor(np.array(context_midpoints).astype('float32'))
     context_forces = torch.Tensor(np.array(context_forces).astype('float32'))
     context_labels = torch.Tensor(np.array(context_labels).astype('float32'))
+    contexts = [
+        context_geoms,
+        context_grasp_points,
+        context_grasp_curvatures,
+        context_midpoints,
+        context_forces,
+        context_labels
+    ]
 
     target_geoms = torch.Tensor(np.array(target_geoms).astype('float32'))
     target_grasp_points = torch.Tensor(np.array(target_grasp_points).astype('float32'))
@@ -167,23 +190,25 @@ def custom_collate_fn(items):
     target_midpoints = torch.Tensor(np.array(target_midpoints).astype('float32'))
     target_forces = torch.Tensor(np.array(target_forces).astype('float32'))
     target_labels = torch.Tensor(np.array(target_labels).astype('float32'))
+    targets = [
+        target_geoms,
+        target_grasp_points,
+        target_grasp_curvatures,
+        target_midpoints,
+        target_forces,
+        target_labels
+    ]
+
+    if include_propeties:
+        object_properties = torch.Tensor(np.array(
+            object_properties,
+            dtype='float32'
+        ))
+        contexts.append(object_properties)
+        targets.append(object_properties)
 
     full_meshes = torch.Tensor(np.array(full_meshes).astype('float32'))
-    return (
-        (context_geoms,
-         context_grasp_points,
-         context_grasp_curvatures,
-         context_midpoints,
-         context_forces,
-         context_labels),
-        (target_geoms,
-         target_grasp_points,
-         target_grasp_curvatures,
-         target_midpoints,
-         target_forces,
-         target_labels),
-        full_meshes
-    )
+    return (contexts, targets, full_meshes)
 
 
 if __name__ == '__main__':

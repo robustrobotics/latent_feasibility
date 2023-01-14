@@ -70,7 +70,7 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     # Collect all mesh points for each object.
     all_points_per_objects = {}
     for grasp_vector, object_id in zip(all_grasps, all_ids):
-        mesh_points = grasp_vector[3:, 0:3]
+        mesh_points = grasp_vector[5:, 0:3]
         if object_id not in all_points_per_objects:
             all_points_per_objects[object_id] = mesh_points
         else:
@@ -159,7 +159,7 @@ def process_and_save(func_args):
 
     with open(func_args.out_path, 'wb') as handle:
         pickle.dump(new_dataset, handle)
-    
+
 
 DATA_ROOT = 'learning/data/grasping'
 if __name__ == '__main__':
