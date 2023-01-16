@@ -197,7 +197,6 @@ if __name__ == '__main__':
                 grasp_noise=args.grasp_noise,
                 curvature_radii=args.curvature_radii)
             train_dataset_tasks.append(train_grasps_args)
-
     worker_pool.map(generate_datasets, train_dataset_tasks)
 
     train_grasps_path = os.path.join(training_phase_path, 'train_grasps.pkl')

@@ -22,6 +22,8 @@ def transform_points(points, finger1, finger2, ee, viz_data=False):
     new_y = (midpoint - ee)/np.linalg.norm(midpoint - ee)
     new_z = np.cross(new_x, new_y)
     
+    dist_to_finger = np.linalg.norm(finger1-midpoint)
+    # import IPython; IPython.embed()
     # Build transfrom from world frame to grasp frame.
     R, t = np.hstack([new_x[:, None], new_y[:, None], new_z[:, None]]), midpoint
     tform = np.eye(4)
@@ -31,6 +33,9 @@ def transform_points(points, finger1, finger2, ee, viz_data=False):
 
     new_points = np.hstack([points, np.ones((points.shape[0], 1))])
     new_points = (inv_tform@new_points.T).T[:, 0:3]
+
+    new_points[:, 0] /= dist_to_finger
+    new_points[:, 1:] /= 0.02
 
     if viz_data:
         fig = plt.figure()
@@ -48,7 +53,7 @@ def transform_points(points, finger1, finger2, ee, viz_data=False):
         ax1.set_xlabel('x')
         ax1.set_ylabel('y')
         ax1.set_zlabel('z')
-        
+
         ax2.set_xlabel('x')
         ax2.set_ylabel('y')
         ax2.set_zlabel('z')

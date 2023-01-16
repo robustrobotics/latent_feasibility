@@ -7,13 +7,16 @@ from learning.models.pointnet import PointNetEncoder, PointNetRegressor, PointNe
 
 class CustomGraspNeuralProcess(nn.Module):
 
-    def __init__(self, d_latents):
+    def __init__(self, d_latents, use_geoms=False):
         super(CustomGraspNeuralProcess, self).__init__()
         d_mesh = 4
         n_out_geom = 1
         self.encoder = CustomGNPEncoder(d_latents=d_latents, d_mesh=d_mesh)
         # grasp points + curvatures +
-        self.decoder = CustomGNPDecoder(n_in=6 + 6 + 12 + 1 + d_latents + d_mesh, d_latents=d_latents)
+        if use_geoms:
+            self.decoder = CustomGNPDecoder(n_in=3+1+n_out_geom+d_latents+d_mesh, d_latents=d_latents, use_geoms=True)
+        else:
+            self.decoder = CustomGNPDecoder(n_in=6 + 6 + 12 + 1 + d_latents + d_mesh, d_latents=d_latents, use_geoms=False)
         # TODO: simplify-nn -- remove local geom encoder and just tack on to global pointnet if it works
         self.mesh_encoder = PointNetRegressor(n_in=3, n_out=d_mesh)
 
@@ -21,18 +24,23 @@ class CustomGraspNeuralProcess(nn.Module):
         self.grasp_geom_encoder = PointNetRegressor(n_in=3, n_out=n_out_geom)
 
         self.d_latents = d_latents
+        self.use_geoms = use_geoms
 
     def forward(self, contexts, target_xs, meshes):
         q_z, mesh_enc = self.forward_until_latents(contexts, meshes)
 
         # Replace True properties with latent samples.
         target_geoms, target_grasp_points, target_curvatures, target_mids, target_forces = target_xs
-        # n_batch, n_grasp, _, n_pts = target_geoms.shape
+        
         z = q_z.rsample()
 
-        # geoms = target_geoms.view(-1, 3, n_pts)
-        # geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
-        y_pred = self.decoder(target_grasp_points, target_curvatures, target_forces, z, mesh_enc)
+        if self.use_geoms:
+            n_batch, n_grasp, _, n_pts = target_geoms.shape
+            geoms = target_geoms.view(-1, 3, n_pts)
+            geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+            y_pred = self.decoder(geoms_enc, target_mids, target_grasp_points, target_curvatures, target_forces, z, mesh_enc)
+        else:
+            y_pred = self.decoder(None, None, target_grasp_points, target_curvatures, target_forces, z, mesh_enc)
         return y_pred, q_z
 
     def forward_until_latents(self, contexts, meshes):
@@ -63,16 +71,19 @@ class CustomGraspNeuralProcess(nn.Module):
         # mesh_enc = torch.zeros_like(mesh_enc)
         target_geoms, target_grasp_points, target_curvatures, target_mids, target_forces = target_xs
         n_batch, n_grasp, _, n_pts = target_geoms.shape
-        # geoms = target_geoms.reshape(-1, 3, n_pts)
-        # geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+        if self.use_geoms:
+            geoms = target_geoms.reshape(-1, 3, n_pts)
+            geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+            y_pred = self.decoder(geoms_enc, target_mids, target_grasp_points, target_curvatures, target_forces, zs, mesh_enc)
+        else:
+            y_pred = self.decoder(None, None, target_grasp_points, target_curvatures, target_forces, zs, mesh_enc)
 
-        y_pred = self.decoder(target_grasp_points, target_curvatures, target_forces, zs, mesh_enc)
         return y_pred
 
 
 class CustomGNPDecoder(nn.Module):
 
-    def __init__(self, n_in, d_latents):
+    def __init__(self, n_in, d_latents, use_geoms=False):
         super(CustomGNPDecoder, self).__init__()
         self.pointnet = PointNetClassifier(n_in=n_in)
         self.n_in = n_in
@@ -85,42 +96,54 @@ class CustomGNPDecoder(nn.Module):
             nn.Linear(512, 128), nn.ReLU(),
             nn.Linear(128, 1), nn.Sigmoid()
         )
+        self.use_points = use_geoms
 
-    def forward(self, target_grasp_points, target_curvatures, target_forces, zs, meshes):
+    def forward(self, target_geoms, target_midpoints, target_grasp_points, target_curvatures, target_forces, zs, meshes):
         """
         :param target geoms: (batch_size, n_grasps, 3, n_points)
         :param target_midpoint: (batch_size, n_grasps, 3)
         :param target_forces: (batch_size, n_grasps)
         :param zs: (batch_size, d_latents)
         """
-        n_batch, n_grasp, _, _ = target_grasp_points.shape
-        # n_batch, n_grasp, n_feats = target_geoms.shape
-        # import IPython; IPython.embed()
-        zs_broadcast = zs[:, None, :].expand(n_batch, n_grasp, -1)
-        # midpoints_broadcast = target_midpoints[:, :, :, None].expand(n_batch, n_grasp, 3, n_pts)
-        #target_grasp_points_flat = target_grasp_points.flatten(start_dim=2)
-        midpoints = target_grasp_points.sum(dim=-2)/2.
-        norms = target_grasp_points[:, :, 0, :] - target_grasp_points[:, :, 1, :]
-        target_grasp_points_flat = torch.cat([target_grasp_points.flatten(start_dim=2), midpoints, norms], dim=2)
-        #import IPython; IPython.embed()
-        target_curvatures_flat = target_curvatures.flatten(start_dim=2)
+        if not self.use_points:
+            n_batch, n_grasp, _, _ = target_grasp_points.shape
+            # n_batch, n_grasp, n_feats = target_geoms.shape
+            # import IPython; IPython.embed()
+            zs_broadcast = zs[:, None, :].expand(n_batch, n_grasp, -1)
+            # midpoints_broadcast = target_midpoints[:, :, :, None].expand(n_batch, n_grasp, 3, n_pts)
+            #target_grasp_points_flat = target_grasp_points.flatten(start_dim=2)
+            midpoints = target_grasp_points.sum(dim=-2)/2.
+            norms = target_grasp_points[:, :, 0, :] - target_grasp_points[:, :, 1, :]
+            target_grasp_points_flat = torch.cat([target_grasp_points.flatten(start_dim=2), midpoints, norms], dim=2)
+            target_curvatures_flat = target_curvatures.flatten(start_dim=2)
 
-        meshes_broadcast = meshes[:, None, :].expand(n_batch, n_grasp, -1)
-        xs_with_latents = torch.cat([
-            target_grasp_points_flat,
-            target_curvatures_flat,
-            target_forces[:, :, None],
-            zs_broadcast,
-            meshes_broadcast
-        ], dim=2)
+            meshes_broadcast = meshes[:, None, :].expand(n_batch, n_grasp, -1)
+            xs_with_latents = torch.cat([
+                target_grasp_points_flat,
+                target_curvatures_flat,
+                target_forces[:, :, None],
+                zs_broadcast,
+                meshes_broadcast
+            ], dim=2)
+        else:
+            n_batch, n_grasp, n_feats = target_geoms.shape
+            zs_broadcast = zs[:, None, :].expand(n_batch, n_grasp, -1)
+            # midpoints_broadcast = target_midpoints[:, :, :, None].expand(n_batch, n_grasp, 3, n_pts)
+            meshes_broadcast = meshes[:, None, :].expand(n_batch, n_grasp, -1)
+            xs_with_latents = torch.cat([
+                target_midpoints,
+                target_geoms,
+                target_forces[:, :, None],
+                zs_broadcast,
+                meshes_broadcast
+            ], dim=2)
+
 
         zs_grasp_broadcast = zs[:, None, :].expand(n_batch, n_grasp, self.d_latents)
         xs = xs_with_latents.view(-1, self.n_in)[:, :, None]
 
-        # return self.mlp(xs[:, :, 0]).view(n_batch, n_grasp, 1)
-        # import IPython; IPython.embed()
+        #return self.mlp(xs[:, :, 0]).view(n_batch, n_grasp, 1)
         xs = self.pointnet(xs, zs_grasp_broadcast.reshape(-1, self.d_latents))
-        #  import IPython; IPython.embed()
         return xs.view(n_batch, n_grasp, 1)
 
 

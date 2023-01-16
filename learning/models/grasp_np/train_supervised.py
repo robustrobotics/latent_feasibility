@@ -116,7 +116,6 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
         val_loss, val_probs, val_targets = 0, [], []
         with torch.no_grad():
             for bx, (context_data, target_data, meshes) in enumerate(val_dataloader):
-                
                 t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels, object_props = check_to_cuda(target_data)
                 if torch.cuda.is_available():
                     meshes = meshes.cuda()
@@ -142,15 +141,12 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10):
                 test=True, save=True,
                 object_properties=val_dataloader.dataset.object_properties
             )
-            # import IPython; IPython.embed()
             print(f'Val Loss: {val_loss}\tVal Acc: {val_acc}\t% Stable: {np.mean(c_labels.cpu().numpy())}')
 
             if val_loss < best_loss:
                 best_loss = val_loss
                 best_weights = copy.deepcopy(model.state_dict())
                 print('New best loss: ', val_loss)
-        # if val_acc > 0.9:
-        #     import IPython; IPython.embed()
 
     model.load_state_dict(best_weights)
     return model
@@ -169,7 +165,7 @@ def run(args):
     logger = ActiveExperimentLogger.setup_experiment_directory(args)
 
     # build the model # args.5
-    model = CustomGraspNeuralProcess(d_latents=5)
+    model = CustomGraspNeuralProcess(d_latents=5, use_geoms=True)
 
     # load datasets
     with open(args.train_dataset_fname, 'rb') as handle:

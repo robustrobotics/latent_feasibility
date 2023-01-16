@@ -12,19 +12,19 @@ from torch.autograd import Variable
 class STN3d(nn.Module):
     def __init__(self, channel):
         super(STN3d, self).__init__()
-        self.conv1 = torch.nn.Conv1d(channel, 32, 1)  # 64
-        self.conv2 = torch.nn.Conv1d(32, 64, 1)  # 64, 128
-        self.conv3 = torch.nn.Conv1d(64, 256, 1)  # 128, 1024
-        self.fc1 = nn.Linear(256, 128)  # 1024, 512
-        self.fc2 = nn.Linear(128, 64)  # 512, 256
-        self.fc3 = nn.Linear(64, 9)  # 256, 9
+        self.conv1 = torch.nn.Conv1d(channel, 64, 1)  # 64
+        self.conv2 = torch.nn.Conv1d(64, 128, 1)  # 64, 128
+        self.conv3 = torch.nn.Conv1d(128, 1024, 1)  # 128, 1024
+        self.fc1 = nn.Linear(1024, 512)  # 1024, 512
+        self.fc2 = nn.Linear(512, 256)  # 512, 256
+        self.fc3 = nn.Linear(256, 9)  # 256, 9
         self.nonlin = nn.ReLU()
 
-        self.bn1 = nn.BatchNorm1d(32)
-        self.bn2 = nn.BatchNorm1d(64)
-        self.bn3 = nn.BatchNorm1d(256)
-        self.bn4 = nn.BatchNorm1d(128)
-        self.bn5 = nn.BatchNorm1d(64)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.bn2 = nn.BatchNorm1d(128)
+        self.bn3 = nn.BatchNorm1d(1024)
+        self.bn4 = nn.BatchNorm1d(512)
+        self.bn5 = nn.BatchNorm1d(256)
 
     def forward(self, x):
         batchsize = x.size()[0]
@@ -32,7 +32,7 @@ class STN3d(nn.Module):
         x = self.nonlin(self.bn2(self.conv2(x)))
         x = self.nonlin(self.bn3(self.conv3(x)))
         x = torch.max(x, 2, keepdim=True)[0]
-        x = x.view(-1, 256)
+        x = x.view(-1, 1024)
 
         x = self.nonlin(self.bn4(self.fc1(x)))
         x = self.nonlin(self.bn5(self.fc2(x)))
@@ -98,9 +98,9 @@ class PointNetEncoder(nn.Module):
         self.conv1 = torch.nn.Conv1d(channel, n_hidden1, 1)  # 64
         self.conv2 = torch.nn.Conv1d(n_hidden1, n_hidden2, 1)   # 64, 128
         self.conv3 = torch.nn.Conv1d(n_hidden2, n_out, 1)  # 128, 1024
-        self.bn1 = nn.BatchNorm1d(n_hidden1)  # 64
-        self.bn2 = nn.BatchNorm1d(n_hidden2)  # 128
-        self.bn3 = nn.BatchNorm1d(n_out)  # 1024
+        self.bn1 = nn.Identity() # nn.BatchNorm1d(n_hidden1)  # 64
+        self.bn2 = nn.Identity() # nn.BatchNorm1d(n_hidden2)  # 128
+        self.bn3 = nn.Identity() # nn.BatchNorm1d(n_out)  # 1024
         self.global_feat = global_feat
         self.feature_transform = feature_transform
         if self.feature_transform:
@@ -108,17 +108,18 @@ class PointNetEncoder(nn.Module):
 
         self.nonlin = nn.ReLU()
 
-    def forward(self, x):
+    def forward(self, x, x_trans=False):
         B, D, N = x.size()
-        trans = self.stn(x)
-        x = x.transpose(2, 1)
-        if D > 3:
-            feature = x[:, :, 3:]
-            x = x[:, :, :3]
-        x = torch.bmm(x, trans)
-        if D > 3:
-            x = torch.cat([x, feature], dim=2)
-        x = x.transpose(2, 1)
+        if x_trans:
+            trans = self.stn(x)
+            x = x.transpose(2, 1)
+            if D > 3:
+                feature = x[:, :, 3:]
+                x = x[:, :, :3]
+            x = torch.bmm(x, trans)
+            if D > 3:
+                x = torch.cat([x, feature], dim=2)
+            x = x.transpose(2, 1)
         x = self.nonlin(self.bn1(self.conv1(x)))
         if self.feature_transform:
             trans_feat = self.fstn(x)
@@ -134,10 +135,10 @@ class PointNetEncoder(nn.Module):
         x = torch.max(x, 2, keepdim=True)[0]
         x = x.view(-1, self.n_out)
         if self.global_feat:
-            return x, trans, trans_feat
+            return x, trans_feat
         else:
             x = x.view(-1, self.n_out, 1).repeat(1, 1, N)
-            return torch.cat([x, pointfeat], 1), trans, trans_feat
+            return torch.cat([x, pointfeat], 1), trans_feat
 
 
 class PointNetClassifier(nn.Module):
@@ -151,12 +152,12 @@ class PointNetClassifier(nn.Module):
         self.fc2 = nn.Linear(n_enc//2, n_enc//4)  # 512, 256
         self.fc3 = nn.Linear(n_enc//4, 1)  # 256, 1
         self.dropout = nn.Dropout(p=0.)  # 0.4
-        self.bn1 = nn.BatchNorm1d(n_enc//2)  # 512
-        self.bn2 = nn.BatchNorm1d(n_enc//4)  # 256
+        self.bn1 = nn.Identity()  #nn.BatchNorm1d(n_enc//2)  # 512
+        self.bn2 = nn.Identity()  # nn.BatchNorm1d(n_enc//4)  # 256
         self.nonlin = nn.ReLU()
 
     def forward(self, x, zs):
-        x, trans, trans_feat = self.feat(x)
+        x, trans_feat = self.feat(x)
         n_batch, n_feat, n_pts = x.shape
         x = x.swapaxes(1, 2).reshape(-1, n_feat)
         x = self.nonlin(self.bn1(self.fc1(x)))
@@ -171,7 +172,7 @@ class PointNetRegressor(nn.Module):
     def __init__(self, n_in, n_out):
         super(PointNetRegressor, self).__init__()
 
-        n_enc = 512
+        n_enc = 1024
         self.feat = PointNetEncoder(global_feat=False, feature_transform=False, channel=n_in, n_out=n_enc)
 
         self.n_out = n_out
@@ -189,7 +190,7 @@ class PointNetRegressor(nn.Module):
             volume = dims.prod(dim=1, keepdim=True)
             return torch.cat([dims, volume], dim=1)
             import IPython; IPython.embed()
-        x, trans, trans_feat = self.feat(x)
+        x, trans_feat = self.feat(x, x_trans=False)
         n_batch, n_feat, n_pts = x.shape
         x = x.swapaxes(1, 2).reshape(-1, n_feat)
         x = self.nonlin(self.bn1(self.fc1(x)))

@@ -7,7 +7,9 @@ import pickle
 import trimesh
 import time
 import io
+import sys
 from matplotlib import cm
+import multiprocessing as mp
 import pybullet as p
 from PIL import Image
 from mpl_toolkits.axes_grid1 import ImageGrid
@@ -200,6 +202,39 @@ def analyze_objects(objects_all):
     plt.show()
     print(np.min(inertia), np.max(inertia))
 
+def get_object_stats(name, props):
+    graspable_body = graspablebody_from_vector(name, props)
+    sim_client = GraspSimulationClient(graspable_body=graspable_body,
+        show_pybullet=False,
+        recompute_inertia=True)
+    mesh = sim_client.mesh
+    volume = mesh.volume
+    max_dim = np.max(mesh.bounds[1]*2)
+    sim_client.disconnect()
+    return [volume, max_dim]
+
+def show_object_size_distributions(train_fname):
+    with open(train_fname, 'rb') as handle:
+        train_data = pickle.load(handle)
+
+    object_names = train_data['object_data']['object_names']
+    object_properties = train_data['object_data']['object_properties']
+
+    pool = mp.Pool(processes=20)
+    results = pool.starmap(get_object_stats, zip(object_names, object_properties))
+
+    fig, axes = plt.subplots(nrows=2, ncols=1)
+    axes[0].hist([res[0] for res in results], bins=25)
+    axes[0].set_xlabel('Count')
+    axes[0].set_ylabel('Volume')
+
+    axes[1].hist([res[1] for res in results], bins=25)
+    axes[1].set_xlabel('Count')
+    axes[1].set_ylabel('Max Dimension')
+
+    plt.show()
+
+
 def compare_object_labels(train_fname, val_fname, ox):
     with open(train_fname, 'rb') as handle:
         train_data = pickle.load(handle)
@@ -209,7 +244,7 @@ def compare_object_labels(train_fname, val_fname, ox):
 
     object_name = val_data['object_data']['object_names'][ox]
     object_properties = val_data['object_data']['object_properties'][ox]
-    
+
     train_midpoints = train_data['grasp_data']['grasp_midpoints'][ox]
     train_labels = train_data['grasp_data']['labels'][ox]
     train_forces = train_data['grasp_data']['grasp_forces'][ox]
@@ -272,10 +307,12 @@ if __name__ == '__main__':
     #     train_grasps = pickle.load(handle)
     train_grasps = os.path.join(dataset_root, 'grasps', 'training_phase', 'train_grasps.pkl')
     val_grasps = os.path.join(dataset_root, 'grasps', 'training_phase', 'val_grasps.pkl')
+    # show_object_size_distributions(train_grasps)
+    # sys.exit()
     compare_object_labels(
         train_grasps,
         val_grasps,
-        6903
+        0
     )
     # analyze_objects(train_grasps)
     sys.exit()

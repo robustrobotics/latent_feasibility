@@ -75,7 +75,7 @@ class CustomGNPGraspDataset(Dataset):
         else:
             cp_data = {
                 'object_mesh': self.cp_full_meshes[ox] / 0.1,
-                'grasp_geometries': self.cp_grasp_geometries[ox] / 0.02,
+                'grasp_geometries': self.cp_grasp_geometries[ox], #/ 0.02,
                 'grasp_points': self.cp_grasp_points[ox] / 0.1,
                 'grasp_curvatures': self.cp_grasp_curvatures[ox] / 0.01,
                 'grasp_forces': (self.cp_grasp_forces[ox] - 12.5) / 7.5,
@@ -85,7 +85,7 @@ class CustomGNPGraspDataset(Dataset):
             }
         hp_data = {
             'object_mesh': self.hp_full_meshes[ox] / 0.1,
-            'grasp_geometries': self.hp_grasp_geometries[ox] / 0.02,
+            'grasp_geometries': self.hp_grasp_geometries[ox], #/ 0.02,
             'grasp_points': self.hp_grasp_points[ox] / 0.1,
             'grasp_curvatures': self.hp_grasp_curvatures[ox] / 0.01,
             'grasp_forces': (self.hp_grasp_forces[ox] - 12.5) / 7.5,
@@ -113,7 +113,7 @@ def custom_collate_fn(items, include_propeties=False):
         n_target = np.random.randint(max_target)
 
     if include_propeties:
-        n_context = 50
+        n_context = 2
     # print(f'n_context: {n_context}\tn_target: {n_target}')
 
     context_geoms, context_grasp_points, context_grasp_curvatures, context_midpoints, context_forces, context_labels = \
