@@ -214,7 +214,8 @@ class ActiveExperimentLogger:
         with open(path, 'rb') as handle:
             metadata = pickle.load(handle)
 
-        gnp = CustomGraspNeuralProcess(d_latents=metadata['d_latents'])
+        gnp = CustomGraspNeuralProcess(d_latents=metadata['d_latents'],
+                                       use_local_point_clouds=['use_local_point_clouds'])
 
         # load in the encoder, mesh_encoder subroutine, and decoder weights
         # and insert them into the main np
@@ -235,7 +236,7 @@ class ActiveExperimentLogger:
 
     def save_neural_process(self, gnp, tx, symlink_tx0):
         # save neural process data (for now, it's just number of latent dimensions)
-        metadata = {'d_latents': gnp.d_latents}
+        metadata = {'d_latents': gnp.d_latents, 'use_local_point_clouds': gnp.use_local_point_clouds}
         path = os.path.join(self.exp_path, 'models', 'metadata.pkl')
         with open(path, 'wb') as handle:
             pickle.dump(metadata, handle)

@@ -219,7 +219,7 @@ def run(args):
     logger = ActiveExperimentLogger.setup_experiment_directory(args)
 
     # build the model # args.5
-    model = CustomGraspNeuralProcess(d_latents=args.d_latents)
+    model = CustomGraspNeuralProcess(d_latents=args.d_latents, use_local_point_clouds=args.use_local_grasp_geometry)
 
     # load datasets
     with open(args.train_dataset_fname, 'rb') as handle:

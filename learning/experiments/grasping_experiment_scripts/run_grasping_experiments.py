@@ -298,6 +298,7 @@ def run_training_phase(args):
                                            # GNPs DO USE LATENTS, but they are handled more
                                            # cleanly in the model specification and training
         training_args.informed_prior_loss = True
+        training_args.use_local_grasp_geometry = True
 
         train_log_path = training_phase_amortized(training_args)
 
