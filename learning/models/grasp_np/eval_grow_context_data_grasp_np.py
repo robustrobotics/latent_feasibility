@@ -331,6 +331,7 @@ def plot_bces_and_klds(loss_data, dset, log_dir, obj_ix=None):
     # plot average bce and kld curves
     # construct dataframe for seaborn plotting
     plt.figure()
+    sns.set_style('darkgrid')
     fg = sns.relplot(x='acquisition', y='value', col='loss_component', hue='phase',
                      kind='line', data=loss_data, facet_kws=dict(sharey=False), errorbar='pi')
     if obj_ix is not None:
@@ -350,6 +351,7 @@ def plot_bces_and_klds(loss_data, dset, log_dir, obj_ix=None):
 
 def plot_prs(pr_data, dset, log_dir, obj_ix=None):
     plt.figure()
+    sns.set_style('darkgrid')
     sns.lineplot(x='acquisition', y='value', hue='phase', data=pr_data, errorbar='pi')
 
     if obj_ix is not None:
