@@ -86,7 +86,6 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10, use_informed_pri
             # sampling we choose per object have the same indices
             # REMEMBER THEM!!!
 
-            # TODO: simplify-nn -- add in the curvature and the grasp position data
             c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
             t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
             if torch.cuda.is_available():
@@ -96,7 +95,6 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10, use_informed_pri
             max_n_grasps = c_grasp_geoms.shape[1]
             n_grasps = torch.randint(low=1, high=max_n_grasps, size=(1,))
 
-            # TODO: simplify-nn -- add in the curvature and the grasp position data
             # select random indices used for this evaluation and then select data from arrays
             n_indices = torch.randperm(max_n_grasps)[:n_grasps]
             n_c_grasp_geoms = c_grasp_geoms[:, n_indices, :, :]
@@ -108,7 +106,6 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10, use_informed_pri
 
             optimizer.zero_grad()
 
-            # TODO: simplify-nn -- add in the curvature and the grasp position data
             # pass forward for max_n_grasps
             y_probs, q_z = model.forward(
                 (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels),
@@ -154,7 +151,6 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10, use_informed_pri
                 if torch.cuda.is_available():
                     meshes = meshes.cuda()
 
-                # TODO: simplify-nn -- add in the curvature and the grasp position data
                 # sample a sub collection of the target set to better represent model adaptation phase in training
                 max_n_grasps = c_grasp_geoms.shape[1]
                 n_grasps = torch.randint(low=1, high=max_n_grasps, size=(1,))
@@ -167,7 +163,6 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10, use_informed_pri
                 n_c_forces = c_forces[:, n_indices]
                 n_c_labels = c_labels[:, n_indices]
 
-                # TODO: simplify-nn -- add in the curvature and the grasp position data
                 y_probs, q_z = model.forward(
                     (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels),
                     (t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),

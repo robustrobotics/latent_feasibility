@@ -39,9 +39,12 @@ class CustomGraspNeuralProcess(nn.Module):
 
         n_batch, n_grasp, _, n_pts = target_geoms.shape
         geoms = target_geoms.view(-1, 3, n_pts)
-        geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+        if self.use_local_point_clouds:
+            geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+        else:
+            geoms_enc = None
         y_pred = self.decoder(geoms_enc,
-                              target_grasp_points, target_curvatures, target_mids, target_forces, target_forces,
+                              target_grasp_points, target_curvatures, target_mids, target_forces,
                               z, mesh_enc)
 
         return y_pred, q_z
@@ -58,7 +61,10 @@ class CustomGraspNeuralProcess(nn.Module):
 
         n_batch, n_grasp, _, n_geom_pts = context_geoms.shape
         geoms = context_geoms.view(-1, 3, n_geom_pts)
-        geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+        if self.use_local_point_clouds:
+            geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+        else:
+            geoms_enc = None
         mu, sigma = self.encoder(
             geoms_enc,
             context_grasp_points, context_curvatures, context_midpoints, context_forces, context_labels,
@@ -77,7 +83,11 @@ class CustomGraspNeuralProcess(nn.Module):
         target_geoms, target_grasp_points, target_curvatures, target_mids, target_forces = target_xs
         n_batch, n_grasp, _, n_pts = target_geoms.shape
         geoms = target_geoms.reshape(-1, 3, n_pts)
-        geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+
+        if self.use_local_point_clouds:
+            geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+        else:
+            geoms_enc = None
 
         y_pred = self.decoder(geoms_enc,
                               target_grasp_points, target_curvatures, target_mids, target_forces,
@@ -102,22 +112,22 @@ class CustomGNPDecoder(nn.Module):
         :param target_forces: (batch_size, n_grasps)
         :param zs: (batch_size, d_latents)
         """
-        n_batch, n_grasp, n_feats = target_geoms.shape
+        n_batch, n_grasp = target_forces.shape
         zs_broadcast = zs[:, None, :].expand(n_batch, n_grasp, -1)
         # midpoints_broadcast = target_midpoints[:, :, :, None].expand(n_batch, n_grasp, 3, n_pts)
         meshes_broadcast = meshes[:, None, :].expand(n_batch, n_grasp, -1)
 
-        target_curvatures_flat = target_curvatures.flatten(start_dim=2)
+        target_grasp_points_flat = target_grasp_points.flatten(start_dim=2)
         if self.use_local_point_clouds:
             xs_with_latents = torch.cat([
-                target_grasp_points,
+                target_grasp_points_flat,
                 target_geoms,
                 target_forces[:, :, None],
                 zs_broadcast,
                 meshes_broadcast
             ], dim=2)
         else:
-            target_grasp_points_flat = target_grasp_points.flatten(start_dim=2)
+            target_curvatures_flat = target_curvatures.flatten(start_dim=2)
 
             xs_with_latents = torch.cat([
                 target_grasp_points_flat,
