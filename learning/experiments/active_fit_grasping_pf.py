@@ -51,6 +51,19 @@ def find_informative_tower(pf, object_set, logger, args):
 
     return all_grasps[acquire_ix]
 
+
+def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_samples):
+    """
+    :param current_context: Grasp dict object with collected datapoints so far.
+        Most-nested dictionaries: ox: [].
+    :param unlabeled_samples: The same format ^.
+        Most-nested dictionaries: ox: [].
+        Labels are meaningless (-1).
+    :return: The grasp index of the unlabeled samples with the highest info gain score.
+    """
+    pass
+
+
 def particle_filter_loop(pf, object_set, logger, strategy, args):
     if args.likelihood == 'nn':
         logger.save_ensemble(pf.likelihood, 0, symlink_tx0=False)
