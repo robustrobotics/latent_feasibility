@@ -65,12 +65,16 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     all_ids = train_dataset['grasp_data']['object_ids'][::skip]
     all_labels = train_dataset['grasp_data']['labels'][::skip]
     all_forces = train_dataset['grasp_data']['forces'][::skip]
+    if 'raw_grasps' in train_dataset['grasp_data']:
+        all_raw_grasps = train_dataset['grasp_data']['raw_grasps'][::skip]
+    else:
+        all_raw_grasps = [None]*len(all_grasps)
     gx = 0
 
     # Collect all mesh points for each object.
     all_points_per_objects = {}
     for grasp_vector, object_id in zip(all_grasps, all_ids):
-        mesh_points = grasp_vector[3:, 0:3]
+        mesh_points = grasp_vector[5:, 0:3]
         if object_id not in all_points_per_objects:
             all_points_per_objects[object_id] = mesh_points
         else:
@@ -83,9 +87,10 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     new_forces_dict = defaultdict(list) # obj_id -> [forces]
     new_grasp_points_dict = defaultdict(list) # obj_id -> [finger_pt_1, finger_pt_2]
     new_curvatures_dict = defaultdict(list) # obj_id -> [finger1_gauss concat finger1_mean, finger2_gauss concat finger2_mean]
+    new_raw_grasps_dict = defaultdict(list)
     new_meshes_dict = defaultdict(list)
 
-    for grasp_vector, object_id, force, label in zip(all_grasps, all_ids, all_forces, all_labels):
+    for grasp_vector, object_id, force, label, raw_grasp in zip(all_grasps, all_ids, all_forces, all_labels, all_raw_grasps):
         if verbose:
             print(f'Converting grasp {gx}/{len(all_ids)}...')
         gx += 1
@@ -131,6 +136,7 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         new_forces_dict[object_id].append(force)
         new_labels_dict[object_id].append(label)
         new_meshes_dict[object_id].append(all_points_per_objects[object_id][:512,:])
+        new_raw_grasps_dict[object_id].append(raw_grasp)
 
     dataset = {
         'grasp_data': {
@@ -145,6 +151,9 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         'object_data': train_dataset['object_data'],
         'metadata': train_dataset['metadata']
     }
+    if 'raw_grasps' in train_dataset['grasp_data']:
+        dataset['grasp_data']['raw_grasps'] = new_raw_grasps_dict
+
     return dataset
 
 def process_and_save(func_args):
@@ -159,7 +168,7 @@ def process_and_save(func_args):
 
     with open(func_args.out_path, 'wb') as handle:
         pickle.dump(new_dataset, handle)
-    
+
 
 DATA_ROOT = 'learning/data/grasping'
 if __name__ == '__main__':
