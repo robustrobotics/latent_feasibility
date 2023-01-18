@@ -1,7 +1,9 @@
+import multiprocessing as mp
 import pickle
 
 from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector, sample_grasp_X
+from learning.models.grasp_np.create_gnp_data import process_geometry
 from pb_robot.planners.antipodalGraspPlanner import GraspSampler, GraspStabilityChecker
 
 
@@ -30,21 +32,59 @@ def get_fit_object(object_set):
     return name, props, ix
 
 
+def select_gnp_dataset_ix(dataset, ix):
+    new_dataset = {
+        'grasp_data': {},
+        'object_data': dataset['object_data'],
+        'metadata': dataset['metadata']
+    }
+
+    for field_name in dataset['grasp_data']:
+        new_dataset['grasp_data'][field_name] = {}
+        for ox, val_list in dataset['grasp_data'][field_name].items():
+            new_dataset['grasp_data'][field_name][ox] = [val_list[ix]]
+
+    return new_dataset
+
+
+def merge_gnp_datasets(dataset1, dataset2):
+    for field_name in dataset1['grasp_data']:
+        for ox in dataset1['grasp_data'][field_name]:
+            new_data = dataset2['grasp_data'][field_name][ox]
+            dataset1['grasp_data'][field_name][ox].extend(new_data)
+    return dataset1
+
+
+def sample_unlabeled_gnp_data(n_samples, object_set): 
+    grasp_data = sample_unlabeled_data(n_samples, object_set)
+    grasp_gnp_data = process_geometry(
+        grasp_data,
+        radius=0.03,
+        skip=1,
+        verbose=False
+    )
+    return grasp_gnp_data
+
+
 def sample_unlabeled_data(n_samples, object_set):
     object_name, object_properties, object_ix = get_fit_object(object_set)
     graspable_body = graspablebody_from_vector(object_name, object_properties)
 
-    object_grasp_data, object_grasp_ids, object_grasp_forces, object_grasp_labels = [], [], [], []  
+    object_grasp_data, object_grasp_ids, object_grasp_forces, object_grasp_labels = [], [], [], []
     raw_grasps = []
-    for nx in range(n_samples):
-        grasp, X = sample_grasp_X(graspable_body, object_properties, n_points_per_object=10000,
-                                  curvature_rads=(0.001, 0.005, 0.01)) # TODO: MAGIC CURVATURE NUMBERS ALERT
 
+    worker_pool = mp.Pool(processes=20)
+    # TODO: MAGIC CURVATURE NUMBERS ALERT
+    fn_args = [graspable_body, object_properties, 10000, (0.005, 0.01, 0.02)]
+    results = worker_pool.starmap(sample_grasp_X, [fn_args]*n_samples)
+    worker_pool.close()
+
+    for grasp, X in results:
         raw_grasps.append(grasp)
         object_grasp_data.append(X)
         object_grasp_ids.append(object_ix)
         object_grasp_forces.append(grasp.force)
-        object_grasp_labels.append(0)
+        object_grasp_labels.append(-1)
 
     unlabeled_dataset = {
         'grasp_data': {
@@ -64,6 +104,7 @@ def sample_unlabeled_data(n_samples, object_set):
 
 def get_labels(grasp_dataset):
     raw_grasps = grasp_dataset['grasp_data']['raw_grasps']
+
     graspable_body = raw_grasps[0].graspable_body
     labeler = GraspStabilityChecker(graspable_body, stability_direction='all', label_type='relpose', recompute_inertia=True)
     for gx in range(0, len(raw_grasps)):
@@ -71,4 +112,23 @@ def get_labels(grasp_dataset):
         print('Label', label)
         grasp_dataset['grasp_data']['labels'][gx] = label
     labeler.disconnect()
+    return grasp_dataset
+
+def get_single_label(graspable_body, grasp):
+    labeler = GraspStabilityChecker(graspable_body, stability_direction='all', label_type='relpose', recompute_inertia=True)
+    label = labeler.get_label(grasp)
+    labeler.disconnect()
+    return label
+
+def get_labels_gnp(grasp_dataset):
+    raw_grasps = grasp_dataset['grasp_data']['raw_grasps']
+    worker_pool = mp.Pool(processes=20)
+    all_tasks = []
+    for ox in raw_grasps:
+        graspable_body = raw_grasps[ox][0].graspable_body
+        for gx in range(0, len(raw_grasps[ox])):
+            all_tasks.append((graspable_body, raw_grasps[ox][gx]))
+        labels = worker_pool.starmap(get_single_label, all_tasks)
+        grasp_dataset['grasp_data']['labels'][ox] = labels
+    worker_pool.close()
     return grasp_dataset
