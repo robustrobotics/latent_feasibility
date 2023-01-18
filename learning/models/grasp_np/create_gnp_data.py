@@ -32,6 +32,10 @@ def transform_points(points, finger1, finger2, ee, viz_data=False):
     new_points = np.hstack([points, np.ones((points.shape[0], 1))])
     new_points = (inv_tform@new_points.T).T[:, 0:3]
 
+    dist_to_finger = np.linalg.norm(finger1-midpoint)
+    new_points[:, 0] /= dist_to_finger
+    new_points[:, 1:] /= 0.02
+    
     if viz_data:
         fig = plt.figure()
         ax1 = fig.add_subplot(1, 2, 1, projection='3d')

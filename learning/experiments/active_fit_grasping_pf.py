@@ -85,14 +85,15 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
     logger.save_neural_process(gnp, 0, symlink_tx0=False)
 
     # Initialize data dictionary in GNP format with a random data point.
-    context_data = sample_unlabeled_gnp_data(n_samples=1, object_set=object_set)
+    context_data = sample_unlabeled_gnp_data(n_samples=1, object_set=object_set, object_ix=args.eval_object_ix)
     logger.save_acquisition_data(context_data, None, 0)
 
     # All random grasps end up getting labeled, so parallelize this.
     if strategy == 'random':
         random_pool = sample_unlabeled_gnp_data(
             n_samples=args.max_acquisitions,
-            object_set=object_set
+            object_set=object_set,
+            object_ix=args.eval_object_ix
         )
         random_pool = get_labels_gnp(random_pool)
 
@@ -103,7 +104,7 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
             grasp_dataset = select_gnp_dataset_ix(random_pool, tx)
         elif strategy == 'bald':
             # TODO: Sample target unlabeled dataset in parallel fashion.
-            unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set)
+            unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set, object_ix=args.eval_object_ix)
             best_idx = dummy_info_gain(gnp, context_data, unlabeled_dataset)
             # Get the observation for the chosen grasp.
             grasp_dataset = select_gnp_dataset_ix(unlabeled_dataset, best_idx)

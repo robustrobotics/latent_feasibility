@@ -200,7 +200,12 @@ def run_fitting_phase(args):
                 'grasps', 'fitting_phase', val_dataset_fname
             )
 
-            get_pf_validation_accuracy(fit_logger, val_dataset_path, args.amortize)
+            get_pf_validation_accuracy(
+                fit_logger,
+                val_dataset_path,
+                args.amortize,
+                use_progressive_priors=True
+            )
 
 
 def run_task_eval_phase(args):
@@ -423,7 +428,7 @@ def run_testing_phase(args):
             }
         }
     }
-    min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.02
+    min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.01
 
     valid_train_objects = filter_objects(
         object_names=train_objects['object_data']['object_names'],

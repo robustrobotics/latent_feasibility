@@ -55,8 +55,8 @@ def merge_gnp_datasets(dataset1, dataset2):
     return dataset1
 
 
-def sample_unlabeled_gnp_data(n_samples, object_set): 
-    grasp_data = sample_unlabeled_data(n_samples, object_set)
+def sample_unlabeled_gnp_data(n_samples, object_set, object_ix): 
+    grasp_data = sample_unlabeled_data(n_samples, object_set, object_ix)
     grasp_gnp_data = process_geometry(
         grasp_data,
         radius=0.03,
@@ -66,8 +66,10 @@ def sample_unlabeled_gnp_data(n_samples, object_set):
     return grasp_gnp_data
 
 
-def sample_unlabeled_data(n_samples, object_set):
-    object_name, object_properties, object_ix = get_fit_object(object_set)
+def sample_unlabeled_data(n_samples, object_set, object_ix=None):
+    object_name, object_properties, tmp_ox = get_fit_object(object_set)
+    if object_ix is None:
+        object_ix = tmp_ox
     graspable_body = graspablebody_from_vector(object_name, object_properties)
 
     object_grasp_data, object_grasp_ids, object_grasp_forces, object_grasp_labels = [], [], [], []
