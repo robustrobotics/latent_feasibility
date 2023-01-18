@@ -46,7 +46,6 @@ class CustomGraspNeuralProcess(nn.Module):
         y_pred = self.decoder(geoms_enc,
                               target_grasp_points, target_curvatures, target_mids, target_forces,
                               z, mesh_enc)
-
         return y_pred, q_z
 
     def forward_until_latents(self, contexts, meshes):
@@ -60,6 +59,7 @@ class CustomGraspNeuralProcess(nn.Module):
             context_labels = contexts
 
         n_batch, n_grasp, _, n_geom_pts = context_geoms.shape
+        print(n_batch, n_grasp)
         geoms = context_geoms.view(-1, 3, n_geom_pts)
         if self.use_local_point_clouds:
             geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)

@@ -20,6 +20,7 @@ from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.grasp_data import GraspDataset, GraspParallelDataLoader
 from learning.domains.grasping.explore_dataset import visualize_grasp_dataset
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
+from learning.models.grasp_np.train_grasp_np import check_to_cuda
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief
 
 
@@ -109,9 +110,45 @@ def combine_image_grids(logger, prefixes):
                 ax.get_yaxis().set_visible(False)
                 ax.get_xaxis().set_visible(False)
                 ax.set_title(title)
-            
+
             plt.savefig(logger.get_figure_path('combined_%d_%s.png' % (ix, angle)), bbox_inches='tight', dpi=500)
 
+def truncate_grasps(tensor_list, n_grasps):
+    return [tensor[:, :n_grasps, ...] for tensor in tensor_list]
+
+def get_predictions_with_contexts(gnp, context_data, val_data):
+    preds, labels = [], []
+    dataset = CustomGNPGraspDataset(
+        data=val_data,
+        context_data=context_data
+    )
+    dataloader = DataLoader(
+        dataset=dataset,
+        collate_fn=custom_collate_fn,
+        batch_size=1,
+        shuffle=False
+    )
+
+    gnp.eval()
+    for (context_data, target_data, meshes) in dataloader:
+        t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = check_to_cuda(truncate_grasps(target_data, 100))
+        c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
+
+        if torch.cuda.is_available():
+            meshes = meshes.cuda()
+        t_labels = t_labels.squeeze()
+
+        pred, _ = gnp.forward(
+            (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels),
+            (t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
+            meshes
+        )
+        pred = pred.squeeze().cpu().detach()
+
+        preds.append(pred)
+        labels.append(t_labels)
+
+    return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
 
 def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_samples=10):
     preds, labels = [], []
@@ -280,7 +317,7 @@ def get_pf_task_performance(logger, fname):
         with open(logger.get_figure_path(f'regrets_{neg_reward}.pkl'), 'wb') as handle:
             pickle.dump(regrets, handle)
 
-def get_pf_validation_accuracy(logger, fname, amortize):
+def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
     accs, precisions, recalls, f1s, balanced_accs, av_precs = [], [], [], [], [], []
     thresholded_recalls = {}
     confusions = []
@@ -291,33 +328,45 @@ def get_pf_validation_accuracy(logger, fname, amortize):
     eval_range = range(0, logger.args.max_acquisitions, 1)
     for tx in eval_range:
         print('Eval timestep, ', tx)
-        particles = logger.load_particles(tx)
 
         # This is necessary if we're using a weighted particle filter.
-        sampling_dist = ParticleDistribution(
-            particles.particles,
-            particles.weights/np.sum(particles.weights)
-        )
-        resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
-        if amortize:
+        if not use_progressive_priors:
+            particles = logger.load_particles(tx)
+            sampling_dist = ParticleDistribution(
+                particles.particles,
+                particles.weights/np.sum(particles.weights)
+            )
+            resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
+            if amortize:
+                gnp = logger.get_neural_process(tx)
+                if torch.cuda.is_available():
+                    gnp = gnp.cuda()
+                probs, labels = get_gnp_predictions_with_particles(
+                    resampled_parts,
+                    val_grasp_data,
+                    gnp,
+                    n_particle_samples=32
+                )
+            else:
+                ensemble = logger.get_ensemble(tx)
+                if torch.cuda.is_available():
+                    ensemble = ensemble.cuda()
+                probs, labels = get_predictions_with_particles(
+                    resampled_parts,
+                    val_grasp_data,
+                    ensemble,
+                    n_particle_samples=50
+                )
+        else:
+            context_data, _ = logger.load_acquisition_data(tx)
             gnp = logger.get_neural_process(tx)
             if torch.cuda.is_available():
                 gnp = gnp.cuda()
-            probs, labels = get_gnp_predictions_with_particles(
-                resampled_parts,
-                val_grasp_data,
+            # Write function to get predictions given a set of context data.
+            probs, labels = get_predictions_with_contexts(
                 gnp,
-                n_particle_samples=32
-            )
-        else:
-            ensemble = logger.get_ensemble(tx)
-            if torch.cuda.is_available():
-                ensemble = ensemble.cuda()
-            probs, labels = get_predictions_with_particles(
-                resampled_parts,
-                val_grasp_data,
-                ensemble,
-                n_particle_samples=50
+                context_data,
+                val_grasp_data
             )
 
         thresholds = np.arange(0.05, 1.0, 0.05)

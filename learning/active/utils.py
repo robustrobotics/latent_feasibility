@@ -215,7 +215,7 @@ class ActiveExperimentLogger:
             metadata = pickle.load(handle)
 
         gnp = CustomGraspNeuralProcess(d_latents=metadata['d_latents'],
-                                       use_local_point_clouds=['use_local_point_clouds'])
+                                       use_local_point_clouds=metadata['use_local_point_clouds'])
 
         # load in the encoder, mesh_encoder subroutine, and decoder weights
         # and insert them into the main np
