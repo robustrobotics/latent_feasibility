@@ -11,7 +11,7 @@ from learning.domains.grasping.generate_grasp_datasets import graspablebody_from
 from learning.domains.grasping.grasp_data import GraspParallelDataLoader
 from pb_robot.planners.antipodalGraspPlanner import GraspSimulationClient, GraspableBody
 
-
+# TODO: SAMPLE_GRASP_X HAS CHANGED FORMAT, SO THIS IS NO LONGER FUNCTIONING CORRECTLY
 def transform_points(points, finger1, finger2, ee, viz_data=False):
     midpoint = (finger1 + finger2)/2
     new_x = (finger1 - finger2)/np.linalg.norm(finger1 - finger2)

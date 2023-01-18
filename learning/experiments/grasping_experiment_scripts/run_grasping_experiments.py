@@ -115,10 +115,10 @@ def run_fitting_phase(args):
     # Run fitting phase for all objects that have not yet been fitted
     # (each has a standard name in the experiment logs).
     for geo_type, objects_fname, n_objects, ignore in zip(
-        ['train_geo', 'test_geo'],
-        [train_geo_fname, test_geo_fname],
-        [n_train_geo, n_test_geo],
-        [TRAIN_IGNORE, TEST_IGNORE]
+            ['train_geo', 'test_geo'],
+            [train_geo_fname, test_geo_fname],
+            [n_train_geo, n_test_geo],
+            [TRAIN_IGNORE, TEST_IGNORE]
     ):
         # Get object data.
         with open(objects_fname, 'rb') as handle:
@@ -201,6 +201,7 @@ def run_fitting_phase(args):
 
             get_pf_validation_accuracy(fit_logger, val_dataset_path, args.amortize)
 
+
 def run_task_eval_phase(args):
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
     if not os.path.exists(exp_path):
@@ -230,10 +231,10 @@ def run_task_eval_phase(args):
     # Run fitting phase for all objects that have not yet been fitted
     # (each has a standard name in the experiment logs).
     for geo_type, objects_fname, n_objects, ignore in zip(
-        ['train_geo', 'test_geo'],
-        [train_geo_fname, test_geo_fname],
-        [n_train_geo, n_test_geo],
-        [TRAIN_IGNORE, TEST_IGNORE]
+            ['train_geo', 'test_geo'],
+            [train_geo_fname, test_geo_fname],
+            [n_train_geo, n_test_geo],
+            [TRAIN_IGNORE, TEST_IGNORE]
     ):
         for ox in range(min(n_objects, 100)):
             if ox in ignore: continue
@@ -293,9 +294,12 @@ def run_training_phase(args):
         training_args.n_epochs = 100
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 32
-        training_args.use_latents = False # NOTE: this is a workaround for pointnet + latents,
-                                          # GNPs DO USE LATENTS, but they are handled more
-                                          # cleanly in the model specification and training
+        training_args.use_latents = False  # NOTE: this is a workaround for pointnet + latents,
+                                           # GNPs DO USE LATENTS, but they are handled more
+                                           # cleanly in the model specification and training
+        training_args.informed_prior_loss = True
+        training_args.use_local_grasp_geometry = True
+
         train_log_path = training_phase_amortized(training_args)
 
     else:
@@ -319,7 +323,8 @@ def run_training_phase(args):
         json.dump(logs_lookup, handle)
 
 
-def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, max_pstable, min_dist_threshold, max_objects):
+def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, max_pstable, min_dist_threshold,
+                   max_objects):
     """
     :param object_names: All potential objects to consider.
     :param ignore_list: List of objects that are ungraspable.
@@ -345,7 +350,7 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         dists_to_closest = []
         for gx, midpoint in enumerate(all_midpoints):
             other_points = np.concatenate(
-                [all_midpoints[:gx,:], all_midpoints[gx+1:,:]],
+                [all_midpoints[:gx, :], all_midpoints[gx + 1:, :]],
                 axis=0
             )
             dists = np.linalg.norm(midpoint - other_points, axis=1)
@@ -353,7 +358,7 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
 
         avg_min_dist = np.mean(dists_to_closest)
         p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-        
+
         if avg_min_dist < min_dist_threshold:
             continue
         if p_stable < min_pstable or p_stable > max_pstable:
@@ -488,7 +493,6 @@ def run_testing_phase(args):
             logs_lookup_by_object['test_geo']['random']['all'].append(random_log_fname)
             logs_lookup_by_object['test_geo']['random'][object_name].append(random_log_fname)
 
-
         constrained_random_log_key = f'grasp_{exp_args.exp_name}_fit_constrained_random_test_geo_object{ox}'
         if constrained_random_log_key in logs_lookup['fitting_phase']['constrained_random']:
             constrained_random_log_fname = logs_lookup['fitting_phase']['constrained_random'][
@@ -511,12 +515,12 @@ def run_testing_phase(args):
                 for name in loggers
             ],
             f'{obj_name}_traingeo_bald': [
-                ActiveExperimentLogger(exp_path=name, use_latents=True) 
-                    for name in logs_lookup_by_object['train_geo']['bald'][obj_name]
+                ActiveExperimentLogger(exp_path=name, use_latents=True)
+                for name in logs_lookup_by_object['train_geo']['bald'][obj_name]
             ],
             f'{obj_name}_traingeo_crandom': [
-                ActiveExperimentLogger(exp_path=name, use_latents=True) 
-                    for name in logs_lookup_by_object['train_geo']['constrained_random'][obj_name]
+                ActiveExperimentLogger(exp_path=name, use_latents=True)
+                for name in logs_lookup_by_object['train_geo']['constrained_random'][obj_name]
             ]
         }
         fig_path = os.path.join(exp_path, 'figures', f'traingeo_{obj_name}.png')
@@ -525,16 +529,16 @@ def run_testing_phase(args):
     for obj_name, loggers in logs_lookup_by_object['test_geo']['random'].items():
         all_test_loggers = {
             f'{obj_name}_testgeo_random': [
-                ActiveExperimentLogger(exp_path=name, use_latents=True) 
-                    for name in loggers
+                ActiveExperimentLogger(exp_path=name, use_latents=True)
+                for name in loggers
             ],
             f'{obj_name}_testgeo_bald': [
-                ActiveExperimentLogger(exp_path=name, use_latents=True) 
-                    for name in logs_lookup_by_object['test_geo']['bald'][obj_name]
+                ActiveExperimentLogger(exp_path=name, use_latents=True)
+                for name in logs_lookup_by_object['test_geo']['bald'][obj_name]
             ],
             f'{obj_name}_testgeo_crandom': [
-                ActiveExperimentLogger(exp_path=name, use_latents=True) 
-                    for name in logs_lookup_by_object['test_geo']['constrained_random'][obj_name]
+                ActiveExperimentLogger(exp_path=name, use_latents=True)
+                for name in logs_lookup_by_object['test_geo']['constrained_random'][obj_name]
             ]
         }
         fig_path = os.path.join(exp_path, 'figures', f'testgeo_{obj_name}.png')
