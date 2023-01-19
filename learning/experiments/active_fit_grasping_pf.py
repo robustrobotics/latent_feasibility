@@ -134,24 +134,24 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
         h_z = q_z.entropy()
 
         # prepare unlabeled points as batched singletons
-        candidate_mesh = torch.unsqueeze(
+        unlabeled_mesh = torch.unsqueeze(
             torch.swapaxes(
                 torch.tensor(unlabeled_samples['object_mesh']),
                 1, 2
             ),
             1
         )
-        candidate_geoms = torch.unsqueeze(
+        unlabeled_geoms = torch.unsqueeze(
             torch.swapaxes(
                 torch.tensor(unlabeled_samples['grasp_geometries']),
                 1, 2
             ),
             1
         )
-        candidate_grasp_points = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_points']), 1)
-        candidate_curvatures = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_curvatures']), 1)
-        candidate_midpoints = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_midpoints']), 1)
-        candidate_forces = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_forces']), 1)
+        unlabeled_grasp_points = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_points']), 1)
+        unlabeled_curvatures = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_curvatures']), 1)
+        unlabeled_midpoints = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_midpoints']), 1)
+        unlabeled_forces = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_forces']), 1)
 
         # compute p(y|D,x)
         q_z_batched = q_z.expand((n_unlabeled_sampled,))
@@ -159,19 +159,59 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
 
         p_y_equals_one_cond_D_x = torch.zeros(n_unlabeled_sampled)
         for z_ix in range(zs.shape[0]):
-            _, _, _, n_pts = candidate_geoms.shape
-            geoms = candidate_geoms.view(-1, 3, n_pts)
+            _, _, _, n_pts = unlabeled_geoms.shape
+            geoms = unlabeled_geoms.view(-1, 3, n_pts)
             geoms_enc = gnp.grasp_geom_encoder(geoms).view(n_unlabeled_sampled, 1, -1)
             # TODO: check with Mike on this computation to marginalize out z
             p_y_equals_one_cond_D_x += gnp.decoder(geoms_enc,
-                                                   candidate_grasp_points,
-                                                   candidate_curvatures,
-                                                   candidate_midpoints,
-                                                   candidate_forces,
+                                                   unlabeled_grasp_points,
+                                                   unlabeled_curvatures,
+                                                   unlabeled_midpoints,
+                                                   unlabeled_forces,
                                                    zs[z_ix, :],
                                                    mesh_enc)
 
-            # next, we create all the candidate context sets and then compute IG scores
+        # next, we create all the candidate context sets and then compute the entropy of the latent distribution
+        # for each
+        candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_midpoints, candidate_forces = \
+            [torch.cat([
+                c_set.squeeze().broadcast_to(n_unlabeled_sampled, *c_set.shape),
+                u_set.unsqueeze(1)
+            ], dim=1) for c_set, u_set in
+                zip([context_geoms, context_grasp_points, context_curvatures, context_midpoints, context_forces],
+                    [unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints,
+                     unlabeled_forces])
+            ]
+
+        candidate_labels_zero = torch.cat([
+            context_labels.squeeze().broadcast_to(n_unlabeled_sampled, *context_labels.shape),
+            torch.zeros((n_unlabeled_sampled, 1))
+        ])
+
+        candidate_labels_one = torch.cat([
+            context_labels.squeeze().broadcast_to(n_unlabeled_sampled, *context_labels.shape),
+            torch.ones((n_unlabeled_sampled, 1))
+        ])
+
+        h_z_cond_x_y_equals_zero = gnp.forward_until_latents(
+            (candidate_geoms, candidate_grasp_points, candidate_curvatures,
+             candidate_midpoints, candidate_forces, candidate_labels_zero),
+            unlabeled_mesh
+        )[0].entropy()
+
+        h_z_cond_x_y_equals_one = gnp.forward_until_latents(
+            (candidate_geoms, candidate_grasp_points, candidate_curvatures,
+             candidate_midpoints, candidate_forces, candidate_labels_one),
+            unlabeled_mesh
+        )[0].entropy()
+
+        # compute expected entropy and information gain
+        expected_h_z_cond_x_y = p_y_equals_one_cond_D_x * h_z_cond_x_y_equals_one + (
+                1 - p_y_equals_one_cond_D_x) * h_z_cond_x_y_equals_zero
+        info_gain = h_z - expected_h_z_cond_x_y
+
+        # return the index with the largest information gain
+        return torch.argmax(info_gain)
 
 
 def dummy_info_gain(gnp, current_context, unlabeled_samples):
@@ -215,8 +255,8 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
         # Add datapoint to context dictionary.
         context_data = merge_gnp_datasets(context_data, grasp_dataset)
 
-        logger.save_neural_process(gnp, tx+1, symlink_tx0=True)
-        logger.save_acquisition_data(context_data, None, tx+1)
+        logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
+        logger.save_acquisition_data(context_data, None, tx + 1)
 
 
 def particle_filter_loop(pf, object_set, logger, strategy, args):
