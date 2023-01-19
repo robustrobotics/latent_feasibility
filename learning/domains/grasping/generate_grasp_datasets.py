@@ -1,4 +1,5 @@
 import argparse
+import random
 import pickle
 import sys
 
@@ -45,6 +46,8 @@ def sample_grasp_X(graspable_body, property_vector, n_points_per_object, curvatu
     # Sample grasp.
     if grasp is None:
         try:
+            random.seed()
+            np.random.seed()
             grasp_sampler = GraspSampler(graspable_body=graspable_body,
                                          antipodal_tolerance=30,
                                          show_pybullet=False)

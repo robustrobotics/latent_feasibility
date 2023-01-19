@@ -69,7 +69,7 @@ class CustomGNPGraspDataset(Dataset):
         else:
             cp_data = {
                 'object_mesh': self.cp_full_meshes[ox] / 0.1,
-                'grasp_geometries': self.cp_grasp_geometries[ox] / 0.02,
+                'grasp_geometries': self.cp_grasp_geometries[ox],
                 'grasp_points': self.cp_grasp_points[ox] / 0.01,
                 'grasp_curvatures': self.cp_grasp_curvatures[ox] / 0.01,
                 'grasp_forces': (self.cp_grasp_forces[ox] - 12.5) / 7.5,
@@ -78,7 +78,7 @@ class CustomGNPGraspDataset(Dataset):
             }
         hp_data = {
             'object_mesh': self.hp_full_meshes[ox] / 0.1,
-            'grasp_geometries': self.hp_grasp_geometries[ox] / 0.02,
+            'grasp_geometries': self.hp_grasp_geometries[ox],
             'grasp_points': self.hp_grasp_points[ox] / 0.01,
             'grasp_curvatures': self.hp_grasp_curvatures[ox] / 0.01,
             'grasp_forces': (self.hp_grasp_forces[ox] - 12.5) / 7.5,

@@ -18,7 +18,7 @@ class CustomGraspNeuralProcess(nn.Module):
         # need to adjust input if we are only using curvature features
         self.use_local_point_clouds = use_local_point_clouds
         if self.use_local_point_clouds:
-            self.decoder = CustomGNPDecoder(n_in=6 + 1 + n_out_geom + d_latents + d_mesh,
+            self.decoder = CustomGNPDecoder(n_in=3 + 1 + n_out_geom + d_latents + d_mesh,
                                             d_latents=d_latents, use_local_point_clouds=use_local_point_clouds)
         else:
             self.decoder = CustomGNPDecoder(n_in=6 + 12 + 1 + d_latents + d_mesh, d_latents=d_latents,
@@ -59,7 +59,6 @@ class CustomGraspNeuralProcess(nn.Module):
             context_labels = contexts
 
         n_batch, n_grasp, _, n_geom_pts = context_geoms.shape
-        print(n_batch, n_grasp)
         geoms = context_geoms.view(-1, 3, n_geom_pts)
         if self.use_local_point_clouds:
             geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
@@ -120,7 +119,7 @@ class CustomGNPDecoder(nn.Module):
         target_grasp_points_flat = target_grasp_points.flatten(start_dim=2)
         if self.use_local_point_clouds:
             xs_with_latents = torch.cat([
-                target_grasp_points_flat,
+                target_midpoints,
                 target_geoms,
                 target_forces[:, :, None],
                 zs_broadcast,
@@ -154,7 +153,7 @@ class CustomGNPEncoder(nn.Module):
         self.use_local_point_clouds = use_local_point_clouds
         if self.use_local_point_clouds:
             n_out_geom = 1
-            self.pn_grasp = PointNetRegressor(n_in=6 + 1 + 1 + n_out_geom + d_mesh, n_out=d_latents * 2)
+            self.pn_grasp = PointNetRegressor(n_in=3 + 1 + 1 + n_out_geom + d_mesh, n_out=d_latents * 2)
         else:  # grasp points + curvatures + midpoints + forces + labels
             self.pn_grasp = PointNetRegressor(n_in=6 + 12 + 1 + 1 + d_mesh, n_out=d_latents * 2)
         self.d_latents = d_latents
@@ -174,7 +173,7 @@ class CustomGNPEncoder(nn.Module):
         context_grasp_points = context_grasp_points.flatten(start_dim=2)
         if self.use_local_point_clouds:
             grasp_input = torch.cat([
-                context_grasp_points,
+                context_midpoints,
                 context_forces[:, :, None],
                 context_labels[:, :, None],
                 geoms_enc,
