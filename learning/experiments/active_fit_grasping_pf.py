@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 import torch
+import math
 
 from learning.active import acquire
 from learning.models import latent_ensemble
@@ -80,7 +81,7 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
     """
 
     n_unlabeled_sampled = len(unlabeled_samples['grasp_forces'])
-
+    n_batches = math.ceil(float(n_unlabeled_sampled) / batching_size)
     gnp.eval()
     with torch.no_grad():
         # only one object, so only one mesh is needed
@@ -163,13 +164,21 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
             geoms = unlabeled_geoms.view(-1, 3, n_pts)
             geoms_enc = gnp.grasp_geom_encoder(geoms).view(n_unlabeled_sampled, 1, -1)
             # TODO: check with Mike on this computation to marginalize out z
-            p_y_equals_one_cond_D_x += gnp.decoder(geoms_enc,
-                                                   unlabeled_grasp_points,
-                                                   unlabeled_curvatures,
-                                                   unlabeled_midpoints,
-                                                   unlabeled_forces,
-                                                   zs[z_ix, :],
-                                                   mesh_enc)
+            for batch_i in range(n_batches):
+                start = batch_i * batching_size
+                end = (batch_i + 1) * batching_size
+                labels_batch = unlabeled_forces[start:end]
+                p_y_equals_one_cond_D_x[start:end] += gnp.decoder(
+                    geoms_enc[start:end],
+                    unlabeled_grasp_points[start:end],
+                    unlabeled_curvatures[start:end],
+                    unlabeled_midpoints[start:end],
+                    labels_batch,
+                    zs[z_ix, start:end],
+                    mesh_enc.broadcast_to(
+                        (len(labels_batch),)
+                    )
+                )
 
         # next, we create all the candidate context sets and then compute the entropy of the latent distribution
         # for each
@@ -194,17 +203,35 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
             torch.ones((n_unlabeled_sampled, 1))
         ])
 
-        h_z_cond_x_y_equals_zero = gnp.forward_until_latents(
-            (candidate_geoms, candidate_grasp_points, candidate_curvatures,
-             candidate_midpoints, candidate_forces, candidate_labels_zero),
-            unlabeled_mesh
-        )[0].entropy()
+        h_z_cond_x_y_equals_zero = torch.zeros(n_unlabeled_sampled)
+        h_z_cond_x_y_equals_one = torch.zeros(n_unlabeled_sampled)
 
-        h_z_cond_x_y_equals_one = gnp.forward_until_latents(
-            (candidate_geoms, candidate_grasp_points, candidate_curvatures,
-             candidate_midpoints, candidate_forces, candidate_labels_one),
-            unlabeled_mesh
-        )[0].entropy()
+        for batch_i in range(n_batches):
+            start = batch_i * batching_size
+            end = (batch_i + 1) * batching_size
+            h_z_cond_x_y_equals_zero[start:end] = gnp.forward_until_latents(
+                (
+                    candidate_geoms[start:end],
+                    candidate_grasp_points[start:end],
+                    candidate_curvatures[start:end],
+                    candidate_midpoints[start:end],
+                    candidate_forces[start:end],
+                    candidate_labels_zero[start:end]
+                ),
+                unlabeled_mesh
+            )[0].entropy()
+
+            h_z_cond_x_y_equals_one[start:end] = gnp.forward_until_latents(
+                (
+                    candidate_geoms[start:end],
+                    candidate_grasp_points[start:end],
+                    candidate_curvatures[start:end],
+                    candidate_midpoints[start:end],
+                    candidate_forces[start:end],
+                    candidate_labels_one[start:end]
+                ),
+                unlabeled_mesh
+            )[0].entropy()
 
         # compute expected entropy and information gain
         expected_h_z_cond_x_y = p_y_equals_one_cond_D_x * h_z_cond_x_y_equals_one + (
@@ -258,8 +285,8 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
 
         # Add datapoint to context dictionary.
         context_data = merge_gnp_datasets(context_data, grasp_dataset)
-        logger.save_neural_process(gnp, tx+1, symlink_tx0=True)
-        logger.save_acquisition_data(context_data, None, tx+1)
+        logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
+        logger.save_acquisition_data(context_data, None, tx + 1)
 
 
 def particle_filter_loop(pf, object_set, logger, strategy, args):
