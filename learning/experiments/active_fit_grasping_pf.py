@@ -17,6 +17,7 @@ from learning.domains.grasping.active_utils import (
 )
 from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.active.acquire import bald
+from learning.models.grasp_np.train_grasp_np import check_to_cuda
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
 
 
@@ -28,19 +29,20 @@ def particle_bald(predictions, weights, eps=1e-5):
     predictions = predictions.cpu().numpy()
     norm = weights.sum()
 
-    mp_c1 = np.sum(weights*predictions, axis=1)/norm
+    mp_c1 = np.sum(weights * predictions, axis=1) / norm
     mp_c0 = 1 - mp_c1
 
-    m_ent = -(mp_c1 * np.log(mp_c1+eps) + mp_c0 * np.log(mp_c0+eps))
+    m_ent = -(mp_c1 * np.log(mp_c1 + eps) + mp_c0 * np.log(mp_c0 + eps))
 
     p_c1 = predictions
     p_c0 = 1 - predictions
 
-    ent_per_model = p_c1 * np.log(p_c1+eps) + p_c0 * np.log(p_c0+eps)
-    ent = np.sum(ent_per_model*weights, axis=1)/norm
+    ent_per_model = p_c1 * np.log(p_c1 + eps) + p_c0 * np.log(p_c0 + eps)
+    ent = np.sum(ent_per_model * weights, axis=1) / norm
 
     bald = m_ent + ent
     return bald
+
 
 def find_informative_tower(pf, object_set, logger, args):
     data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
@@ -61,16 +63,113 @@ def find_informative_tower(pf, object_set, logger, args):
     return all_grasps[acquire_ix]
 
 
-def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_samples):
+def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_samples,
+                                             n_samples_from_latent_dist=5, batching_size=64):
     """
     :param current_context: Grasp dict object with collected datapoints so far.
         Most-nested dictionaries: ox: [].
     :param unlabeled_samples: The same format ^.
         Most-nested dictionaries: ox: [].
         Labels are meaningless (-1).
+    :param n_samples_from_latent_dist: Number of samples from latent distribution when computing expected
+    entropy of the posterior.
+    :param batching_size: batching size used to speed up computation
     :return: The grasp index of the unlabeled samples with the highest info gain score.
     """
-    pass
+
+    n_unlabeled_sampled = len(unlabeled_samples['grasp_forces'])
+
+    gnp.eval()
+    with torch.no_grad():
+        # only one object, so only one mesh is needed
+        context_mesh = torch.unsqueeze(
+            torch.swapaxes(
+                torch.tensor(current_context['object_mesh'][0]),
+                0, 1
+            ),
+            0
+        )
+        context_geoms = torch.unsqueeze(
+            torch.swapaxes(
+                torch.tensor(current_context['grasp_geometries']),
+                1, 2
+            ),
+            0
+        )
+        context_grasp_points = torch.unsqueeze(torch.tensor(current_context['grasp_points']), 0)
+        context_curvatures = torch.unsqueeze(torch.tensor(current_context['grasp_curvatures']), 0)
+        context_midpoints = torch.unsqueeze(torch.tensor(current_context['grasp_midpoints']), 0)
+        context_forces = torch.unsqueeze(torch.tensor(current_context['grasp_forces']), 0)
+        context_labels = torch.unsqueeze(torch.tensor(current_context['grasp_labels']), 0)
+
+        context_mesh, \
+            context_geoms, \
+            context_grasp_points, \
+            context_curvatures, \
+            context_midpoints, \
+            context_forces, \
+            context_labels = \
+            check_to_cuda([
+                context_mesh,
+                context_geoms,
+                context_grasp_points,
+                context_curvatures,
+                context_midpoints,
+                context_forces,
+                context_labels
+            ])
+
+        # compute H(z)
+        q_z, mesh_enc = gnp.forward_until_latents(
+            (context_geoms,
+             context_grasp_points,
+             context_curvatures,
+             context_midpoints,
+             context_forces,
+             context_labels),
+            context_mesh
+        )
+        h_z = q_z.entropy()
+
+        # prepare unlabeled points as batched singletons
+        candidate_mesh = torch.unsqueeze(
+            torch.swapaxes(
+                torch.tensor(unlabeled_samples['object_mesh']),
+                1, 2
+            ),
+            1
+        )
+        candidate_geoms = torch.unsqueeze(
+            torch.swapaxes(
+                torch.tensor(unlabeled_samples['grasp_geometries']),
+                1, 2
+            ),
+            1
+        )
+        candidate_grasp_points = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_points']), 1)
+        candidate_curvatures = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_curvatures']), 1)
+        candidate_midpoints = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_midpoints']), 1)
+        candidate_forces = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_forces']), 1)
+
+        # compute p(y|D,x)
+        q_z_batched = q_z.expand((n_unlabeled_sampled,))
+        zs = q_z_batched.sample((n_samples_from_latent_dist,))
+
+        p_y_equals_one_cond_D_x = torch.zeros(n_unlabeled_sampled)
+        for z_ix in range(zs.shape[0]):
+            _, _, _, n_pts = candidate_geoms.shape
+            geoms = candidate_geoms.view(-1, 3, n_pts)
+            geoms_enc = gnp.grasp_geom_encoder(geoms).view(n_unlabeled_sampled, 1, -1)
+            # TODO: check with Mike on this computation to marginalize out z
+            p_y_equals_one_cond_D_x += gnp.decoder(geoms_enc,
+                                                   candidate_grasp_points,
+                                                   candidate_curvatures,
+                                                   candidate_midpoints,
+                                                   candidate_forces,
+                                                   zs[z_ix, :],
+                                                   mesh_enc)
+
+            # next, we create all the candidate context sets and then compute IG scores
 
 
 def dummy_info_gain(gnp, current_context, unlabeled_samples):
@@ -149,14 +248,14 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
         print(f'Max Weight: {np.max(pf.particles.weights)}')
         print(f'Sum Weights: {np.sum(pf.particles.weights)}')
 
-
         # Save the model and particle distribution at each step.
         if args.likelihood == 'nn':
-            logger.save_ensemble(pf.likelihood, tx+1, symlink_tx0=True)
+            logger.save_ensemble(pf.likelihood, tx + 1, symlink_tx0=True)
         elif args.likelihood == 'gnp':
-            logger.save_neural_process(pf.likelihood, tx+1, symlink_tx0=True)
-        logger.save_acquisition_data(grasp_dataset, None, tx+1)
-        logger.save_particles(particles, tx+1)
+            logger.save_neural_process(pf.likelihood, tx + 1, symlink_tx0=True)
+        logger.save_acquisition_data(grasp_dataset, None, tx + 1)
+        logger.save_particles(particles, tx + 1)
+
 
 # "grasp_train-ycb-test-ycb-1_fit_random_train_geo_object0": "learning/experiments/logs/grasp_train-ycb-test-ycb-1_fit_random_train_geo_object0-20220504-134253"
 def run_particle_filter_fitting(args):
@@ -237,10 +336,13 @@ def run_particle_filter_fitting(args):
 
     return logger.exp_path
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--exp-name', type=str, default='', help='Where results will be saved. Randon number if not specified.')
-    parser.add_argument('--max-acquisitions', type=int, default=25, help='Number of iterations to run the main active learning loop for.')
+    parser.add_argument('--exp-name', type=str, default='',
+                        help='Where results will be saved. Randon number if not specified.')
+    parser.add_argument('--max-acquisitions', type=int, default=25,
+                        help='Number of iterations to run the main active learning loop for.')
     parser.add_argument('--objects-fname', type=str, default='', help='File containing a list of objects to grasp.')
     parser.add_argument('--n-samples', type=int, default=1000)
     parser.add_argument('--pretrained-ensemble-exp-path', type=str, default='', help='Path to a trained ensemble.')
