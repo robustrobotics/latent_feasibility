@@ -175,10 +175,11 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
             [torch.cat([
                 c_set.squeeze().broadcast_to(n_unlabeled_sampled, *c_set.shape),
                 u_set.unsqueeze(1)
-            ], dim=1) for c_set, u_set in
-                zip([context_geoms, context_grasp_points, context_curvatures, context_midpoints, context_forces],
-                    [unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints,
-                     unlabeled_forces])
+            ], dim=1)
+                for c_set, u_set in zip(
+                [context_geoms, context_grasp_points, context_curvatures, context_midpoints, context_forces],
+                [unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints,
+                 unlabeled_forces])
             ]
 
         candidate_labels_zero = torch.cat([
