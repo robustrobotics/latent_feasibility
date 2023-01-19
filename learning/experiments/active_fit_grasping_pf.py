@@ -86,6 +86,8 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
 
     # Initialize data dictionary in GNP format with a random data point.
     context_data = sample_unlabeled_gnp_data(n_samples=1, object_set=object_set, object_ix=args.eval_object_ix)
+    context_data = get_labels_gnp(context_data)
+
     logger.save_acquisition_data(context_data, None, 0)
 
     # All random grasps end up getting labeled, so parallelize this.
@@ -114,7 +116,6 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
 
         # Add datapoint to context dictionary.
         context_data = merge_gnp_datasets(context_data, grasp_dataset)
-
         logger.save_neural_process(gnp, tx+1, symlink_tx0=True)
         logger.save_acquisition_data(context_data, None, tx+1)
 
