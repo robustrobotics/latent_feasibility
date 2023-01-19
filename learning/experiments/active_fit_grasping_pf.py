@@ -7,6 +7,16 @@ from learning.models import latent_ensemble
 from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, \
     get_train_and_fit_objects
+from learning.domains.grasping.active_utils import (
+    get_fit_object,
+    sample_unlabeled_data,
+    sample_unlabeled_gnp_data,
+    get_labels,
+    get_labels_gnp,
+    get_train_and_fit_objects,
+    select_gnp_dataset_ix,
+    merge_gnp_datasets
+)
 from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.active.acquire import bald
 from learning.models.grasp_np.train_grasp_np import check_to_cuda
@@ -164,6 +174,51 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
             # next, we create all the candidate context sets and then compute IG scores
 
 
+def dummy_info_gain(gnp, current_context, unlabeled_samples):
+    """
+    Return first element for testing.
+    """
+    return 0
+
+
+def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
+    print('----- Running fitting phase with learned progressive priors -----')
+    logger.save_neural_process(gnp, 0, symlink_tx0=False)
+
+    # Initialize data dictionary in GNP format with a random data point.
+    context_data = sample_unlabeled_gnp_data(n_samples=1, object_set=object_set)
+    logger.save_acquisition_data(context_data, None, 0)
+
+    # All random grasps end up getting labeled, so parallelize this.
+    if strategy == 'random':
+        random_pool = sample_unlabeled_gnp_data(
+            n_samples=args.max_acquisitions,
+            object_set=object_set
+        )
+        random_pool = get_labels_gnp(random_pool)
+
+    for tx in range(0, args.max_acquisitions):
+        print('[AmortizedFilter] Interaction Number', tx)
+
+        if strategy == 'random':
+            grasp_dataset = select_gnp_dataset_ix(random_pool, tx)
+        elif strategy == 'bald':
+            # TODO: Sample target unlabeled dataset in parallel fashion.
+            unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set)
+            best_idx = dummy_info_gain(gnp, context_data, unlabeled_dataset)
+            # Get the observation for the chosen grasp.
+            grasp_dataset = select_gnp_dataset_ix(unlabeled_dataset, best_idx)
+            grasp_dataset = get_labels_gnp(grasp_dataset)
+        else:
+            raise NotImplementedError()
+
+        # Add datapoint to context dictionary.
+        context_data = merge_gnp_datasets(context_data, grasp_dataset)
+
+        logger.save_neural_process(gnp, tx+1, symlink_tx0=True)
+        logger.save_acquisition_data(context_data, None, tx+1)
+
+
 def particle_filter_loop(pf, object_set, logger, strategy, args):
     if args.likelihood == 'nn':
         logger.save_ensemble(pf.likelihood, 0, symlink_tx0=False)
@@ -274,7 +329,10 @@ def run_particle_filter_fitting(args):
         pf.particles = likelihood_model.init_particles(args.n_particles)
 
     # ----- Run particle filter loop -----
-    particle_filter_loop(pf, object_set, logger, args.strategy, args)
+    if args.use_progressive_priors:
+        amoritized_filter_loop(likelihood_model, object_set, logger, args.strategy, args)
+    else:
+        particle_filter_loop(pf, object_set, logger, args.strategy, args)
 
     return logger.exp_path
 
