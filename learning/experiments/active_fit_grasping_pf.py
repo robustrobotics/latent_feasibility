@@ -156,7 +156,7 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
         zs = q_z_batched.sample((n_samples_from_latent_dist,))
 
         p_y_equals_one_cond_D_x = torch.zeros(n_unlabeled_sampled)
-        for z_ix in range(zs.shape[0]):
+        for z_ix in range(n_samples_from_latent_dist):
             _, _, _, n_pts = unlabeled_geoms.shape
             geoms = unlabeled_geoms.view(-1, 3, n_pts)
             geoms_enc = gnp.grasp_geom_encoder(geoms).view(n_unlabeled_sampled, 1, -1)
