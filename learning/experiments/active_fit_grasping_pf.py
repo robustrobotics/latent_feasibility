@@ -63,7 +63,7 @@ def find_informative_tower(pf, object_set, logger, args):
 
 
 def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_samples,
-                                             n_samples_from_latent_dist=5, batching_size=8):
+                                             n_samples_from_latent_dist=10, batching_size=16):
     """
     :param current_context: Grasp dict object with collected datapoints so far.
         Most-nested dictionaries: ox: [].
@@ -87,10 +87,12 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
         gnp.cuda()
 
     with torch.no_grad():
-        # only one object, so only one mesh is needed
-        context_mesh = torch.swapaxes(
-            torch.tensor(context_data['object_mesh']),
-            1, 2
+        context_mesh = torch.unsqueeze(
+            torch.swapaxes(
+                torch.tensor(context_data['object_mesh']),
+                1, 2
+            )[0],
+            0
         )
 
         context_geoms = torch.unsqueeze(
