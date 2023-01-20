@@ -299,7 +299,7 @@ def run_training_phase(args):
         training_args.val_dataset_fname = val_data_fname
         training_args.n_epochs = 20
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
-        training_args.batch_size = 32
+        training_args.batch_size = 16
         training_args.use_latents = False  # NOTE: this is a workaround for pointnet + latents,
                                            # GNPs DO USE LATENTS, but they are handled more
                                            # cleanly in the model specification and training
