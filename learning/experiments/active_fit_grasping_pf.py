@@ -1,10 +1,9 @@
 import argparse
-import numpy as np
-import torch
 import math
 
-from learning.active import acquire
-from learning.models import latent_ensemble
+import numpy as np
+import torch
+
 from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.active_utils import (
     get_fit_object, 
@@ -17,7 +16,7 @@ from learning.domains.grasping.active_utils import (
     merge_gnp_datasets
 )
 from learning.domains.grasping.pybullet_likelihood import PBLikelihood
-from learning.active.acquire import bald
+from learning.models.grasp_np.dataset import CustomGNPGraspDataset
 from learning.models.grasp_np.train_grasp_np import check_to_cuda
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
 
@@ -65,7 +64,7 @@ def find_informative_tower(pf, object_set, logger, args):
 
 
 def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_samples,
-                                             n_samples_from_latent_dist=5, batching_size=64):
+                                             n_samples_from_latent_dist=5, batching_size=8):
     """
     :param current_context: Grasp dict object with collected datapoints so far.
         Most-nested dictionaries: ox: [].
@@ -78,38 +77,44 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
     :return: The grasp index of the unlabeled samples with the highest info gain score.
     """
 
-    n_unlabeled_sampled = len(unlabeled_samples['grasp_forces'])
+    dataset = CustomGNPGraspDataset(data=unlabeled_samples, context_data=current_context)
+    context_data, unlabeled_data = dataset[0]  # apply post-processing
+
+    n_unlabeled_sampled = len(unlabeled_data['grasp_forces'])
     n_batches = math.ceil(float(n_unlabeled_sampled) / batching_size)
     gnp.eval()
+
+    if torch.cuda.is_available():
+        gnp.cuda()
+
     with torch.no_grad():
         # only one object, so only one mesh is needed
-        context_mesh = torch.unsqueeze(
-            torch.swapaxes(
-                torch.tensor(current_context['object_mesh'][0]),
-                0, 1
-            ),
-            0
+        context_mesh = torch.swapaxes(
+            torch.tensor(context_data['object_mesh']),
+            1, 2
         )
+
         context_geoms = torch.unsqueeze(
             torch.swapaxes(
-                torch.tensor(current_context['grasp_geometries']),
+                torch.tensor(context_data['grasp_geometries']),
                 1, 2
             ),
             0
         )
-        context_grasp_points = torch.unsqueeze(torch.tensor(current_context['grasp_points']), 0)
-        context_curvatures = torch.unsqueeze(torch.tensor(current_context['grasp_curvatures']), 0)
-        context_midpoints = torch.unsqueeze(torch.tensor(current_context['grasp_midpoints']), 0)
-        context_forces = torch.unsqueeze(torch.tensor(current_context['grasp_forces']), 0)
-        context_labels = torch.unsqueeze(torch.tensor(current_context['grasp_labels']), 0)
+
+        context_grasp_points = torch.unsqueeze(torch.tensor(context_data['grasp_points']), 0)
+        context_curvatures = torch.unsqueeze(torch.tensor(context_data['grasp_curvatures']), 0)
+        context_midpoints = torch.unsqueeze(torch.tensor(context_data['grasp_midpoints']), 0)
+        context_forces = torch.unsqueeze(torch.tensor(context_data['grasp_forces']), 0)
+        context_labels = torch.unsqueeze(torch.tensor(context_data['grasp_labels']), 0)
 
         context_mesh, \
-            context_geoms, \
-            context_grasp_points, \
-            context_curvatures, \
-            context_midpoints, \
-            context_forces, \
-            context_labels = \
+        context_geoms, \
+        context_grasp_points, \
+        context_curvatures, \
+        context_midpoints, \
+        context_forces, \
+        context_labels = \
             check_to_cuda([
                 context_mesh,
                 context_geoms,
@@ -130,60 +135,80 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
              context_labels),
             context_mesh
         )
-        h_z = q_z.entropy()
+        # need to reinterpret as a multivariate Gaussian and then compute entropy
+        h_z = torch.distributions.Independent(q_z, 1).entropy()
 
         # prepare unlabeled points as batched singletons
         unlabeled_mesh = torch.unsqueeze(
             torch.swapaxes(
-                torch.tensor(unlabeled_samples['object_mesh']),
+                torch.tensor(unlabeled_data['object_mesh']),
                 1, 2
             ),
             1
         )
         unlabeled_geoms = torch.unsqueeze(
             torch.swapaxes(
-                torch.tensor(unlabeled_samples['grasp_geometries']),
+                torch.tensor(unlabeled_data['grasp_geometries']),
                 1, 2
             ),
             1
         )
-        unlabeled_grasp_points = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_points']), 1)
-        unlabeled_curvatures = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_curvatures']), 1)
-        unlabeled_midpoints = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_midpoints']), 1)
-        unlabeled_forces = torch.unsqueeze(torch.tensor(unlabeled_samples['grasp_forces']), 1)
+        unlabeled_grasp_points = torch.unsqueeze(
+            torch.tensor(unlabeled_data['grasp_points']), 1)
+        unlabeled_curvatures = torch.unsqueeze(
+            torch.tensor(unlabeled_data['grasp_curvatures']), 1)
+        unlabeled_midpoints = torch.unsqueeze(
+            torch.tensor(unlabeled_data['grasp_midpoints']), 1)
+        unlabeled_forces = torch.unsqueeze(
+            torch.tensor(unlabeled_data['grasp_forces']), 1)
+
+        unlabeled_mesh, \
+        unlabeled_geoms, \
+        unlabeled_grasp_points, \
+        unlabeled_curvatures, \
+        unlabeled_midpoints, \
+        unlabeled_forces = \
+            check_to_cuda([
+                unlabeled_mesh,
+                unlabeled_geoms,
+                unlabeled_grasp_points,
+                unlabeled_curvatures,
+                unlabeled_midpoints,
+                unlabeled_forces,
+            ])
 
         # compute p(y|D,x)
-        q_z_batched = q_z.expand((n_unlabeled_sampled,))
+        q_z_batched = q_z.expand((n_unlabeled_sampled, q_z.batch_shape[1]))
         zs = q_z_batched.sample((n_samples_from_latent_dist,))
 
-        p_y_equals_one_cond_D_x = torch.zeros(n_unlabeled_sampled)
+        p_y_equals_one_cond_d_x = torch.zeros(n_unlabeled_sampled)
+        p_y_equals_one_cond_d_x, = check_to_cuda([p_y_equals_one_cond_d_x])
+
         for z_ix in range(n_samples_from_latent_dist):
             _, _, _, n_pts = unlabeled_geoms.shape
-            geoms = unlabeled_geoms.view(-1, 3, n_pts)
-            geoms_enc = gnp.grasp_geom_encoder(geoms).view(n_unlabeled_sampled, 1, -1)
-            # TODO: check with Mike on this computation to marginalize out z
             for batch_i in range(n_batches):
                 start = batch_i * batching_size
                 end = (batch_i + 1) * batching_size
-                labels_batch = unlabeled_forces[start:end]
-                p_y_equals_one_cond_D_x[start:end] += gnp.decoder(
-                    geoms_enc[start:end],
-                    unlabeled_grasp_points[start:end],
-                    unlabeled_curvatures[start:end],
-                    unlabeled_midpoints[start:end],
-                    labels_batch,
-                    zs[z_ix, start:end],
-                    mesh_enc.broadcast_to(
-                        (len(labels_batch),)
-                    )
-                )
+                unlabeled_forces_batch = unlabeled_forces[start:end]
+                p_y_equals_one_cond_d_x[start:end] += gnp.conditional_forward(
+                    (
+                        unlabeled_geoms[start:end],
+                        unlabeled_grasp_points[start:end],
+                        unlabeled_curvatures[start:end],
+                        unlabeled_midpoints[start:end],
+                        unlabeled_forces_batch,
+                    ),
+                    unlabeled_mesh[start:end].squeeze(),
+                    zs[z_ix, start:end, :],
+                ).squeeze()
+        p_y_equals_one_cond_d_x /= n_samples_from_latent_dist
 
         # next, we create all the candidate context sets and then compute the entropy of the latent distribution
         # for each
         candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_midpoints, candidate_forces = \
             [torch.cat([
-                c_set.squeeze().broadcast_to(n_unlabeled_sampled, *c_set.shape),
-                u_set.unsqueeze(1)
+                c_set[0].broadcast_to(n_unlabeled_sampled, *c_set[0].shape),
+                u_set
             ], dim=1)
                 for c_set, u_set in zip(
                 [context_geoms, context_grasp_points, context_curvatures, context_midpoints, context_forces],
@@ -191,23 +216,30 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
                  unlabeled_forces])
             ]
 
+        zero_labels = torch.zeros((n_unlabeled_sampled, 1))
+        one_labels = torch.ones((n_unlabeled_sampled, 1))
+        zero_labels, one_labels = check_to_cuda([zero_labels, one_labels])
+
         candidate_labels_zero = torch.cat([
-            context_labels.squeeze().broadcast_to(n_unlabeled_sampled, *context_labels.shape),
-            torch.zeros((n_unlabeled_sampled, 1))
-        ])
+            context_labels[0].broadcast_to(n_unlabeled_sampled, *context_labels[0].shape),
+            zero_labels
+        ], dim=1)
 
         candidate_labels_one = torch.cat([
-            context_labels.squeeze().broadcast_to(n_unlabeled_sampled, *context_labels.shape),
-            torch.ones((n_unlabeled_sampled, 1))
-        ])
+            context_labels[0].broadcast_to(n_unlabeled_sampled, *context_labels[0].shape),
+            one_labels
+        ], dim=1)
 
         h_z_cond_x_y_equals_zero = torch.zeros(n_unlabeled_sampled)
         h_z_cond_x_y_equals_one = torch.zeros(n_unlabeled_sampled)
+        h_z_cond_x_y_equals_zero, h_z_cond_x_y_equals_one = \
+            check_to_cuda([h_z_cond_x_y_equals_zero, h_z_cond_x_y_equals_one])
 
         for batch_i in range(n_batches):
             start = batch_i * batching_size
             end = (batch_i + 1) * batching_size
-            h_z_cond_x_y_equals_zero[start:end] = gnp.forward_until_latents(
+
+            q_z_zero = gnp.forward_until_latents(
                 (
                     candidate_geoms[start:end],
                     candidate_grasp_points[start:end],
@@ -216,10 +248,11 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
                     candidate_forces[start:end],
                     candidate_labels_zero[start:end]
                 ),
-                unlabeled_mesh
-            )[0].entropy()
+                unlabeled_mesh[start:end].squeeze()
+            )[0]
+            h_z_cond_x_y_equals_zero[start:end] = torch.distributions.Independent(q_z_zero, 1).entropy()
 
-            h_z_cond_x_y_equals_one[start:end] = gnp.forward_until_latents(
+            q_z_one = gnp.forward_until_latents(
                 (
                     candidate_geoms[start:end],
                     candidate_grasp_points[start:end],
@@ -228,16 +261,16 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
                     candidate_forces[start:end],
                     candidate_labels_one[start:end]
                 ),
-                unlabeled_mesh
-            )[0].entropy()
-
+                unlabeled_mesh[start:end].squeeze()
+            )[0]
+            h_z_cond_x_y_equals_one[start:end] = torch.distributions.Independent(q_z_one, 1).entropy()
         # compute expected entropy and information gain
-        expected_h_z_cond_x_y = p_y_equals_one_cond_D_x * h_z_cond_x_y_equals_one + (
-                1 - p_y_equals_one_cond_D_x) * h_z_cond_x_y_equals_zero
+        expected_h_z_cond_x_y = p_y_equals_one_cond_d_x * h_z_cond_x_y_equals_one + (
+                1 - p_y_equals_one_cond_d_x) * h_z_cond_x_y_equals_zero
         info_gain = h_z - expected_h_z_cond_x_y
 
         # return the index with the largest information gain
-        return torch.argmax(info_gain)
+        return torch.argmax(info_gain).item()
 
 
 def dummy_info_gain(gnp, current_context, unlabeled_samples):
@@ -274,7 +307,7 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
         elif strategy == 'bald':
             # TODO: Sample target unlabeled dataset in parallel fashion.
             unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set, object_ix=args.eval_object_ix)
-            best_idx = dummy_info_gain(gnp, context_data, unlabeled_dataset)
+            best_idx = find_informative_tower_progressive_prior(gnp, context_data, unlabeled_dataset)
             # Get the observation for the chosen grasp.
             grasp_dataset = select_gnp_dataset_ix(unlabeled_dataset, best_idx)
             grasp_dataset = get_labels_gnp(grasp_dataset)
