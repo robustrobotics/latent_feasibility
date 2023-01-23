@@ -63,7 +63,7 @@ def find_informative_tower(pf, object_set, logger, args):
 
 
 def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_samples,
-                                             n_samples_from_latent_dist=10, batching_size=16):
+                                             n_samples_from_latent_dist=32, batching_size=20):
     """
     :param current_context: Grasp dict object with collected datapoints so far.
         Most-nested dictionaries: ox: [].
