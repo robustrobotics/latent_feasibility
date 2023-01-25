@@ -285,6 +285,8 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
     print('----- Running fitting phase with learned progressive priors -----')
     logger.save_neural_process(gnp, 0, symlink_tx0=False)
 
+    # TODO: if we regularize with uninformed prior, we shouldn't start with a random sample.
+    #  we should be using IG the uninformed prior
     # Initialize data dictionary in GNP format with a random data point.
     context_data = sample_unlabeled_gnp_data(n_samples=1, object_set=object_set, object_ix=args.eval_object_ix)
     context_data = get_labels_gnp(context_data)
@@ -305,6 +307,10 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
 
         if strategy == 'random':
             grasp_dataset = select_gnp_dataset_ix(random_pool, tx)
+
+            context_data = merge_gnp_datasets(context_data, grasp_dataset)
+            logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
+            logger.save_acquisition_data(context_data, None, tx + 1)
         elif strategy == 'bald':
             # TODO: Sample target unlabeled dataset in parallel fashion.
             unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set, object_ix=args.eval_object_ix)
@@ -312,13 +318,14 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
             # Get the observation for the chosen grasp.
             grasp_dataset = select_gnp_dataset_ix(unlabeled_dataset, best_idx)
             grasp_dataset = get_labels_gnp(grasp_dataset)
+
+            context_data = merge_gnp_datasets(context_data, grasp_dataset)
+            logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
+            logger.save_acquisition_data(context_data, unlabeled_dataset, tx + 1)
         else:
             raise NotImplementedError()
 
         # Add datapoint to context dictionary.
-        context_data = merge_gnp_datasets(context_data, grasp_dataset)
-        logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
-        logger.save_acquisition_data(context_data, None, tx + 1)
 
 
 def particle_filter_loop(pf, object_set, logger, strategy, args):
