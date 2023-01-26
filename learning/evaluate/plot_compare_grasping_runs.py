@@ -8,6 +8,8 @@ from learning.active.utils import ActiveExperimentLogger
 
 import matplotlib
 from matplotlib import pyplot as plt
+
+import seaborn as sns
 matplotlib.rc('font', family='normal', size=28)
 
 
@@ -117,6 +119,16 @@ def plot_val_loss(loggers, output_path):
     # plt_fname = 'validation_accuracy.png'
     plt.savefig(output_path)
     plt.close()
+
+def plot_from_dataframe(d, output_path):
+    plt.figure(figsize=(12, 9))
+    sns.set_theme(style='darkgrid')
+    sns.relplot(data=d.loc['train'], x='acquisition', y='time metric value',
+                col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar=('pi', 50))
+    plt.savefig(os.path.join(output_path, 'all_metrics_train_plot.png'))
+
+    plt.figure()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

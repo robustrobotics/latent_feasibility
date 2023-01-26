@@ -8,7 +8,7 @@ import sys
 
 from learning.active.utils import ActiveExperimentLogger
 from learning.evaluate.evaluate_grasping import get_pf_validation_accuracy, get_pf_task_performance
-from learning.evaluate.plot_compare_grasping_runs import plot_val_loss
+from learning.evaluate.plot_compare_grasping_runs import plot_val_loss, plot_from_dataframe
 from learning.experiments.train_grasping_single import run as training_phase_variational
 from learning.domains.grasping.generate_datasets_for_experiment import parse_ignore_file
 from learning.models.grasp_np.train_grasp_np import run as training_phase_amortized
@@ -609,7 +609,7 @@ def run_testing_phase(args):
 
 
     # construct multi-index for columns in time-series data
-    mc = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)], names=['metric', 'acquisition'])
+    mc = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)], names=['time metric', 'acquisition'])
     formatted_metrics_train = np.hstack([
         np.vstack(metric['train_geo'].values()) for metric in metric_list
     ])
@@ -622,12 +622,16 @@ def run_testing_phase(args):
 
     # concat const frames and time frames together and melt into long form so we can merge the tables
     d_const = pd.concat([d_const_train, d_const_test], keys=['train', 'test'])
-    d_time = pd.concat([d_time_train, d_time_test], keys=['train', 'test']).melt(ignore_index=False)
+    d_time = pd.concat([d_time_train, d_time_test], keys=['train', 'test']).melt(
+        value_name='time metric value', ignore_index=False)
 
     # full table merge
     d_all = pd.merge(d_const, d_time, left_index=True, right_index=True)
 
-    # TODO: test this code and finally put together some seaborn plots!
+    # next, seaborn can only plot certain values against others in column format, so we need to
+    # move some of the row indicators to columns (unpivot?)
+    fig_path = os.path.join(exp_path, 'figures')
+    plot_from_dataframe(d_all, fig_path)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
