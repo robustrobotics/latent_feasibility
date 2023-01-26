@@ -123,11 +123,22 @@ def plot_val_loss(loggers, output_path):
 def plot_from_dataframe(d, output_path):
     plt.figure(figsize=(12, 9))
     sns.set_theme(style='darkgrid')
-    sns.relplot(data=d.loc['train'], x='acquisition', y='time metric value', estimator='median',
-                col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar=('pi', 50))
+    d_train = d.loc['train']
+    d_stable = d_train[(1.0 > d_train.pstable) & (d_train.pstable > 0.8)]
+    print(d.loc['train']['pstable'].mean())
+    sns.relplot(data=d_stable, x='acquisition', y='time metric value', estimator='mean',
+                col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar='sd')
     plt.savefig(os.path.join(output_path, 'all_metrics_train_plot.png'))
 
+
     plt.figure()
+    d_test = d.loc['test']
+    d_stable = d_test[(0.8 < d_test.pstable) & (d_test.pstable < 1.0)]
+    print(d.loc['test']['pstable'].mean())
+    sns.relplot(data=d_stable, x='acquisition', y='time metric value', estimator='mean',
+                col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar='sd')
+    plt.savefig(os.path.join(output_path, 'all_metrics_test_plot.png'))
+
 
 
 if __name__ == '__main__':
@@ -148,6 +159,5 @@ if __name__ == '__main__':
     else:
         assert(len(args.problem) > 1)
         plot_task_regret(loggers, args.problem, output_path, args.comp_name)
-
 
 
