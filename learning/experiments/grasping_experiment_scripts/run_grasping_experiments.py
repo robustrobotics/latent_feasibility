@@ -1,5 +1,6 @@
 import argparse
 import json
+import pandas as pd
 import numpy as np
 import os
 import pickle
@@ -124,7 +125,7 @@ def run_fitting_phase(args):
         with open(objects_fname, 'rb') as handle:
             fit_objects = pickle.load(handle)
 
-        min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.01
+        min_pstable, max_pstable, min_dist = 0.00, 1.0, 0.00
         valid_fit_objects = filter_objects(
             object_names=fit_objects['object_data']['object_names'],
             ignore_list=ignore,
@@ -297,12 +298,12 @@ def run_training_phase(args):
         training_args.exp_name = f'grasp_{exp_args.exp_name}_train'
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
-        training_args.n_epochs = 20
+        training_args.n_epochs = 64
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 16
         training_args.use_latents = False  # NOTE: this is a workaround for pointnet + latents,
-                                           # GNPs DO USE LATENTS, but they are handled more
-                                           # cleanly in the model specification and training
+        # GNPs DO USE LATENTS, but they are handled more
+        # cleanly in the model specification and training
         training_args.informed_prior_loss = True
         training_args.use_local_grasp_geometry = True
 
@@ -339,6 +340,8 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
     Return list of (ox, object_name) for all valid objects.
     """
     valid_objects = []
+    valid_pstables = []
+    valid_min_dists = []
     for ox, object_name in enumerate(object_names):
         if ox in ignore_list:
             continue
@@ -371,9 +374,11 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
             continue
 
         valid_objects.append((ox, object_name))
+        valid_pstables.append(p_stable)
+        valid_min_dists.append(avg_min_dist)
         print(f'{object_name} in range ({min_pstable}, {max_pstable}) ({p_stable})')
 
-    return valid_objects[:max_objects]
+    return valid_objects[:max_objects], valid_pstables[:max_objects], valid_min_dists[:max_objects]
 
 
 def run_testing_phase(args):
@@ -400,6 +405,11 @@ def run_testing_phase(args):
     with open(train_objects_fname, 'rb') as handle:
         train_objects = pickle.load(handle)
     test_objects_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'objects', 'test_geo_test_props.pkl')
+    with open(os.path.join(DATA_ROOT, exp_args.dataset_name, 'args.pkl'), 'rb') as handle:
+        dataset_args = pickle.load(handle)
+    n_property_samples_train = dataset_args.n_property_samples_train
+    n_property_samples_test = dataset_args.n_property_samples_test
+
     with open(test_objects_fname, 'rb') as handle:
         test_objects = pickle.load(handle)
 
@@ -428,16 +438,14 @@ def run_testing_phase(args):
             }
         }
     }
-    min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.01
-
-    valid_train_objects = filter_objects(
+    valid_train_objects, valid_train_pstables, valid_train_min_dists = filter_objects(
         object_names=train_objects['object_data']['object_names'],
         ignore_list=TRAIN_IGNORE,
         phase='train',
         dataset_name=exp_args.dataset_name,
-        min_pstable=min_pstable,
-        max_pstable=max_pstable,
-        min_dist_threshold=min_dist,
+        min_pstable=0.0,
+        max_pstable=1.0,
+        min_dist_threshold=0.0,
         max_objects=250
     )
     for ox, object_name in valid_train_objects:
@@ -473,14 +481,14 @@ def run_testing_phase(args):
 
     print(f'{len(valid_train_objects)} train geo objects included.')
 
-    valid_test_objects = filter_objects(
+    valid_test_objects, valid_test_pstables, valid_test_min_dists = filter_objects(
         object_names=test_objects['object_data']['object_names'],
         ignore_list=TEST_IGNORE,
         phase='test',
         dataset_name=exp_args.dataset_name,
-        min_pstable=min_pstable,
-        max_pstable=max_pstable,
-        min_dist_threshold=min_dist,
+        min_pstable=0.0,
+        max_pstable=1.0,
+        min_dist_threshold=0.0,
         max_objects=250
     )
     for ox, object_name in valid_test_objects:
@@ -514,45 +522,115 @@ def run_testing_phase(args):
 
     print(f'{len(valid_test_objects)} test geo objects included.')
 
-    for obj_name, loggers in logs_lookup_by_object['train_geo']['random'].items():
-        all_train_loggers = {
-            f'{obj_name}_traingeo_random': [
-                ActiveExperimentLogger(exp_path=name, use_latents=True)
-                for name in loggers
-            ],
-            f'{obj_name}_traingeo_bald': [
-                ActiveExperimentLogger(exp_path=name, use_latents=True)
-                for name in logs_lookup_by_object['train_geo']['bald'][obj_name]
-            ],
-            f'{obj_name}_traingeo_crandom': [
-                ActiveExperimentLogger(exp_path=name, use_latents=True)
-                for name in logs_lookup_by_object['train_geo']['constrained_random'][obj_name]
-            ]
-        }
-        fig_path = os.path.join(exp_path, 'figures', f'traingeo_{obj_name}.png')
-        plot_val_loss(all_train_loggers, fig_path)
+    # collect all of the stored metric data over the course of training
+    # note; we don't do confusions since they are hard to store... and that data can come from the other
+    # metrics below
+    accuracies = {}
+    precisions = {}
+    average_precisions = {}
+    recalls = {}
+    f1s = {}
+    balanced_accuracy_scores = {}
+    metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores]
+    metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
+                        'val_f1s.pkl', 'val_balanced_accs.pkl']
+    metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy']
+    log_paths_set = {'train_geo': [], 'test_geo': []}
+    n_acquisitions = None
+    for obj_set in ['train_geo', 'test_geo']:
+        for strategy in logs_lookup_by_object[obj_set].keys():
+            log_paths = logs_lookup_by_object[obj_set][strategy]['all']
+            log_paths_set[obj_set] += log_paths
+            n_objs = len(log_paths)
+            if len(log_paths) <= 0:
+                continue
+            with open(os.path.join(log_paths[0], 'args.pkl'), 'rb') as handle:
+                fit_args = pickle.load(handle)
+            n_acquisitions = fit_args.max_acquisitions
+            acc, prec, avg_prec, recalls, f1s, bal_acc = \
+                np.zeros((n_objs, n_acquisitions)), \
+                np.zeros((n_objs, n_acquisitions)), \
+                np.zeros((n_objs, n_acquisitions)), \
+                np.zeros((n_objs, n_acquisitions)), \
+                np.zeros((n_objs, n_acquisitions)), \
+                np.zeros((n_objs, n_acquisitions))
 
-    for obj_name, loggers in logs_lookup_by_object['test_geo']['random'].items():
-        all_test_loggers = {
-            f'{obj_name}_testgeo_random': [
-                ActiveExperimentLogger(exp_path=name, use_latents=True)
-                for name in loggers
-            ],
-            f'{obj_name}_testgeo_bald': [
-                ActiveExperimentLogger(exp_path=name, use_latents=True)
-                for name in logs_lookup_by_object['test_geo']['bald'][obj_name]
-            ],
-            f'{obj_name}_testgeo_crandom': [
-                ActiveExperimentLogger(exp_path=name, use_latents=True)
-                for name in logs_lookup_by_object['test_geo']['constrained_random'][obj_name]
-            ]
-        }
-        fig_path = os.path.join(exp_path, 'figures', f'testgeo_{obj_name}.png')
-        plot_val_loss(all_test_loggers, fig_path)
+            metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc]
+            for i_obj, log_path in enumerate(log_paths):
+                logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
+
+                for data_arr, fname in zip(metric_per_strategy_list, metric_file_list):
+                    with open(logger.get_figure_path(fname), 'rb') as handle:
+                        data_arr[i_obj, :] = np.array(pickle.load(handle))
+
+            for metric, metric_per_strategy in zip(metric_list, metric_per_strategy_list):
+                metric[obj_set][strategy] = metric_per_strategy
+
+    # we now have all the data we need to construct the dataframes
+    # there are two dataframes: one for the time-dependent metrics
+    # one to store p_stability, p_size, and also the fitting directory so we can associate grasp selection later
+
+    # construct hierarchical indices (we'll reuse them for both dataframes, and construct one for train and test
+    # separately since they may not share the same strategies used)
+    unique_object_names_train = list(dict.fromkeys(
+        [name for _, name in valid_train_objects]
+    ))
+    strategies_used_for_train = metric_list[0]['train_geo'].keys()
+
+    mi_train = pd.MultiIndex.from_product([
+        strategies_used_for_train,
+        unique_object_names_train,
+        range(n_property_samples_train)
+    ], names=['strategy', 'name', 'no_property_sample'])
+
+    unique_object_names_test = list(dict.fromkeys(
+        [name for _, name in valid_test_objects]
+    ))
+    strategies_used_for_test = metric_list[0]['test_geo'].keys()
+
+    mi_test = pd.MultiIndex.from_product([
+        strategies_used_for_test,
+        unique_object_names_test,
+        range(n_property_samples_test)
+    ], names=['strategy', 'name' 'no_property_sample'])
+
+    # construct non-time series data
+    d_const_train = pd.DataFrame(data=[
+        valid_train_pstables * len(strategies_used_for_train),
+        valid_train_min_dists * len(strategies_used_for_train),
+        log_paths_set['train_geo']
+    ], index=mi_train, columns=['pstable', 'avg_min_dist', 'log_paths'])
+
+    d_const_test = pd.DataFrame(data=[
+        valid_test_pstables * len(strategies_used_for_test),
+        valid_test_min_dists * len(strategies_used_for_test),
+        log_paths_set['train_geo']
+    ], index=mi_test, columns=['pstable', 'avg_min_dist', 'log_paths'])
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    # construct multi-index for columns in time-series data
+    mc = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)])
+    # --->  metric data via column metric type X no_acquisitions
+    # | metric data via object number + strategy
+    # V
+    formatted_metrics_train = np.hstack([
+        np.vstack(metric['train_geo'].items()) for metric in metric_list
+    ])
+    d_time_train = pd.DataFrame(data=formatted_metrics_train, index=mi_train, columns=mc)
+
+    formatted_metrics_test = np.hstack([
+        np.vstack(metric['test_geo'].items()) for metric in metric_list
+    ])
+    d_time_test = pd.DataFrame(data=formatted_metrics_test, index=mi_test, columns=mc)
+
+    # concat const frames and time frames together, respectively
+    d_const = pd.concat([d_const_train, d_const_test], keys=['train', 'test'])
+    d_time = pd.concat([d_time_train, d_time_test], kyes=['train', 'test'])
+
+    # TODO: test this code and finally put together some seaborn plots!
+
+    if __name__ == '__main__':
+        parser = argparse.ArgumentParser()
     parser.add_argument('--phase', required=True, choices=['create', 'training', 'fitting', 'testing', 'task-eval'])
     parser.add_argument('--dataset-name', type=str, default='')
     parser.add_argument('--exp-name', required=True, type=str)

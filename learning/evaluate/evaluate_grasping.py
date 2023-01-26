@@ -378,6 +378,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
                 thresholded_recalls[str_t] = []
             thresholded_recalls[str_t].append(rec)
 
+        # TODO: store mean and covars here too
         preds = (probs > 0.5).float()
         av_prec = average_precision_score(labels, probs)
         acc = accuracy_score(labels, preds)
