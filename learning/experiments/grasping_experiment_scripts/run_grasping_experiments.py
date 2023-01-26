@@ -612,7 +612,7 @@ def run_testing_phase(args):
     mc = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)], names=['metric', 'acquisition'])
     formatted_metrics_train = np.hstack([
         np.vstack(metric['train_geo'].values()) for metric in metric_list
-    
+    ])
     d_time_train = pd.DataFrame(data=formatted_metrics_train, index=mi_train, columns=mc)
 
     formatted_metrics_test = np.hstack([
