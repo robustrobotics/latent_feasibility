@@ -123,7 +123,7 @@ def plot_val_loss(loggers, output_path):
 def plot_from_dataframe(d, output_path):
     plt.figure(figsize=(12, 9))
     sns.set_theme(style='darkgrid')
-    sns.relplot(data=d.loc['train'], x='acquisition', y='time metric value',
+    sns.relplot(data=d.loc['train'], x='acquisition', y='time metric value', estimator='median',
                 col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar=('pi', 50))
     plt.savefig(os.path.join(output_path, 'all_metrics_train_plot.png'))
 
