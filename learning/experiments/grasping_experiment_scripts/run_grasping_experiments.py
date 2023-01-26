@@ -525,12 +525,12 @@ def run_testing_phase(args):
     # collect all of the stored metric data over the course of training
     # note; we don't do confusions since they are hard to store... and that data can come from the other
     # metrics below
-    accuracies = {}
-    precisions = {}
-    average_precisions = {}
-    recalls = {}
-    f1s = {}
-    balanced_accuracy_scores = {}
+    accuracies = {'train_geo': {}, 'test_geo': {}}
+    precisions = {'train_geo': {}, 'test_geo': {}}
+    average_precisions = {'train_geo': {}, 'test_geo': {}}
+    recalls = {'train_geo': {}, 'test_geo': {}}
+    f1s = {'train_geo': {}, 'test_geo': {}}
+    balanced_accuracy_scores = {'train_geo': {}, 'test_geo': {}}
     metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores]
     metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
                         'val_f1s.pkl', 'val_balanced_accs.pkl']
@@ -566,8 +566,8 @@ def run_testing_phase(args):
             for metric, metric_per_strategy in zip(metric_list, metric_per_strategy_list):
                 metric[obj_set][strategy] = metric_per_strategy
 
-    # we now have all the data we need to construct the dataframes
-    # there are two dataframes: one for the time-dependent metrics
+    # we now have all the data we need to construct the full dataframe
+    # we first construct are two dataframes: one for the time-dependent metrics
     # one to store p_stability, p_size, and also the fitting directory so we can associate grasp selection later
 
     # construct hierarchical indices (we'll reuse them for both dataframes, and construct one for train and test
@@ -592,45 +592,45 @@ def run_testing_phase(args):
         strategies_used_for_test,
         unique_object_names_test,
         range(n_property_samples_test)
-    ], names=['strategy', 'name' 'no_property_sample'])
+    ], names=['strategy', 'name', 'no_property_sample'])
 
     # construct non-time series data
-    d_const_train = pd.DataFrame(data=[
+    d_const_train = pd.DataFrame(data=zip(
         valid_train_pstables * len(strategies_used_for_train),
         valid_train_min_dists * len(strategies_used_for_train),
         log_paths_set['train_geo']
-    ], index=mi_train, columns=['pstable', 'avg_min_dist', 'log_paths'])
+    ), index=mi_train, columns=['pstable', 'avg_min_dist', 'log_paths'])
 
-    d_const_test = pd.DataFrame(data=[
+    d_const_test = pd.DataFrame(data=zip(
         valid_test_pstables * len(strategies_used_for_test),
         valid_test_min_dists * len(strategies_used_for_test),
         log_paths_set['train_geo']
-    ], index=mi_test, columns=['pstable', 'avg_min_dist', 'log_paths'])
+    ), index=mi_test, columns=['pstable', 'avg_min_dist', 'log_paths'])
 
 
     # construct multi-index for columns in time-series data
-    mc = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)])
-    # --->  metric data via column metric type X no_acquisitions
-    # | metric data via object number + strategy
-    # V
+    mc = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)], names=['metric', 'acquisition'])
     formatted_metrics_train = np.hstack([
-        np.vstack(metric['train_geo'].items()) for metric in metric_list
-    ])
+        np.vstack(metric['train_geo'].values()) for metric in metric_list
+    
     d_time_train = pd.DataFrame(data=formatted_metrics_train, index=mi_train, columns=mc)
 
     formatted_metrics_test = np.hstack([
-        np.vstack(metric['test_geo'].items()) for metric in metric_list
+        np.vstack(metric['test_geo'].values()) for metric in metric_list
     ])
     d_time_test = pd.DataFrame(data=formatted_metrics_test, index=mi_test, columns=mc)
 
-    # concat const frames and time frames together, respectively
+    # concat const frames and time frames together and melt into long form so we can merge the tables
     d_const = pd.concat([d_const_train, d_const_test], keys=['train', 'test'])
-    d_time = pd.concat([d_time_train, d_time_test], kyes=['train', 'test'])
+    d_time = pd.concat([d_time_train, d_time_test], keys=['train', 'test']).melt(ignore_index=False)
+
+    # full table merge
+    d_all = pd.merge(d_const, d_time, left_index=True, right_index=True)
 
     # TODO: test this code and finally put together some seaborn plots!
 
-    if __name__ == '__main__':
-        parser = argparse.ArgumentParser()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
     parser.add_argument('--phase', required=True, choices=['create', 'training', 'fitting', 'testing', 'task-eval'])
     parser.add_argument('--dataset-name', type=str, default='')
     parser.add_argument('--exp-name', required=True, type=str)
