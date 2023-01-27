@@ -282,6 +282,9 @@ def dummy_info_gain(gnp, current_context, unlabeled_samples):
 
 
 def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
+    # We generate the datasets here, but evaluate_grasping is when we actually
+    # play through the interaction data. So we will actually be saving the mean, covariance, and entropy data
+    # over there.
     print('----- Running fitting phase with learned progressive priors -----')
     logger.save_neural_process(gnp, 0, symlink_tx0=False)
 
@@ -316,10 +319,12 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
             unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set, object_ix=args.eval_object_ix)
             best_idx = find_informative_tower_progressive_prior(gnp, context_data, unlabeled_dataset)
             # Get the observation for the chosen grasp.
+            # means, and covariances here.
             grasp_dataset = select_gnp_dataset_ix(unlabeled_dataset, best_idx)
             grasp_dataset = get_labels_gnp(grasp_dataset)
 
             context_data = merge_gnp_datasets(context_data, grasp_dataset)
+            # TODO: why do we save this? we haven't changed anything
             logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
             logger.save_acquisition_data(context_data, unlabeled_dataset, tx + 1)
         else:

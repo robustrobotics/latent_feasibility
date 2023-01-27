@@ -9,9 +9,11 @@ import matplotlib.cm as cm
 
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.axes_grid1 import ImageGrid
-from sklearn.metrics import recall_score, precision_score, balanced_accuracy_score, f1_score, confusion_matrix, accuracy_score, average_precision_score
+from sklearn.metrics import recall_score, precision_score, balanced_accuracy_score, f1_score, confusion_matrix, \
+    accuracy_score, average_precision_score
 from torch.utils.data import DataLoader
-from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, get_train_and_fit_objects
+from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, \
+    get_train_and_fit_objects
 from learning.active.acquire import bald
 
 from block_utils import ParticleDistribution
@@ -46,7 +48,7 @@ def get_labels_predictions(logger, val_dataset_fname):
             probs = model.forward(x[:, :-5, :], object_ids).squeeze().cpu()
 
         preds = (probs > 0.5).float()
-        
+
         wrong = (preds != y)
         print('Wrong Probabilities:', probs[wrong])
         predictions.append(preds)
@@ -61,6 +63,7 @@ def get_labels_predictions(logger, val_dataset_fname):
     labels = torch.cat(labels).numpy()
 
     return labels, predictions
+
 
 def get_validation_metrics(logger, val_dataset_fname):
     labels, predictions = get_labels_predictions(logger, val_dataset_fname)
@@ -80,14 +83,16 @@ def get_validation_metrics(logger, val_dataset_fname):
         json.dump(metrics_val, handle)
     print(metrics_val)
 
+
 def visualize_predictions(logger, val_dataset_fname):
     labels, predictions = get_labels_predictions(logger, val_dataset_fname)
 
     figure_path = logger.get_figure_path('')
     # visualize_grasp_dataset(val_dataset_fname, labels=predictions==labels)
-    visualize_grasp_dataset(val_dataset_fname, labels=predictions==labels, figpath=figure_path, prefix='correct_')
+    visualize_grasp_dataset(val_dataset_fname, labels=predictions == labels, figpath=figure_path, prefix='correct_')
     visualize_grasp_dataset(val_dataset_fname, labels=labels, figpath=figure_path, prefix='labels_')
     visualize_grasp_dataset(val_dataset_fname, labels=predictions, figpath=figure_path, prefix='predictions_')
+
 
 def combine_image_grids(logger, prefixes):
     for ix in range(0, 50):
@@ -97,7 +102,7 @@ def combine_image_grids(logger, prefixes):
                 fname = logger.get_figure_path('%s_%d_%s.png' % (p, ix, angle))
                 images.append(plt.imread(fname))
 
-            fig = plt.figure(figsize=(5,15))
+            fig = plt.figure(figsize=(5, 15))
             grid = ImageGrid(fig, 111, nrows_ncols=(1, 3))
 
             for ax, im in zip(grid, images):
@@ -113,11 +118,13 @@ def combine_image_grids(logger, prefixes):
 
             plt.savefig(logger.get_figure_path('combined_%d_%s.png' % (ix, angle)), bbox_inches='tight', dpi=500)
 
+
 def truncate_grasps(tensor_list, n_grasps):
     return [tensor[:, :n_grasps, ...] for tensor in tensor_list]
 
-def get_predictions_with_contexts(gnp, context_data, val_data):
-    preds, labels = [], []
+
+def get_gnp_predictions_and_ig_evals(gnp, context_data, val_data):
+    preds, labels, means, covars = [], [], [], []
     dataset = CustomGNPGraspDataset(
         data=val_data,
         context_data=context_data
@@ -131,14 +138,15 @@ def get_predictions_with_contexts(gnp, context_data, val_data):
 
     gnp.eval()
     for (context_data, target_data, meshes) in dataloader:
-        t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = check_to_cuda(truncate_grasps(target_data, 100))
+        t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = \
+            check_to_cuda(truncate_grasps(target_data, 100))
         c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
 
         if torch.cuda.is_available():
             meshes = meshes.cuda()
         t_labels = t_labels.squeeze()
 
-        pred, _ = gnp.forward(
+        pred, q_z = gnp.forward(
             (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels),
             (t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
             meshes
@@ -147,8 +155,12 @@ def get_predictions_with_contexts(gnp, context_data, val_data):
 
         preds.append(pred)
         labels.append(t_labels)
+        means.append(q_z.loc)
+        covars.append(q_z.scale)
 
-    return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
+    return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu(), \
+           torch.cat(means, dim=0).cpu(), torch.cat(covars, dim=0).cpu()
+
 
 def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_samples=10):
     preds, labels = [], []
@@ -174,15 +186,15 @@ def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_s
             np.random.shuffle(latents_ix)
             latents_ix = latents_ix[:n_particle_samples]
 
-            #latents = latent_samples[ix*100:(ix+1)*100,:]
+            # latents = latent_samples[ix*100:(ix+1)*100,:]
             latents = latent_samples[latents_ix, :]
             if torch.cuda.is_available():
                 latents = latents.cuda()
             pred = ensemble.forward(X=grasps[:, :-5, :],
                                     object_ids=object_ids,
                                     N_samples=n_particle_samples,
-                                    ensemble_idx=-1,#ensemble_ix,
-                                    collapse_latents=True, 
+                                    ensemble_idx=-1,  # ensemble_ix,
+                                    collapse_latents=True,
                                     collapse_ensemble=True,
                                     pf_latent_ix=100,
                                     latent_samples=latents).squeeze()
@@ -191,6 +203,7 @@ def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_s
             labels.append(y)
             # if (len(preds)*16) > 200: break
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
+
 
 def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_samples=10):
     preds, labels = [], []
@@ -225,7 +238,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         t_grasp_geoms = t_grasp_geoms.expand(n_particle_samples, -1, -1, -1)
         t_midpoints = t_midpoints.expand(n_particle_samples, -1, -1)
         t_forces = t_forces.expand(n_particle_samples, -1)
-        
+
         # Sample particles and ensembles models to use to speed up evaluation. Might hurt performance.
         latents_ix = np.arange(latent_samples.shape[0])
         np.random.shuffle(latents_ix)
@@ -235,7 +248,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         if torch.cuda.is_available():
             latents = latents.cuda()
         pred = gnp.conditional_forward(
-            target_xs = (t_grasp_geoms, t_midpoints, t_forces),
+            target_xs=(t_grasp_geoms, t_midpoints, t_forces),
             meshes=meshes,
             zs=latents
         ).squeeze().cpu().detach()
@@ -244,6 +257,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         labels.append(t_labels)
 
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
+
 
 def get_pf_task_performance(logger, fname):
     """ 
@@ -269,7 +283,7 @@ def get_pf_task_performance(logger, fname):
         # This is necessary if we're using a weighted particle filter.
         sampling_dist = ParticleDistribution(
             particles.particles,
-            particles.weights/np.sum(particles.weights)
+            particles.weights / np.sum(particles.weights)
         )
         resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
         gnp = logger.get_neural_process(tx)
@@ -294,7 +308,7 @@ def get_pf_task_performance(logger, fname):
         print(f'# Stable: {np.sum(labels)}/{len(labels)}')
         for force, prob, label in zip(grasp_forces, probs, labels):
             pos_reward = (max_force - force)
-            exp_reward = neg_reward * (1-prob) + prob*pos_reward
+            exp_reward = neg_reward * (1 - prob) + prob * pos_reward
             true_reward = pos_reward if label else neg_reward
 
             if (true_reward > max_reward) and (label == 1):
@@ -310,17 +324,21 @@ def get_pf_task_performance(logger, fname):
         if max_achieved_reward == neg_reward:
             regret = 1
         else:
-            regret = (max_reward - max_achieved_reward)/15
+            regret = (max_reward - max_achieved_reward) / 15
         regrets.append(regret)
         print(f'Max Reward: {max_reward}\tReward: {max_achieved_reward}\tRegret: {regret}')
 
         with open(logger.get_figure_path(f'regrets_{neg_reward}.pkl'), 'wb') as handle:
             pickle.dump(regrets, handle)
 
+
 def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
     accs, precisions, recalls, f1s, balanced_accs, av_precs = [], [], [], [], [], []
     thresholded_recalls = {}
     confusions = []
+
+    if use_progressive_priors:
+        means_agg, covars_agg = [], []
 
     with open(fname, 'rb') as handle:
         val_grasp_data = pickle.load(handle)
@@ -334,7 +352,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
             particles = logger.load_particles(tx)
             sampling_dist = ParticleDistribution(
                 particles.particles,
-                particles.weights/np.sum(particles.weights)
+                particles.weights / np.sum(particles.weights)
             )
             resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
             if amortize:
@@ -358,16 +376,22 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
                     n_particle_samples=50
                 )
         else:
-            context_data, _ = logger.load_acquisition_data(tx)
+            # TODO: we can do the playback here.
+            # TODO: save the latent distributions parameters so we can look at them
+            context_data, sampled_unlabeled_data = logger.load_acquisition_data(tx)
             gnp = logger.get_neural_process(tx)
             if torch.cuda.is_available():
                 gnp = gnp.cuda()
             # Write function to get predictions given a set of context data.
-            probs, labels = get_predictions_with_contexts(
+            probs, labels, means, covars = get_gnp_predictions_and_ig_evals(
                 gnp,
                 context_data,
                 val_grasp_data
             )
+            means_agg.append(means)
+            covars_agg.append(covars)
+
+
 
         thresholds = np.arange(0.05, 1.0, 0.05)
         for threshold in thresholds:
@@ -412,11 +436,18 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
     with open(logger.get_figure_path('val_balanced_accs.pkl'), 'wb') as handle:
         pickle.dump(balanced_accs, handle)
 
+    if use_progressive_priors:
+        with open(logger.get_figure_path('val_means.pkl'), 'wb') as handle:
+            pickle.dump(means_agg, handle)
+        with open(logger.get_figure_path('val_covars.pkl'), 'wb') as handle:
+            pickle.dump(covars_agg, handle)
+
     for k, v in thresholded_recalls.items():
         with open(logger.get_figure_path(f'val_recalls_{k}.pkl'), 'wb') as handle:
             pickle.dump(v, handle)
 
     return accs
+
 
 def get_acquired_preditctions_pf(logger):
     pf_args = logger.args
@@ -456,6 +487,7 @@ def get_acquired_preditctions_pf(logger):
         import IPython
         IPython.embed()
 
+
 def viz_latents(locs, scales, lim=4, fname=''):
     fig = plt.figure()
     ax = plt.axes(projection='3d')
@@ -465,7 +497,7 @@ def viz_latents(locs, scales, lim=4, fname=''):
         ax.plot([0, 0], [-lim, lim], [0, 0], c='r')
         ax.plot([0, 0], [0, 0], [-lim, lim], c='r')
 
-    ax.scatter(locs[:n_plot, 0], 
+    ax.scatter(locs[:n_plot, 0],
                locs[:n_plot, 1],
                locs[:n_plot, 2], c=np.arange(n_plot), cmap=cm.tab10)
 
@@ -488,6 +520,7 @@ def viz_latents(locs, scales, lim=4, fname=''):
     else:
         plt.show()
 
+
 def plot_training_latents(logger):
     latent_ensemble = logger.get_ensemble(0)
     if torch.cuda.is_available():
@@ -498,18 +531,19 @@ def plot_training_latents(logger):
 
     viz_latents(latent_locs, latent_scales)
 
+
 def visualize_gnp_predictions():
     val_dataset_fname = 'learning/data/grasping/train-sn100-test-sn10-robust/grasps/training_phase/val_grasps.pkl'
     with open('learning/experiments/metadata/grasp_np/results.pkl', 'rb') as handle:
         probs, targets = pickle.load(handle)
-    
+
     predictions = (probs.flatten()) > 0.5
     labels = targets.flatten()
 
     figure_path = 'learning/experiments/metadata/grasp_np/figures'
     # visualize_grasp_dataset(val_dataset_fname, labels=predictions==labels)
-    #visualize_grasp_dataset(val_dataset_fname, labels=predictions==labels, figpath=figure_path, prefix='correct_')
-    #visualize_grasp_dataset(val_dataset_fname, labels=labels, figpath=figure_path, prefix='vhacd_labels_')
+    # visualize_grasp_dataset(val_dataset_fname, labels=predictions==labels, figpath=figure_path, prefix='correct_')
+    # visualize_grasp_dataset(val_dataset_fname, labels=labels, figpath=figure_path, prefix='vhacd_labels_')
     # visualize_grasp_dataset(val_dataset_fname, labels=predictions, figpath=figure_path, prefix='predictions_')
     probs = probs.reshape(-1, 10)
     targets = targets.reshape(-1, 10)
@@ -520,20 +554,21 @@ def visualize_gnp_predictions():
         else:
             print(f'----- Object {ox}: {acc} True {targets[ox].mean()}')
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp-path', type=str, required=True)
     parser.add_argument('--val-dataset-fname', type=str, required=True)
     args = parser.parse_args()
 
-    #logger = ActiveExperimentLogger(args.exp_path, use_latents=True)
+    # logger = ActiveExperimentLogger(args.exp_path, use_latents=True)
 
-    #get_validation_metrics(logger, args.val_dataset_fname)
-    #get_pf_task_performance(logger, args.val_dataset_fname)
-    #visualize_predictions(logger, args.val_dataset_fname)
-    #combine_image_grids(logger, ['labels', 'predictions', 'correct'])
+    # get_validation_metrics(logger, args.val_dataset_fname)
+    # get_pf_task_performance(logger, args.val_dataset_fname)
+    # visualize_predictions(logger, args.val_dataset_fname)
+    # combine_image_grids(logger, ['labels', 'predictions', 'correct'])
     visualize_gnp_predictions()
-    #get_acquired_preditctions_pf(logger)
-    #plot_training_latents(logger)
+    # get_acquired_preditctions_pf(logger)
+    # plot_training_latents(logger)
 
-    #get_pf_validation_accuracy(logger, args.val_dataset_fname)
+    # get_pf_validation_accuracy(logger, args.val_dataset_fname)
