@@ -62,20 +62,7 @@ def find_informative_tower(pf, object_set, logger, args):
     return all_grasps[acquire_ix]
 
 
-def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_samples,
-                                             n_samples_from_latent_dist=32, batching_size=20):
-    """
-    :param current_context: Grasp dict object with collected datapoints so far.
-        Most-nested dictionaries: ox: [].
-    :param unlabeled_samples: The same format ^.
-        Most-nested dictionaries: ox: [].
-        Labels are meaningless (-1).
-    :param n_samples_from_latent_dist: Number of samples from latent distribution when computing expected
-    entropy of the posterior.
-    :param batching_size: batching size used to speed up computation
-    :return: The grasp index of the unlabeled samples with the highest info gain score.
-    """
-
+def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_dist=32, batching_size=20):
     dataset = CustomGNPGraspDataset(data=unlabeled_samples, context_data=current_context)
     context_data, unlabeled_data = dataset[0]  # apply post-processing
 
@@ -269,16 +256,26 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
         expected_h_z_cond_x_y = p_y_equals_one_cond_d_x * h_z_cond_x_y_equals_one + (
                 1 - p_y_equals_one_cond_d_x) * h_z_cond_x_y_equals_zero
         info_gain = h_z - expected_h_z_cond_x_y
-
-        # return the index with the largest information gain
-        return torch.argmax(info_gain).item()
+        return info_gain
 
 
-def dummy_info_gain(gnp, current_context, unlabeled_samples):
+def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_samples,
+                                             n_samples_from_latent_dist=32, batching_size=20):
     """
-    Return first element for testing.
+    :param current_context: Grasp dict object with collected datapoints so far.
+        Most-nested dictionaries: ox: [].
+    :param unlabeled_samples: The same format ^.
+        Most-nested dictionaries: ox: [].
+        Labels are meaningless (-1).
+    :param n_samples_from_latent_dist: Number of samples from latent distribution when computing expected
+    entropy of the posterior.
+    :param batching_size: batching size used to speed up computation
+    :return: The grasp index of the unlabeled samples with the highest info gain score.
     """
-    return 0
+    # return the index with the largest information gain
+    info_gain = compute_ig(gnp, current_context, unlabeled_samples,
+                           n_samples_from_latent_dist=n_samples_from_latent_dist, batching_size=batching_size)
+    return torch.argmax(info_gain).item()
 
 
 def amoritized_filter_loop(gnp, object_set, logger, strategy, args):

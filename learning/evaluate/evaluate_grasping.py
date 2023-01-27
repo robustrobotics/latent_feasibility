@@ -13,7 +13,7 @@ from sklearn.metrics import recall_score, precision_score, balanced_accuracy_sco
     accuracy_score, average_precision_score
 from torch.utils.data import DataLoader
 from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, \
-    get_train_and_fit_objects
+    get_train_and_fit_objects, drop_last_grasp_in_dataset
 from learning.active.acquire import bald
 
 from block_utils import ParticleDistribution
@@ -21,6 +21,7 @@ from filter_utils import sample_particle_distribution
 from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.grasp_data import GraspDataset, GraspParallelDataLoader
 from learning.domains.grasping.explore_dataset import visualize_grasp_dataset
+from learning.experiments.active_fit_grasping_pf import compute_ig
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 from learning.models.grasp_np.train_grasp_np import check_to_cuda
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief
@@ -124,7 +125,7 @@ def truncate_grasps(tensor_list, n_grasps):
 
 
 def get_gnp_predictions_and_ig_evals(gnp, context_data, val_data):
-    preds, labels, means, covars = [], [], [], []
+    preds, labels, means, covars, entropy = [], [], [], [], []
     dataset = CustomGNPGraspDataset(
         data=val_data,
         context_data=context_data
@@ -157,9 +158,11 @@ def get_gnp_predictions_and_ig_evals(gnp, context_data, val_data):
         labels.append(t_labels)
         means.append(q_z.loc)
         covars.append(q_z.scale)
+        entropy.append(torch.distributions.Independent(q_z, 1).entropy())
 
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu(), \
-           torch.cat(means, dim=0).cpu(), torch.cat(covars, dim=0).cpu()
+           torch.cat(means, dim=0).cpu(), torch.cat(covars, dim=0).cpu(), \
+           torch.cat(entropy, dim=0).cpu()
 
 
 def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_samples=10):
@@ -338,7 +341,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
     confusions = []
 
     if use_progressive_priors:
-        means_agg, covars_agg = [], []
+        means_agg, covars_agg, entropies, info_gains = [], [], [], []
 
     with open(fname, 'rb') as handle:
         val_grasp_data = pickle.load(handle)
@@ -377,21 +380,25 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
                 )
         else:
             # TODO: we can do the playback here.
-            # TODO: save the latent distributions parameters so we can look at them
             context_data, sampled_unlabeled_data = logger.load_acquisition_data(tx)
             gnp = logger.get_neural_process(tx)
             if torch.cuda.is_available():
                 gnp = gnp.cuda()
             # Write function to get predictions given a set of context data.
-            probs, labels, means, covars = get_gnp_predictions_and_ig_evals(
+            probs, labels, means, covars, entropy = get_gnp_predictions_and_ig_evals(
                 gnp,
                 context_data,
                 val_grasp_data
             )
+            # we have to drop the last grasp in the context set to see what the ig comp looked like
+
+            pre_selection_context_data = drop_last_grasp_in_dataset(context_data)
+            info_gain = compute_ig(gnp, pre_selection_context_data, sampled_unlabeled_data).cpu()
+
             means_agg.append(means)
             covars_agg.append(covars)
-
-
+            entropies.append(entropy)
+            info_gains.append(info_gain)
 
         thresholds = np.arange(0.05, 1.0, 0.05)
         for threshold in thresholds:
@@ -441,6 +448,10 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
             pickle.dump(means_agg, handle)
         with open(logger.get_figure_path('val_covars.pkl'), 'wb') as handle:
             pickle.dump(covars_agg, handle)
+        with open(logger.get_figure_path('val_entropies.pkl'), 'wb') as handle:
+            pickle.dump(entropies, handle)
+        with open(logger.get_figure_path('val_info_gains.pkl'), 'wb') as handle:
+            pickle.dump(info_gains, handle)
 
     for k, v in thresholded_recalls.items():
         with open(logger.get_figure_path(f'val_recalls_{k}.pkl'), 'wb') as handle:

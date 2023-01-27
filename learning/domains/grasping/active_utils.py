@@ -55,7 +55,17 @@ def merge_gnp_datasets(dataset1, dataset2):
     return dataset1
 
 
-def sample_unlabeled_gnp_data(n_samples, object_set, object_ix): 
+def drop_last_grasp_in_dataset(dataset):
+    one_less_dataset = {'grasp_data': {}, 'object_data': dataset['object_data']}
+    for field_name in dataset['grasp_data']:
+        one_less_dataset['grasp_data'][field_name] = {}
+        for ox in dataset['grasp_data'][field_name]:
+            one_less_dataset['grasp_data'][field_name][ox] = dataset['grasp_data'][field_name][ox][:-1]
+
+    return one_less_dataset
+
+
+def sample_unlabeled_gnp_data(n_samples, object_set, object_ix):
     grasp_data = sample_unlabeled_data(n_samples, object_set, object_ix)
     grasp_gnp_data = process_geometry(
         grasp_data,
@@ -78,7 +88,7 @@ def sample_unlabeled_data(n_samples, object_set, object_ix=None):
     worker_pool = mp.Pool(processes=20)
     # TODO: MAGIC CURVATURE NUMBERS ALERT
     fn_args = [graspable_body, object_properties, 10000, (0.005, 0.01, 0.02)]
-    results = worker_pool.starmap(sample_grasp_X, [fn_args]*n_samples)
+    results = worker_pool.starmap(sample_grasp_X, [fn_args] * n_samples)
     worker_pool.close()
 
     for grasp, X in results:
@@ -108,7 +118,8 @@ def get_labels(grasp_dataset):
     raw_grasps = grasp_dataset['grasp_data']['raw_grasps']
 
     graspable_body = raw_grasps[0].graspable_body
-    labeler = GraspStabilityChecker(graspable_body, stability_direction='all', label_type='relpose', recompute_inertia=True)
+    labeler = GraspStabilityChecker(graspable_body, stability_direction='all', label_type='relpose',
+                                    recompute_inertia=True)
     for gx in range(0, len(raw_grasps)):
         label = labeler.get_label(raw_grasps[gx])
         print('Label', label)
@@ -116,11 +127,14 @@ def get_labels(grasp_dataset):
     labeler.disconnect()
     return grasp_dataset
 
+
 def get_single_label(graspable_body, grasp):
-    labeler = GraspStabilityChecker(graspable_body, stability_direction='all', label_type='relpose', recompute_inertia=True)
+    labeler = GraspStabilityChecker(graspable_body, stability_direction='all', label_type='relpose',
+                                    recompute_inertia=True)
     label = labeler.get_label(grasp)
     labeler.disconnect()
     return label
+
 
 def get_labels_gnp(grasp_dataset):
     raw_grasps = grasp_dataset['grasp_data']['raw_grasps']
