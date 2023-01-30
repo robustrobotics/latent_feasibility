@@ -63,8 +63,12 @@ def find_informative_tower(pf, object_set, logger, args):
 
 
 def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_dist=32, batching_size=20):
-    dataset = CustomGNPGraspDataset(data=unlabeled_samples, context_data=current_context)
-    context_data, unlabeled_data = dataset[0]  # apply post-processing
+    if current_context['grasp_data']['labels']:
+        dataset = CustomGNPGraspDataset(data=unlabeled_samples, context_data=current_context)
+        context_data, unlabeled_data = dataset[0]  # apply post-processing
+    else:
+        dataset = CustomGNPGraspDataset(data=unlabeled_samples)
+        context_data, unlabeled_data = dataset[0]
 
     n_unlabeled_sampled = len(unlabeled_data['grasp_forces'])
     n_batches = math.ceil(float(n_unlabeled_sampled) / batching_size)
@@ -74,57 +78,62 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
         gnp.cuda()
 
     with torch.no_grad():
-        context_mesh = torch.unsqueeze(
-            torch.swapaxes(
-                torch.tensor(context_data['object_mesh']),
-                1, 2
-            )[0],
-            0
-        )
+        if context_data is None:
+            context_mesh = torch.unsqueeze(
+                torch.swapaxes(
+                    torch.tensor(context_data['object_mesh']),
+                    1, 2
+                )[0],
+                0
+            )
 
-        context_geoms = torch.unsqueeze(
-            torch.swapaxes(
-                torch.tensor(context_data['grasp_geometries']),
-                1, 2
-            ),
-            0
-        )
+            context_geoms = torch.unsqueeze(
+                torch.swapaxes(
+                    torch.tensor(context_data['grasp_geometries']),
+                    1, 2
+                ),
+                0
+            )
 
-        context_grasp_points = torch.unsqueeze(torch.tensor(context_data['grasp_points']), 0)
-        context_curvatures = torch.unsqueeze(torch.tensor(context_data['grasp_curvatures']), 0)
-        context_midpoints = torch.unsqueeze(torch.tensor(context_data['grasp_midpoints']), 0)
-        context_forces = torch.unsqueeze(torch.tensor(context_data['grasp_forces']), 0)
-        context_labels = torch.unsqueeze(torch.tensor(context_data['grasp_labels']), 0)
+            context_grasp_points = torch.unsqueeze(torch.tensor(context_data['grasp_points']), 0)
+            context_curvatures = torch.unsqueeze(torch.tensor(context_data['grasp_curvatures']), 0)
+            context_midpoints = torch.unsqueeze(torch.tensor(context_data['grasp_midpoints']), 0)
+            context_forces = torch.unsqueeze(torch.tensor(context_data['grasp_forces']), 0)
+            context_labels = torch.unsqueeze(torch.tensor(context_data['grasp_labels']), 0)
 
-        context_mesh, \
-        context_geoms, \
-        context_grasp_points, \
-        context_curvatures, \
-        context_midpoints, \
-        context_forces, \
-        context_labels = \
-            check_to_cuda([
-                context_mesh,
-                context_geoms,
-                context_grasp_points,
-                context_curvatures,
-                context_midpoints,
-                context_forces,
-                context_labels
-            ])
+            context_mesh, \
+            context_geoms, \
+            context_grasp_points, \
+            context_curvatures, \
+            context_midpoints, \
+            context_forces, \
+            context_labels = \
+                check_to_cuda([
+                    context_mesh,
+                    context_geoms,
+                    context_grasp_points,
+                    context_curvatures,
+                    context_midpoints,
+                    context_forces,
+                    context_labels
+                ])
 
-        # compute H(z)
-        q_z, mesh_enc = gnp.forward_until_latents(
-            (context_geoms,
-             context_grasp_points,
-             context_curvatures,
-             context_midpoints,
-             context_forces,
-             context_labels),
-            context_mesh
-        )
-        # need to reinterpret as a multivariate Gaussian and then compute entropy
-        h_z = torch.distributions.Independent(q_z, 1).entropy()
+            # compute H(z)
+            q_z, mesh_enc = gnp.forward_until_latents(
+                (context_geoms,
+                 context_grasp_points,
+                 context_curvatures,
+                 context_midpoints,
+                 context_forces,
+                 context_labels),
+                context_mesh
+            )
+            # need to reinterpret as a multivariate Gaussian and then compute entropy
+            h_z = torch.distributions.Independent(q_z, 1).entropy()
+        else:
+            # if there is no context data, we'll use an uninformed prior
+            q_z = torch.distributions.Normal(torch.zeros((1, gnp.d_latents)), torch.ones((1, gnp.d_latents)))
+            h_z = torch.distributions.Independent(q_z, 1).entropy()
 
         # prepare unlabeled points as batched singletons
         unlabeled_mesh = torch.unsqueeze(
