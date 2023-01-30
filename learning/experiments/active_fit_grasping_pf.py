@@ -225,15 +225,19 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
         one_labels = torch.ones((n_unlabeled_sampled, 1))
         zero_labels, one_labels = check_to_cuda([zero_labels, one_labels])
 
-        candidate_labels_zero = torch.cat([
-            context_labels[0].broadcast_to(n_unlabeled_sampled, *context_labels[0].shape),
-            zero_labels
-        ], dim=1)
+        if context_data is not None:
+            candidate_labels_zero = torch.cat([
+                context_labels[0].broadcast_to(n_unlabeled_sampled, *context_labels[0].shape),
+                zero_labels
+            ], dim=1)
 
-        candidate_labels_one = torch.cat([
-            context_labels[0].broadcast_to(n_unlabeled_sampled, *context_labels[0].shape),
-            one_labels
-        ], dim=1)
+            candidate_labels_one = torch.cat([
+                context_labels[0].broadcast_to(n_unlabeled_sampled, *context_labels[0].shape),
+                one_labels
+            ], dim=1)
+        else:
+            candidate_labels_zero = zero_labels
+            candidate_labels_one = one_labels
 
         h_z_cond_x_y_equals_zero = torch.zeros(n_unlabeled_sampled)
         h_z_cond_x_y_equals_one = torch.zeros(n_unlabeled_sampled)
@@ -306,7 +310,7 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
     #  we should be using IG the uninformed prior
     # Initialize data dictionary in GNP format with a random data point.
     samples = sample_unlabeled_gnp_data(n_samples=args.n_samples, object_set=object_set,
-                                             object_ix=args.eval_object_ix)
+                                        object_ix=args.eval_object_ix)
     context_data = select_gnp_dataset_ix(samples, 0)
     context_data = get_labels_gnp(context_data)
 

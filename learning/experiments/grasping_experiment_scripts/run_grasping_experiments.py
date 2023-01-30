@@ -126,7 +126,7 @@ def run_fitting_phase(args):
             fit_objects = pickle.load(handle)
 
         min_pstable, max_pstable, min_dist = 0.00, 1.0, 0.00
-        valid_fit_objects = filter_objects(
+        valid_fit_objects, _, _ = filter_objects(
             object_names=fit_objects['object_data']['object_names'],
             ignore_list=ignore,
             phase=geo_type.split('_')[0],

@@ -156,9 +156,9 @@ def get_gnp_predictions_and_ig_evals(gnp, context_data, val_data):
 
         preds.append(pred)
         labels.append(t_labels)
-        means.append(q_z.loc)
-        covars.append(q_z.scale)
-        entropy.append(torch.distributions.Independent(q_z, 1).entropy())
+        means.append(q_z.loc.detach().cpu())
+        covars.append(q_z.scale.detach().cpu())
+        entropy.append(torch.distributions.Independent(q_z, 1).entropy().detach().cpu())
 
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu(), \
            torch.cat(means, dim=0).cpu(), torch.cat(covars, dim=0).cpu(), \
@@ -395,10 +395,10 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
             pre_selection_context_data = drop_last_grasp_in_dataset(context_data)
             info_gain = compute_ig(gnp, pre_selection_context_data, sampled_unlabeled_data).cpu()
 
-            means_agg.append(means)
-            covars_agg.append(covars)
-            entropies.append(entropy)
-            info_gains.append(info_gain)
+            means_agg.append(means.numpy())
+            covars_agg.append(covars.numpy())
+            entropies.append(entropy.numpy())
+            info_gains.append(info_gain.numpy())
 
         thresholds = np.arange(0.05, 1.0, 0.05)
         for threshold in thresholds:
