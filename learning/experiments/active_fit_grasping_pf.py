@@ -78,7 +78,7 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
         gnp.cuda()
 
     with torch.no_grad():
-        if context_data is None:
+        if context_data is not None:
             context_mesh = torch.unsqueeze(
                 torch.swapaxes(
                     torch.tensor(context_data['object_mesh']),
@@ -132,7 +132,10 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
             h_z = torch.distributions.Independent(q_z, 1).entropy()
         else:
             # if there is no context data, we'll use an uninformed prior
-            q_z = torch.distributions.Normal(torch.zeros((1, gnp.d_latents)), torch.ones((1, gnp.d_latents)))
+            zeros = torch.zeros((1, gnp.d_latents))
+            ones = torch.ones((1, gnp.d_latents))
+            zeros, ones = check_to_cuda([zeros, ones])
+            q_z = torch.distributions.Normal(zeros, ones)
             h_z = torch.distributions.Independent(q_z, 1).entropy()
 
         # prepare unlabeled points as batched singletons
@@ -202,16 +205,21 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
 
         # next, we create all the candidate context sets and then compute the entropy of the latent distribution
         # for each
-        candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_midpoints, candidate_forces = \
-            [torch.cat([
-                c_set[0].broadcast_to(n_unlabeled_sampled, *c_set[0].shape),
-                u_set
-            ], dim=1)
-                for c_set, u_set in zip(
-                [context_geoms, context_grasp_points, context_curvatures, context_midpoints, context_forces],
-                [unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints,
-                 unlabeled_forces])
-            ]
+        if context_data is not None:
+            candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_midpoints, candidate_forces = \
+                [torch.cat([
+                    c_set[0].broadcast_to(n_unlabeled_sampled, *c_set[0].shape),
+                    u_set
+                ], dim=1)
+                    for c_set, u_set in zip(
+                    [context_geoms, context_grasp_points, context_curvatures, context_midpoints, context_forces],
+                    [unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints,
+                     unlabeled_forces])
+                ]
+        else:
+            # if there are no context, then the unlabeled sets are the actual candidate sets
+            candidate_geoms, candidate_grasp_poitns, candidate_curvatures, candidate_midpoints, candidate_forces = \
+                unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints, unlabeled_forces
 
         zero_labels = torch.zeros((n_unlabeled_sampled, 1))
         one_labels = torch.ones((n_unlabeled_sampled, 1))
