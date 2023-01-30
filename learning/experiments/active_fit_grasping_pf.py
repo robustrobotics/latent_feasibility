@@ -63,7 +63,7 @@ def find_informative_tower(pf, object_set, logger, args):
 
 
 def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_dist=32, batching_size=20):
-    if current_context['grasp_data']['labels']:
+    if list(current_context['grasp_data']['labels'].values())[0]:
         dataset = CustomGNPGraspDataset(data=unlabeled_samples, context_data=current_context)
         context_data, unlabeled_data = dataset[0]  # apply post-processing
     else:
@@ -218,7 +218,7 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
                 ]
         else:
             # if there are no context, then the unlabeled sets are the actual candidate sets
-            candidate_geoms, candidate_grasp_poitns, candidate_curvatures, candidate_midpoints, candidate_forces = \
+            candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_midpoints, candidate_forces = \
                 unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints, unlabeled_forces
 
         zero_labels = torch.zeros((n_unlabeled_sampled, 1))
@@ -305,10 +305,12 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
     # TODO: if we regularize with uninformed prior, we shouldn't start with a random sample.
     #  we should be using IG the uninformed prior
     # Initialize data dictionary in GNP format with a random data point.
-    context_data = sample_unlabeled_gnp_data(n_samples=1, object_set=object_set, object_ix=args.eval_object_ix)
+    samples = sample_unlabeled_gnp_data(n_samples=args.n_samples, object_set=object_set,
+                                             object_ix=args.eval_object_ix)
+    context_data = select_gnp_dataset_ix(samples, 0)
     context_data = get_labels_gnp(context_data)
 
-    logger.save_acquisition_data(context_data, None, 0)
+    logger.save_acquisition_data(context_data, samples, 0)
 
     # All random grasps end up getting labeled, so parallelize this.
     if strategy == 'random':
@@ -327,7 +329,7 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
 
             context_data = merge_gnp_datasets(context_data, grasp_dataset)
             logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
-            logger.save_acquisition_data(context_data, None, tx + 1)
+            logger.save_acquisition_data(context_data, random_pool, tx + 1)
         elif strategy == 'bald':
             # TODO: Sample target unlabeled dataset in parallel fashion.
             unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set, object_ix=args.eval_object_ix)
