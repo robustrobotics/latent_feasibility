@@ -52,10 +52,11 @@ def get_loss(y_probs, target_ys, q_z, q_z_n, alpha=1, use_informed_prior=True, b
     beta = 1
     if use_informed_prior:
         kld_loss = beta * torch.distributions.kl_divergence(q_z, q_z_n).sum()
-        bce_loss = bce_loss * bce_scale_factor
     else:
         p_z = torch.distributions.normal.Normal(torch.zeros_like(q_z.loc), torch.ones_like(q_z.scale))
         kld_loss = beta * torch.distributions.kl_divergence(q_z, p_z).sum()
+
+    bce_loss = bce_loss * bce_scale_factor
     # kld_loss = 0
     # weight = (1 + alpha)
     return bce_loss + kld_loss, bce_loss, kld_loss
