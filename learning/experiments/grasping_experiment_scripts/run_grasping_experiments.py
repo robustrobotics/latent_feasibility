@@ -134,7 +134,7 @@ def run_fitting_phase(args):
             min_pstable=min_pstable,
             max_pstable=max_pstable,
             min_dist_threshold=min_dist,
-            max_objects=5
+            max_objects=250
         )
         print(f'Total: {len(valid_fit_objects)} to fit for {geo_type}.')
 
@@ -450,7 +450,7 @@ def run_testing_phase(args):
         min_pstable=0.0,
         max_pstable=1.0,
         min_dist_threshold=0.0,
-        max_objects=5
+        max_objects=250
     )
     for ox, object_name in valid_train_objects:
 
