@@ -124,7 +124,7 @@ def plot_from_dataframe(d, output_path):
     plt.figure(figsize=(12, 9))
     sns.set_theme(style='darkgrid')
     d_train = d.loc['train']
-    d_stable = d_train[(1.0 > d_train.pstable) & (d_train.pstable > 0.8)]
+    d_stable = d_train[(1.0 > d_train.pstable) & (d_train.pstable > 0.8)].drop_duplicates()
     print(d.loc['train']['pstable'].mean())
     sns.relplot(data=d_stable, x='acquisition', y='time metric value', estimator='mean',
                 col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar='sd')
@@ -133,7 +133,7 @@ def plot_from_dataframe(d, output_path):
 
     plt.figure()
     d_test = d.loc['test']
-    d_stable = d_test[(0.8 < d_test.pstable) & (d_test.pstable < 1.0)]
+    d_stable = d_test[(0.8 < d_test.pstable) & (d_test.pstable < 1.0)].drop_duplicates()
     print(d.loc['test']['pstable'].mean())
     sns.relplot(data=d_stable, x='acquisition', y='time metric value', estimator='mean',
                 col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar='sd')
