@@ -20,7 +20,7 @@ from block_utils import ParticleDistribution
 from filter_utils import sample_particle_distribution
 from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.grasp_data import GraspDataset, GraspParallelDataLoader
-from learning.domains.grasping.explore_dataset import visualize_grasp_dataset
+from learning.domains.grasping.explore_dataset import visualize_grasp_dataset, visualize_fitting_acquisition
 from learning.experiments.active_fit_grasping_pf import compute_ig
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 from learning.models.grasp_np.train_grasp_np import check_to_cuda
@@ -394,6 +394,8 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
 
             pre_selection_context_data = drop_last_grasp_in_dataset(context_data)
             info_gain = compute_ig(gnp, pre_selection_context_data, sampled_unlabeled_data).cpu()
+            visualize_fitting_acquisition(pre_selection_context_data, sampled_unlabeled_data, info_gain)
+            # TODO: implement visualization of the fitting grasp right here using tm_grasp_show in antipodal
 
             means_agg.append(means.numpy())
             covars_agg.append(covars.numpy())

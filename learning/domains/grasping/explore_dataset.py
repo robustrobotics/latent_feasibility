@@ -164,6 +164,30 @@ def visualize_grasp_dataset(dataset_fname, labels=None, figpath='', prefix=''):
         else:
             sim_client.tm_show_grasps(grasps, obj_labels)
         sim_client.disconnect()
+
+def visualize_fitting_acquisition(context_dataset, unlabeled_sample_set, ig_values, figpath=''):
+    # TODO:
+    #  (1) IG coloring
+    #  (2) Highlight selectected grasp somehow
+    #  (3) Put down both grasp points and then draw a line to associate them through the object
+
+    # first we loop through keys in context/unlabeled for all objects currently being evaluated
+    for obj_ix in context_dataset['grasp_data']['object_meshes'].keys():
+
+        # construct graspable body
+        graspable_body = graspablebody_from_vector(context_dataset['object_data']['object_names'][obj_ix],
+                                                   context_dataset['object_data']['object_properties'][obj_ix])
+        sim_client = GraspSimulationClient(graspable_body, False)
+
+        # for now, let's just take one of the grasp points for vis for tm_show grasp
+        grasps = []
+        forces = []
+        for grasp_points, force in zip(unlabeled_sample_set['grasp_data']['grasp_points'][obj_ix],
+                                       unlabeled_sample_set['grasp_data']['grasp_forces'][obj_ix]):
+            grasps.append(grasp_points[0, :])
+            forces.append(force)
+        sim_client.tm_show_grasps(grasps, forces=forces)
+        sim_client.disconnect()
         
 def analyze_objects(objects_all):
     objects = objects_all['object_data']
