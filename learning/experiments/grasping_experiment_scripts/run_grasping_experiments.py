@@ -134,7 +134,7 @@ def run_fitting_phase(args):
             min_pstable=min_pstable,
             max_pstable=max_pstable,
             min_dist_threshold=min_dist,
-            max_objects=250
+            max_objects=5
         )
         print(f'Total: {len(valid_fit_objects)} to fit for {geo_type}.')
 
@@ -413,6 +413,10 @@ def run_testing_phase(args):
     with open(test_objects_fname, 'rb') as handle:
         test_objects = pickle.load(handle)
 
+    with open(os.path.join(logs_lookup['training_phase'], 'args.pkl'), 'rb') as handle:
+        training_args = pickle.load(handle)
+    n_latents = training_args.d_latents
+
     # Nested dictionary: [train_geo/test_geo][random/bald][all/object_name]
     logs_lookup_by_object = {
         'train_geo': {
@@ -446,7 +450,7 @@ def run_testing_phase(args):
         min_pstable=0.0,
         max_pstable=1.0,
         min_dist_threshold=0.0,
-        max_objects=250
+        max_objects=5
     )
     for ox, object_name in valid_train_objects:
 
@@ -489,7 +493,7 @@ def run_testing_phase(args):
         min_pstable=0.0,
         max_pstable=1.0,
         min_dist_threshold=0.0,
-        max_objects=250
+        max_objects=5
     )
     for ox, object_name in valid_test_objects:
 
@@ -531,10 +535,19 @@ def run_testing_phase(args):
     recalls = {'train_geo': {}, 'test_geo': {}}
     f1s = {'train_geo': {}, 'test_geo': {}}
     balanced_accuracy_scores = {'train_geo': {}, 'test_geo': {}}
-    metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores]
-    metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
-                        'val_f1s.pkl', 'val_balanced_accs.pkl']
-    metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy']
+    entropies = {'train_geo': {}, 'test_geo': {}}
+    means = {'train_geo': {}, 'test_geo': {}}
+    covars = {'train_geo': {}, 'test_geo': {}}
+    if args.amortize:
+        metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies]
+        metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
+                            'val_f1s.pkl', 'val_balanced_accs.pkl', 'val_entropies.pkl']
+        metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy', 'entropy']
+    else:
+        metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores]
+        metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
+                            'val_f1s.pkl', 'val_balanced_accs.pkl']
+        metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy']
     log_paths_set = {'train_geo': [], 'test_geo': []}
     n_acquisitions = None
     for obj_set in ['train_geo', 'test_geo']:
@@ -547,7 +560,8 @@ def run_testing_phase(args):
             with open(os.path.join(log_paths[0], 'args.pkl'), 'rb') as handle:
                 fit_args = pickle.load(handle)
             n_acquisitions = fit_args.max_acquisitions
-            acc, prec, avg_prec, recalls, f1s, bal_acc = \
+            acc, prec, avg_prec, recalls, f1s, bal_acc, etrpy = \
+                np.zeros((n_objs, n_acquisitions)), \
                 np.zeros((n_objs, n_acquisitions)), \
                 np.zeros((n_objs, n_acquisitions)), \
                 np.zeros((n_objs, n_acquisitions)), \
@@ -555,16 +569,31 @@ def run_testing_phase(args):
                 np.zeros((n_objs, n_acquisitions)), \
                 np.zeros((n_objs, n_acquisitions))
 
-            metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc]
+            if args.amortize:
+                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, etrpy]
+            else:
+                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc]
+
+            mn, cvr = np.zeros((n_objs, n_latents, n_acquisitions)), np.zeros((n_objs, n_latents, n_acquisitions))
+
             for i_obj, log_path in enumerate(log_paths):
                 logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
 
                 for data_arr, fname in zip(metric_per_strategy_list, metric_file_list):
                     with open(logger.get_figure_path(fname), 'rb') as handle:
-                        data_arr[i_obj, :] = np.array(pickle.load(handle))
+                        data_arr[i_obj, :] = np.array(pickle.load(handle)).squeeze()
+
+                if args.amortize:
+                    for data_arr, fname in zip([mn, cvr], ['val_means.pkl', 'val_covars.pkl']):
+                        with open(logger.get_figure_path(fname), 'rb') as handle:
+                            data_arr[i_obj, :, :] = np.array(pickle.load(handle)).squeeze().T
 
             for metric, metric_per_strategy in zip(metric_list, metric_per_strategy_list):
                 metric[obj_set][strategy] = metric_per_strategy
+
+            if args.amortize:
+                means[obj_set][strategy] = mn
+                covars[obj_set][strategy] = cvr
 
     # we now have all the data we need to construct the full dataframe
     # we first construct are two dataframes: one for the time-dependent metrics
@@ -607,31 +636,62 @@ def run_testing_phase(args):
         log_paths_set['train_geo']
     ), index=mi_test, columns=['pstable', 'avg_min_dist', 'log_paths'])
 
-
     # construct multi-index for columns in time-series data
-    mc = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)], names=['time metric', 'acquisition'])
+    mc_time = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)], names=['time metric', 'acquisition'])
     formatted_metrics_train = np.hstack([
-        np.vstack(metric['train_geo'].values()) for metric in metric_list
+        np.vstack(list(metric['train_geo'].values())) for metric in metric_list
     ])
-    d_time_train = pd.DataFrame(data=formatted_metrics_train, index=mi_train, columns=mc)
+    d_time_train = pd.DataFrame(data=formatted_metrics_train, index=mi_train, columns=mc_time)
 
     formatted_metrics_test = np.hstack([
-        np.vstack(metric['test_geo'].values()) for metric in metric_list
+        np.vstack(list(metric['test_geo'].values())) for metric in metric_list
     ])
-    d_time_test = pd.DataFrame(data=formatted_metrics_test, index=mi_test, columns=mc)
+    d_time_test = pd.DataFrame(data=formatted_metrics_test, index=mi_test, columns=mc_time)
 
     # concat const frames and time frames together and melt into long form so we can merge the tables
     d_const = pd.concat([d_const_train, d_const_test], keys=['train', 'test'])
     d_time = pd.concat([d_time_train, d_time_test], keys=['train', 'test']).melt(
         value_name='time metric value', ignore_index=False)
-
-    # full table merge
     d_all = pd.merge(d_const, d_time, left_index=True, right_index=True)
+
+    # if we are amortizing, then we're tracking covariances + means, include in computation
+    if args.amortize:
+        # construct multi-index for columns in time-series data per latent property
+        mc_ltime = pd.MultiIndex.from_product([['mean', 'covar'], range(n_latents), range(n_acquisitions)],
+                                              names=['latent parameter', 'latent', 'acquisition'])
+        formatted_latent_metrics_train = np.hstack([
+            # stack strategy data on top of each other
+            np.vstack([
+                lmps.reshape((lmps.shape[0], lmps.shape[1] * lmps.shape[2]), order='C')
+                for lmps in latent_metric['train_geo'].values()
+            ])
+            # stack mean and covars side by side
+            for latent_metric in [means, covars]
+        ])
+        d_latent_time_train = pd.DataFrame(data=formatted_latent_metrics_train, index=mi_train, columns=mc_ltime)
+
+        formatted_latent_metrics_test = np.hstack([
+            # stack strategy data on top of each other
+            np.vstack([
+                lmps.reshape((lmps.shape[0], lmps.shape[1] * lmps.shape[2]), order='C')
+                for lmps in latent_metric['test_geo'].values()
+            ])
+            # stack mean and covars side by side
+            for latent_metric in [means, covars]
+        ])
+        d_latent_time_test = pd.DataFrame(data=formatted_latent_metrics_test, index=mi_test, columns=mc_ltime)
+        d_ltime = pd.concat([d_latent_time_train, d_latent_time_test], keys=['train', 'test']).melt(ignore_index=False)
+
+        # merge latents into d_all
+        d_all = pd.merge(d_all, d_ltime, left_index=True, right_index=True, suffixes=(None, '_temp'))
+        # clear away redundant acquisition entries
+        d_all = d_all.loc[d_all.acquisition == d_all.acquisition_temp].drop(columns=['acquisition_temp'])
 
     # next, seaborn can only plot certain values against others in column format, so we need to
     # move some of the row indicators to columns (unpivot?)
     fig_path = os.path.join(exp_path, 'figures')
     plot_from_dataframe(d_all, fig_path)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
