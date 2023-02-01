@@ -205,7 +205,8 @@ def run_fitting_phase(args):
                 fit_logger,
                 val_dataset_path,
                 args.amortize,
-                use_progressive_priors=True
+                use_progressive_priors=fitting_args.use_progressive_priors,
+                save_vis=False
             )
 
 

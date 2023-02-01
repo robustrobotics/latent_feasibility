@@ -335,7 +335,7 @@ def get_pf_task_performance(logger, fname):
             pickle.dump(regrets, handle)
 
 
-def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
+def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, save_vis):
     accs, precisions, recalls, f1s, balanced_accs, av_precs = [], [], [], [], [], []
     thresholded_recalls = {}
     confusions = []
@@ -379,7 +379,6 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
                     n_particle_samples=50
                 )
         else:
-            # TODO: we can do the playback here.
             context_data, sampled_unlabeled_data = logger.load_acquisition_data(tx)
             gnp = logger.get_neural_process(tx)
             if torch.cuda.is_available():
@@ -397,7 +396,8 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors):
             max_entropy = torch.distributions.Independent(
                 torch.distributions.Normal(torch.zeros((1, gnp.d_latents)), torch.ones((1, gnp.d_latents))),
                 1).entropy()
-            visualize_fitting_acquisition(pre_selection_context_data, sampled_unlabeled_data, info_gain, max_entropy)
+            visualize_fitting_acquisition(pre_selection_context_data, sampled_unlabeled_data, info_gain, max_entropy,
+                                          figpath=logger.get_figure_path('acquisition%i_vis.png' % tx))
 
             means_agg.append(means.numpy())
             covars_agg.append(covars.numpy())
