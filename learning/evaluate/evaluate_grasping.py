@@ -399,7 +399,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                     1).entropy()
                 visualize_fitting_acquisition(pre_selection_context_data, sampled_unlabeled_data, info_gain,
                                               max_entropy,
-                                              figpath=logger.get_figure_path('acquisition%i_vis.png' % tx))
+                                              figpath='')
 
             means_agg.append(means.numpy())
             covars_agg.append(covars.numpy())

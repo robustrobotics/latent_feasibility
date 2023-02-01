@@ -256,10 +256,10 @@ def run_fitting_phase_visualization(args):
 
         # get args for experiment playback
         with open(os.path.join(log_path, 'args.pkl'), 'rb') as handle:
-            fitting_args = pickle.load(args)
+            fitting_args = pickle.load(handle)
 
         object_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase',
-                                           f'fit_grasps_train_geo_object_{obj_ix}.pkl'),
+                                           f'fit_grasps_train_geo_object{obj_ix}.pkl')
         get_pf_validation_accuracy(
             logger,
             object_dataset_path,
@@ -277,10 +277,10 @@ def run_fitting_phase_visualization(args):
 
         # get args for experiment playback
         with open(os.path.join(log_path, 'args.pkl'), 'rb') as handle:
-            fitting_args = pickle.load(args)
+            fitting_args = pickle.load(handle)
 
         object_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase',
-                                           f'fit_grasps_test_geo_object_{obj_ix}.pkl'),
+                                           f'fit_grasps_test_geo_object{obj_ix}.pkl')
         get_pf_validation_accuracy(
             logger,
             object_dataset_path,
