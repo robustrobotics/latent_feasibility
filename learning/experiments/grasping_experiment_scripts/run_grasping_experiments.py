@@ -86,7 +86,6 @@ def get_fitting_phase_dataset_args(dataset_fname):
     return train_geo_fname, test_geo_fname, n_train_geo, n_test_geo
 
 
-# TODO: implement amortized flag here
 def run_fitting_phase(args):
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
     if not os.path.exists(exp_path):
@@ -206,9 +205,89 @@ def run_fitting_phase(args):
                 val_dataset_path,
                 args.amortize,
                 use_progressive_priors=fitting_args.use_progressive_priors,
-                save_vis=False
+                vis=False
             )
 
+
+def run_fitting_phase_visualization(args):
+    exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
+    if not os.path.exists(exp_path):
+        print(f'[ERROR] Experiment does not exist: {args.exp_name}')
+        sys.exit()
+
+    logs_path = os.path.join(exp_path, 'logs_lookup.json')
+    with open(logs_path, 'r') as handle:
+        logs_lookup = json.load(handle)
+
+    # Get train_geo_test_props.pkl and test_geo_test_props.pkl
+    args_path = os.path.join(exp_path, 'args.pkl')
+    with open(args_path, 'rb') as handle:
+        exp_args = pickle.load(handle)
+
+    ignore_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'ignore.txt')
+    TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(ignore_fname)
+
+    # Get object data.
+    train_objects_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'objects', 'train_geo_test_props.pkl')
+    with open(train_objects_fname, 'rb') as handle:
+        train_objects = pickle.load(handle)
+    test_objects_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'objects', 'test_geo_test_props.pkl')
+    with open(os.path.join(DATA_ROOT, exp_args.dataset_name, 'args.pkl'), 'rb') as handle:
+        dataset_args = pickle.load(handle)
+    n_property_samples_train = dataset_args.n_property_samples_train
+    n_property_samples_test = dataset_args.n_property_samples_test
+
+    with open(test_objects_fname, 'rb') as handle:
+        test_objects = pickle.load(handle)
+
+    with open(os.path.join(logs_lookup['training_phase'], 'args.pkl'), 'rb') as handle:
+        training_args = pickle.load(handle)
+    n_latents = training_args.d_latents
+
+    logs_lookup_by_object, _, _, _, _, _, _ = gather_experiment_logs_file_paths(
+        TEST_IGNORE, TRAIN_IGNORE, args, exp_args, logs_lookup, test_objects, train_objects)
+
+    for obj_ix in args.vis_train_objects:
+        # work out correct log file, prop sample #, and proper log path for logger
+        object_name = train_objects['object_data']['object_names'][obj_ix]
+        no_prop_sample = obj_ix % n_property_samples_train
+        log_path = logs_lookup_by_object['train_geo'][args.strategy][object_name][no_prop_sample]
+        logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
+
+        # get args for experiment playback
+        with open(os.path.join(log_path, 'args.pkl'), 'rb') as handle:
+            fitting_args = pickle.load(args)
+
+        object_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase',
+                                           f'fit_grasps_train_geo_object_{obj_ix}.pkl'),
+        get_pf_validation_accuracy(
+            logger,
+            object_dataset_path,
+            fitting_args.likelihood == 'gnp',
+            use_progressive_priors=fitting_args.use_progressive_priors,
+            vis=True
+        )
+
+    for obj_ix in args.vis_test_objects:
+        # work out correct log file, prop sample #, and proper log path for logger
+        object_name = test_objects['object_data']['object_names'][obj_ix]
+        no_prop_sample = obj_ix % n_property_samples_test
+        log_path = logs_lookup_by_object['test_geo'][args.strategy][object_name][no_prop_sample]
+        logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
+
+        # get args for experiment playback
+        with open(os.path.join(log_path, 'args.pkl'), 'rb') as handle:
+            fitting_args = pickle.load(args)
+
+        object_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase',
+                                           f'fit_grasps_test_geo_object_{obj_ix}.pkl'),
+        get_pf_validation_accuracy(
+            logger,
+            object_dataset_path,
+            fitting_args.likelihood == 'gnp',
+            use_progressive_priors=fitting_args.use_progressive_priors,
+            vis=True
+        )
 
 def run_task_eval_phase(args):
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
@@ -418,114 +497,14 @@ def run_testing_phase(args):
         training_args = pickle.load(handle)
     n_latents = training_args.d_latents
 
-    # Nested dictionary: [train_geo/test_geo][random/bald][all/object_name]
-    logs_lookup_by_object = {
-        'train_geo': {
-            'random': {
-                'all': [],
-            },
-            'bald': {
-                'all': [],
-            },
-            'constrained_random': {
-                'all': []
-            }
-        },
-        'test_geo': {
-            'random': {
-                'all': [],
-            },
-            'bald': {
-                'all': [],
-            },
-            'constrained_random': {
-                'all': []
-            }
-        }
-    }
-    valid_train_objects, valid_train_pstables, valid_train_min_dists = filter_objects(
-        object_names=train_objects['object_data']['object_names'],
-        ignore_list=TRAIN_IGNORE,
-        phase='train',
-        dataset_name=exp_args.dataset_name,
-        min_pstable=0.0,
-        max_pstable=1.0,
-        min_dist_threshold=0.0,
-        max_objects=250
-    )
-    for ox, object_name in valid_train_objects:
-
-        if object_name not in logs_lookup_by_object['train_geo']['random']:
-            logs_lookup_by_object['train_geo']['random'][object_name] = []
-        if object_name not in logs_lookup_by_object['train_geo']['bald']:
-            logs_lookup_by_object['train_geo']['bald'][object_name] = []
-        if object_name not in logs_lookup_by_object['train_geo']['constrained_random']:
-            logs_lookup_by_object['train_geo']['constrained_random'][object_name] = []
-
-        random_log_key = f'grasp_{exp_args.exp_name}_fit_random_train_geo_object{ox}'
-        if random_log_key in logs_lookup['fitting_phase']['random']:
-            random_log_fname = logs_lookup['fitting_phase']['random'][random_log_key]
-
-            logs_lookup_by_object['train_geo']['random']['all'].append(random_log_fname)
-            logs_lookup_by_object['train_geo']['random'][object_name].append(random_log_fname)
-
-        constrained_random_log_key = f'grasp_{exp_args.exp_name}_fit_constrained_random_train_geo_object{ox}'
-        if constrained_random_log_key in logs_lookup['fitting_phase']['constrained_random']:
-            constrained_random_log_fname = logs_lookup['fitting_phase']['constrained_random'][
-                constrained_random_log_key]
-
-            logs_lookup_by_object['train_geo']['constrained_random']['all'].append(constrained_random_log_fname)
-            logs_lookup_by_object['train_geo']['constrained_random'][object_name].append(constrained_random_log_fname)
-
-        bald_log_key = f'grasp_{args.exp_name}_fit_bald_train_geo_object{ox}'
-        if 'bald' in logs_lookup['fitting_phase'] and bald_log_key in logs_lookup['fitting_phase']['bald']:
-            bald_log_fname = logs_lookup['fitting_phase']['bald'][bald_log_key]
-
-            logs_lookup_by_object['train_geo']['bald']['all'].append(bald_log_fname)
-            logs_lookup_by_object['train_geo']['bald'][object_name].append(bald_log_fname)
-
-    print(f'{len(valid_train_objects)} train geo objects included.')
-
-    valid_test_objects, valid_test_pstables, valid_test_min_dists = filter_objects(
-        object_names=test_objects['object_data']['object_names'],
-        ignore_list=TEST_IGNORE,
-        phase='test',
-        dataset_name=exp_args.dataset_name,
-        min_pstable=0.0,
-        max_pstable=1.0,
-        min_dist_threshold=0.0,
-        max_objects=5
-    )
-    for ox, object_name in valid_test_objects:
-
-        if object_name not in logs_lookup_by_object['test_geo']['random']:
-            logs_lookup_by_object['test_geo']['random'][object_name] = []
-        if object_name not in logs_lookup_by_object['test_geo']['bald']:
-            logs_lookup_by_object['test_geo']['bald'][object_name] = []
-        if object_name not in logs_lookup_by_object['test_geo']['constrained_random']:
-            logs_lookup_by_object['test_geo']['constrained_random'][object_name] = []
-
-        random_log_key = f'grasp_{exp_args.exp_name}_fit_random_test_geo_object{ox}'
-        if random_log_key in logs_lookup['fitting_phase']['random']:
-            random_log_fname = logs_lookup['fitting_phase']['random'][random_log_key]
-
-            logs_lookup_by_object['test_geo']['random']['all'].append(random_log_fname)
-            logs_lookup_by_object['test_geo']['random'][object_name].append(random_log_fname)
-
-        constrained_random_log_key = f'grasp_{exp_args.exp_name}_fit_constrained_random_test_geo_object{ox}'
-        if constrained_random_log_key in logs_lookup['fitting_phase']['constrained_random']:
-            constrained_random_log_fname = logs_lookup['fitting_phase']['constrained_random'][
-                constrained_random_log_key]
-            logs_lookup_by_object['test_geo']['constrained_random']['all'].append(constrained_random_log_fname)
-            logs_lookup_by_object['test_geo']['constrained_random'][object_name].append(constrained_random_log_fname)
-
-        bald_log_key = f'grasp_{args.exp_name}_fit_bald_test_geo_object{ox}'
-        if 'bald' in logs_lookup['fitting_phase'] and bald_log_key in logs_lookup['fitting_phase']['bald']:
-            bald_log_fname = logs_lookup['fitting_phase']['bald'][bald_log_key]
-            logs_lookup_by_object['test_geo']['bald']['all'].append(bald_log_fname)
-            logs_lookup_by_object['test_geo']['bald'][object_name].append(bald_log_fname)
-
-    print(f'{len(valid_test_objects)} test geo objects included.')
+    logs_lookup_by_object, \
+    valid_test_min_dists, \
+    valid_test_objects, \
+    valid_test_pstables, \
+    valid_train_min_dists, \
+    valid_train_objects, \
+    valid_train_pstables = gather_experiment_logs_file_paths(
+        TEST_IGNORE, TRAIN_IGNORE, args, exp_args, logs_lookup, test_objects, train_objects)
 
     # collect all of the stored metric data over the course of training
     # note; we don't do confusions since they are hard to store... and that data can come from the other
@@ -694,14 +673,129 @@ def run_testing_phase(args):
     plot_from_dataframe(d_all, fig_path)
 
 
+def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args, logs_lookup, test_objects,
+                                      train_objects):
+    # Nested dictionary: [train_geo/test_geo][random/bald][all/object_name]
+    logs_lookup_by_object = {
+        'train_geo': {
+            'random': {
+                'all': [],
+            },
+            'bald': {
+                'all': [],
+            },
+            'constrained_random': {
+                'all': []
+            }
+        },
+        'test_geo': {
+            'random': {
+                'all': [],
+            },
+            'bald': {
+                'all': [],
+            },
+            'constrained_random': {
+                'all': []
+            }
+        }
+    }
+    valid_train_objects, valid_train_pstables, valid_train_min_dists = filter_objects(
+        object_names=train_objects['object_data']['object_names'],
+        ignore_list=TRAIN_IGNORE,
+        phase='train',
+        dataset_name=exp_args.dataset_name,
+        min_pstable=0.0,
+        max_pstable=1.0,
+        min_dist_threshold=0.0,
+        max_objects=250
+    )
+    for ox, object_name in valid_train_objects:
+
+        if object_name not in logs_lookup_by_object['train_geo']['random']:
+            logs_lookup_by_object['train_geo']['random'][object_name] = []
+        if object_name not in logs_lookup_by_object['train_geo']['bald']:
+            logs_lookup_by_object['train_geo']['bald'][object_name] = []
+        if object_name not in logs_lookup_by_object['train_geo']['constrained_random']:
+            logs_lookup_by_object['train_geo']['constrained_random'][object_name] = []
+
+        random_log_key = f'grasp_{exp_args.exp_name}_fit_random_train_geo_object{ox}'
+        if random_log_key in logs_lookup['fitting_phase']['random']:
+            random_log_fname = logs_lookup['fitting_phase']['random'][random_log_key]
+
+            logs_lookup_by_object['train_geo']['random']['all'].append(random_log_fname)
+            logs_lookup_by_object['train_geo']['random'][object_name].append(random_log_fname)
+
+        constrained_random_log_key = f'grasp_{exp_args.exp_name}_fit_constrained_random_train_geo_object{ox}'
+        if constrained_random_log_key in logs_lookup['fitting_phase']['constrained_random']:
+            constrained_random_log_fname = logs_lookup['fitting_phase']['constrained_random'][
+                constrained_random_log_key]
+
+            logs_lookup_by_object['train_geo']['constrained_random']['all'].append(constrained_random_log_fname)
+            logs_lookup_by_object['train_geo']['constrained_random'][object_name].append(constrained_random_log_fname)
+
+        bald_log_key = f'grasp_{args.exp_name}_fit_bald_train_geo_object{ox}'
+        if 'bald' in logs_lookup['fitting_phase'] and bald_log_key in logs_lookup['fitting_phase']['bald']:
+            bald_log_fname = logs_lookup['fitting_phase']['bald'][bald_log_key]
+
+            logs_lookup_by_object['train_geo']['bald']['all'].append(bald_log_fname)
+            logs_lookup_by_object['train_geo']['bald'][object_name].append(bald_log_fname)
+    print(f'{len(valid_train_objects)} train geo objects included.')
+    valid_test_objects, valid_test_pstables, valid_test_min_dists = filter_objects(
+        object_names=test_objects['object_data']['object_names'],
+        ignore_list=TEST_IGNORE,
+        phase='test',
+        dataset_name=exp_args.dataset_name,
+        min_pstable=0.0,
+        max_pstable=1.0,
+        min_dist_threshold=0.0,
+        max_objects=5
+    )
+    for ox, object_name in valid_test_objects:
+
+        if object_name not in logs_lookup_by_object['test_geo']['random']:
+            logs_lookup_by_object['test_geo']['random'][object_name] = []
+        if object_name not in logs_lookup_by_object['test_geo']['bald']:
+            logs_lookup_by_object['test_geo']['bald'][object_name] = []
+        if object_name not in logs_lookup_by_object['test_geo']['constrained_random']:
+            logs_lookup_by_object['test_geo']['constrained_random'][object_name] = []
+
+        random_log_key = f'grasp_{exp_args.exp_name}_fit_random_test_geo_object{ox}'
+        if random_log_key in logs_lookup['fitting_phase']['random']:
+            random_log_fname = logs_lookup['fitting_phase']['random'][random_log_key]
+
+            logs_lookup_by_object['test_geo']['random']['all'].append(random_log_fname)
+            logs_lookup_by_object['test_geo']['random'][object_name].append(random_log_fname)
+
+        constrained_random_log_key = f'grasp_{exp_args.exp_name}_fit_constrained_random_test_geo_object{ox}'
+        if constrained_random_log_key in logs_lookup['fitting_phase']['constrained_random']:
+            constrained_random_log_fname = logs_lookup['fitting_phase']['constrained_random'][
+                constrained_random_log_key]
+            logs_lookup_by_object['test_geo']['constrained_random']['all'].append(constrained_random_log_fname)
+            logs_lookup_by_object['test_geo']['constrained_random'][object_name].append(constrained_random_log_fname)
+
+        bald_log_key = f'grasp_{args.exp_name}_fit_bald_test_geo_object{ox}'
+        if 'bald' in logs_lookup['fitting_phase'] and bald_log_key in logs_lookup['fitting_phase']['bald']:
+            bald_log_fname = logs_lookup['fitting_phase']['bald'][bald_log_key]
+            logs_lookup_by_object['test_geo']['bald']['all'].append(bald_log_fname)
+            logs_lookup_by_object['test_geo']['bald'][object_name].append(bald_log_fname)
+    print(f'{len(valid_test_objects)} test geo objects included.')
+    return logs_lookup_by_object, valid_test_min_dists, valid_test_objects, valid_test_pstables, valid_train_min_dists, valid_train_objects, valid_train_pstables
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--phase', required=True, choices=['create', 'training', 'fitting', 'testing', 'task-eval'])
+    parser.add_argument('--phase', required=True, choices=['create', 'training', 'fitting',
+                                                           'fitting-vis', 'testing', 'task-eval'])
     parser.add_argument('--dataset-name', type=str, default='')
     parser.add_argument('--exp-name', required=True, type=str)
     parser.add_argument('--strategy', type=str, choices=['bald', 'random'], default='random')
     parser.add_argument('--constrained', action='store_true', default=False)
     parser.add_argument('--amortize', action='store_true', default=False)
+    parser.add_argument('--vis-train-objects', nargs='*', type=int, default=[],
+                        help='train objects (by ID) to visualize data collection')
+    parser.add_argument('--vis-test-objects', nargs='*', type=int, default=[],
+                        help='test objects (by ID) to visualize data collection')
     args = parser.parse_args()
 
     if args.phase == 'create':
@@ -710,6 +804,11 @@ if __name__ == '__main__':
         run_training_phase(args)
     elif args.phase == 'fitting':
         run_fitting_phase(args)
+    elif args.phase == 'fitting-vis':
+        if len(args.vis_train_objects) == 0 or len(args.vis_test_objects) == 0:
+            print('No objects given to visualize. Specify objects to visualize using '
+                  '--vis-train-objects or --vis-test-objects')
+        run_fitting_phase_visualization(args)
     elif args.phase == 'testing':
         run_testing_phase(args)
     elif args.phase == 'task-eval':

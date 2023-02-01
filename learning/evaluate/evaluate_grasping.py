@@ -335,7 +335,7 @@ def get_pf_task_performance(logger, fname):
             pickle.dump(regrets, handle)
 
 
-def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, save_vis):
+def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, vis=False):
     accs, precisions, recalls, f1s, balanced_accs, av_precs = [], [], [], [], [], []
     thresholded_recalls = {}
     confusions = []
@@ -391,13 +391,15 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
             )
             # we have to drop the last grasp in the context set to see what the ig comp looked like
 
-            pre_selection_context_data = drop_last_grasp_in_dataset(context_data)
-            info_gain = compute_ig(gnp, pre_selection_context_data, sampled_unlabeled_data).cpu().numpy()
-            max_entropy = torch.distributions.Independent(
-                torch.distributions.Normal(torch.zeros((1, gnp.d_latents)), torch.ones((1, gnp.d_latents))),
-                1).entropy()
-            visualize_fitting_acquisition(pre_selection_context_data, sampled_unlabeled_data, info_gain, max_entropy,
-                                          figpath=logger.get_figure_path('acquisition%i_vis.png' % tx))
+            if vis:
+                pre_selection_context_data = drop_last_grasp_in_dataset(context_data)
+                info_gain = compute_ig(gnp, pre_selection_context_data, sampled_unlabeled_data).cpu().numpy()
+                max_entropy = torch.distributions.Independent(
+                    torch.distributions.Normal(torch.zeros((1, gnp.d_latents)), torch.ones((1, gnp.d_latents))),
+                    1).entropy()
+                visualize_fitting_acquisition(pre_selection_context_data, sampled_unlabeled_data, info_gain,
+                                              max_entropy,
+                                              figpath=logger.get_figure_path('acquisition%i_vis.png' % tx))
 
             means_agg.append(means.numpy())
             covars_agg.append(covars.numpy())
