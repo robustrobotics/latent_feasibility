@@ -64,6 +64,16 @@ def drop_last_grasp_in_dataset(dataset):
 
     return one_less_dataset
 
+def explode_dataset_into_list_of_datasets(dataset):
+    template = {'grasp_data': {}, 'object_data': dataset['object_data']}
+    num_grasps = len(list(dataset['grasp_data'].values())[0].values())
+    grasp_sets = [template.copy() for _ in range(num_grasps)]
+    for field_name in dataset['grasp_data']:
+        for ox in dataset['grasp_data'][field_name]:
+            for entry, grasp_set in zip(dataset['grasp_data'][field_name][ox], grasp_sets):
+                grasp_set['grasp_data'][field_name] = {}
+                grasp_set['grasp_data'][field_name][ox] = [entry]
+    return grasp_sets
 
 def sample_unlabeled_gnp_data(n_samples, object_set, object_ix):
     grasp_data = sample_unlabeled_data(n_samples, object_set, object_ix)

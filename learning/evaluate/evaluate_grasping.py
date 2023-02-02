@@ -13,7 +13,7 @@ from sklearn.metrics import recall_score, precision_score, balanced_accuracy_sco
     accuracy_score, average_precision_score
 from torch.utils.data import DataLoader
 from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, \
-    get_train_and_fit_objects, drop_last_grasp_in_dataset
+    get_train_and_fit_objects, drop_last_grasp_in_dataset, explode_dataset_into_list_of_datasets
 from learning.active.acquire import bald
 
 from block_utils import ParticleDistribution
@@ -21,10 +21,10 @@ from filter_utils import sample_particle_distribution
 from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.grasp_data import GraspDataset, GraspParallelDataLoader
 from learning.domains.grasping.explore_dataset import visualize_grasp_dataset, visualize_fitting_acquisition
-from learning.experiments.active_fit_grasping_pf import compute_ig
+from learning.experiments.active_fit_grasping_pf import compute_ig, particle_bald
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 from learning.models.grasp_np.train_grasp_np import check_to_cuda
-from particle_belief import GraspingDiscreteLikelihoodParticleBelief
+from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
 
 
 def get_labels_predictions(logger, val_dataset_fname):
@@ -368,6 +368,40 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                     gnp,
                     n_particle_samples=32
                 )
+
+                # TODO: check with Mike if this is sane - NO - you want the original particles that allowed
+                #   the collection of this relevant datapoint - not a resample
+                if vis:
+                    # recover datasets used for item selection
+                    context_data, sampled_unlabeled_data = logger.load_acquisition_data(tx)
+                    pre_selection_context_data = drop_last_grasp_in_dataset(context_data)
+
+                    # compute predictions based on particles
+                    pf = AmortizedGraspingDiscreteLikelihoodParticleBelief(
+                        object_set=sampled_unlabeled_data['object_data'],  # NOTE: this is a dummy we do not use this
+                        d_latents=gnp.d_latents,
+                        n_particles=len(particles.particles),  # NOTE: for dummy
+                        likelihood=gnp,  # this is the only parameter that matters
+                        resample=False,
+                        plot=False
+                    )
+                    all_grasps = explode_dataset_into_list_of_datasets(sampled_unlabeled_data)
+                    all_preds = []
+                    for grasp in all_grasps:
+                        all_preds.append(pf.get_particle_likelihoods(particles.particles, grasp))
+
+                    # compute information gain via bald objective
+                    pred_vec = torch.Tensor(np.stack(all_preds))
+                    info_gain = particle_bald(pred_vec, pf.particles.weights)
+
+                    # visualize
+                    max_entropy = torch.distributions.Independent(
+                        torch.distributions.Normal(torch.zeros((1, gnp.d_latents)), torch.ones((1, gnp.d_latents))),
+                        1).entropy()
+                    visualize_fitting_acquisition(pre_selection_context_data, sampled_unlabeled_data, info_gain,
+                                                  max_entropy,
+                                                  figpath='')
+
             else:
                 ensemble = logger.get_ensemble(tx)
                 if torch.cuda.is_available():

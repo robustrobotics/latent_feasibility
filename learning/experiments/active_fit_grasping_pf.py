@@ -54,12 +54,18 @@ def find_informative_tower(pf, object_set, logger, args):
         all_preds.append(preds)
         all_grasps.append(grasp_data)
 
+    # NOTE: this is the computation we need for IG for visualization for particle filtering
     pred_vec = torch.Tensor(np.stack(all_preds))
     scores = particle_bald(pred_vec, pf.particles.weights)
     print('Scores:', scores)
     acquire_ix = np.argsort(scores)[::-1][0]
 
-    return all_grasps[acquire_ix]
+    # merge all the grasps into the same dataset
+    merge_set = all_grasps[0]
+    for grasp in all_grasps[1:]:
+        merge_set = merge_gnp_datasets(merge_set, grasp)
+
+    return all_grasps[acquire_ix], merge_set
 
 
 def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_dist=32, batching_size=20):
@@ -299,7 +305,7 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
     return torch.argmax(info_gain).item()
 
 
-def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
+def amortized_filter_loop(gnp, object_set, logger, strategy, args):
     # We generate the datasets here, but evaluate_grasping is when we actually
     # play through the interaction data. So we will actually be saving the mean, covariance, and entropy data
     # over there.
@@ -367,8 +373,9 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
         if strategy == 'random':
             data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
             grasp_dataset = data_sampler_fn(1)
+            acquired_sampled_grasps = None
         elif strategy == 'bald':
-            grasp_dataset = find_informative_tower(pf, object_set, logger, args)
+            grasp_dataset, acquired_sampled_grasps = find_informative_tower(pf, object_set, logger, args)
         else:
             raise NotImplementedError()
 
@@ -387,7 +394,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
             logger.save_ensemble(pf.likelihood, tx + 1, symlink_tx0=True)
         elif args.likelihood == 'gnp':
             logger.save_neural_process(pf.likelihood, tx + 1, symlink_tx0=True)
-        logger.save_acquisition_data(grasp_dataset, None, tx + 1)
+        logger.save_acquisition_data(grasp_dataset, acquired_sampled_grasps, tx + 1)
         logger.save_particles(particles, tx + 1)
 
 
@@ -464,7 +471,7 @@ def run_particle_filter_fitting(args):
 
     # ----- Run particle filter loop -----
     if args.use_progressive_priors:
-        amoritized_filter_loop(likelihood_model, object_set, logger, args.strategy, args)
+        amortized_filter_loop(likelihood_model, object_set, logger, args.strategy, args)
     else:
         particle_filter_loop(pf, object_set, logger, args.strategy, args)
 
