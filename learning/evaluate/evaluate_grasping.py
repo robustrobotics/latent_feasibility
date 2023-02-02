@@ -370,7 +370,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                 )
 
                 # TODO: check with Mike if this is sane - NO - you want the original particles that allowed
-                #   the collection of this relevant datapoint - not a resample
+                #   the collection of this relevant datapoint - not a resample (also: UNTESTED)
                 if vis:
                     # recover datasets used for item selection
                     context_data, sampled_unlabeled_data = logger.load_acquisition_data(tx)
@@ -403,6 +403,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                                                   figpath='')
 
             else:
+                # TODO: integrate pybullet for comparison to ground truth IG
                 ensemble = logger.get_ensemble(tx)
                 if torch.cuda.is_available():
                     ensemble = ensemble.cuda()

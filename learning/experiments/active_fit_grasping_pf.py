@@ -331,7 +331,7 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args):
         )
         random_pool = get_labels_gnp(random_pool)
 
-    for tx in range(0, args.max_acquisitions):
+    for tx in range(0, args.max_acquisitions - 1):
         print('[AmortizedFilter] Interaction Number', tx)
 
         if strategy == 'random':
@@ -382,6 +382,11 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
         # Get the observation for the chosen tower.
         grasp_dataset = get_labels(grasp_dataset)
 
+        if tx == 0:
+            context_data = grasp_dataset
+        else:
+            context_data = merge_gnp_datasets(context_data, grasp_dataset)
+
         # Update the particle belief.
         particles, means = pf.update(grasp_dataset)
         print('[ParticleFilter] Particle Statistics')
@@ -394,7 +399,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
             logger.save_ensemble(pf.likelihood, tx + 1, symlink_tx0=True)
         elif args.likelihood == 'gnp':
             logger.save_neural_process(pf.likelihood, tx + 1, symlink_tx0=True)
-        logger.save_acquisition_data(grasp_dataset, acquired_sampled_grasps, tx + 1)
+        logger.save_acquisition_data(context_data, acquired_sampled_grasps, tx)
         logger.save_particles(particles, tx + 1)
 
 
