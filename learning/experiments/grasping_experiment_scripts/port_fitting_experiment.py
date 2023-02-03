@@ -1,5 +1,5 @@
 from learning.active.utils import ActiveExperimentLogger
-from learning.domains.grasping.active_utils import explode_dataset_into_list_of_datasets
+from learning.domains.grasping.active_utils import explode_dataset_into_list_of_datasets, get_train_and_fit_objects
 from learning.experiments.grasping_experiment_scripts.run_grasping_experiments import EXPERIMENT_ROOT
 import argparse
 
@@ -81,17 +81,19 @@ def main(args):
                 context_set, _ = ported_logger.load_acquisition_data(fitting_args.max_acquisitions - 1)
                 context_set_individual_grasps = explode_dataset_into_list_of_datasets(context_set)
 
-                obj_ix = list(context_set_individual_grasps[0]['grasp_data']['labels'].keys())[0]
+                object_set = get_train_and_fit_objects(
+                    pretrained_ensemble_path=fitting_args.pretrained_ensemble_exp_path,
+                    use_latents=True,
+                    fit_objects_fname=args.objects_fname,
+                    fit_object_ix=args.eval_object_ix
+                )
 
                 with open(os.path.join(ported_logs_lookup['training_phase'], 'args.pkl'), 'rb') as handle:
                     training_args = pickle.load(handle)
 
                 # think critically about what object_set looksl like
                 pf = GraspingDiscreteLikelihoodParticleBelief(
-                    object_set={
-                        'object_names': context_set['object_data']['object_names'][:obj_ix + 1],
-                        'object_properties': context_set['object_data']['object_properties'][:obj_ix + 1]
-                    },
+                    object_set=object_set,
                     d_latents=training_args.d_latents,
                     n_particles=fitting_args.n_particles,
                     likelihood=ported_logger.get_neural_process(0),

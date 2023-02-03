@@ -60,6 +60,7 @@ def find_informative_tower(pf, object_set, logger, args):
     print('Scores:', scores)
     acquire_ix = np.argsort(scores)[::-1][0]
 
+    # TODO: this is the choice we need to override
     # merge all the grasps into the same dataset
     merge_set = all_grasps[0]
     for grasp in all_grasps[1:]:
@@ -69,6 +70,17 @@ def find_informative_tower(pf, object_set, logger, args):
 
 
 def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_dist=32, batching_size=20):
+    """
+    :param current_context: Grasp dict object with collected datapoints so far.
+        Most-nested dictionaries: ox: [].
+    :param unlabeled_samples: The same format ^.
+        Most-nested dictionaries: ox: [].
+        Labels are meaningless (-1).
+    :param n_samples_from_latent_dist: Number of samples from latent distribution when computing expected
+    entropy of the posterior.
+    :param batching_size: batching size used to speed up computation
+    :return: An array of IG scores with same length as unlabeled_samples, with index correspondence between the two.
+    """
     if list(current_context['grasp_data']['labels'].values())[0]:
         dataset = CustomGNPGraspDataset(data=unlabeled_samples, context_data=current_context)
         context_data, unlabeled_data = dataset[0]  # apply post-processing
@@ -283,29 +295,10 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
         expected_h_z_cond_x_y = p_y_equals_one_cond_d_x * h_z_cond_x_y_equals_one + (
                 1 - p_y_equals_one_cond_d_x) * h_z_cond_x_y_equals_zero
         info_gain = h_z - expected_h_z_cond_x_y
-        return info_gain
+        return info_gain.cpu().numpy()
 
 
-def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_samples,
-                                             n_samples_from_latent_dist=32, batching_size=20):
-    """
-    :param current_context: Grasp dict object with collected datapoints so far.
-        Most-nested dictionaries: ox: [].
-    :param unlabeled_samples: The same format ^.
-        Most-nested dictionaries: ox: [].
-        Labels are meaningless (-1).
-    :param n_samples_from_latent_dist: Number of samples from latent distribution when computing expected
-    entropy of the posterior.
-    :param batching_size: batching size used to speed up computation
-    :return: The grasp index of the unlabeled samples with the highest info gain score.
-    """
-    # return the index with the largest information gain
-    info_gain = compute_ig(gnp, current_context, unlabeled_samples,
-                           n_samples_from_latent_dist=n_samples_from_latent_dist, batching_size=batching_size)
-    return torch.argmax(info_gain).item()
-
-
-def amortized_filter_loop(gnp, object_set, logger, strategy, args):
+def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_selection_fun=None):
     # We generate the datasets here, but evaluate_grasping is when we actually
     # play through the interaction data. So we will actually be saving the mean, covariance, and entropy data
     # over there.
@@ -343,7 +336,16 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args):
         elif strategy == 'bald':
             # TODO: Sample target unlabeled dataset in parallel fashion.
             unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set, object_ix=args.eval_object_ix)
-            best_idx = find_informative_tower_progressive_prior(gnp, context_data, unlabeled_dataset)
+
+            info_gain = compute_ig(gnp, context_data, unlabeled_dataset,
+                                   n_samples_from_latent_dist=32, batching_size=32)
+
+            # gives an opportunity to hijack the selection computation if needed for comparison experiments
+            if override_selection_fun is None:
+                best_idx = np.argmax(info_gain)
+            else:
+                best_idx = override_selection_fun(info_gain)
+
             # Get the observation for the chosen grasp.
             # means, and covariances here.
             grasp_dataset = select_gnp_dataset_ix(unlabeled_dataset, best_idx)
@@ -359,7 +361,7 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args):
         # Add datapoint to context dictionary.
 
 
-def particle_filter_loop(pf, object_set, logger, strategy, args):
+def particle_filter_loop(pf, object_set, logger, strategy, args, override_selection_fun=None):
     if args.likelihood == 'nn':
         logger.save_ensemble(pf.likelihood, 0, symlink_tx0=False)
     elif args.likelihood == 'gnp':
@@ -375,7 +377,34 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
             grasp_dataset = data_sampler_fn(1)
             acquired_sampled_grasps = None
         elif strategy == 'bald':
-            grasp_dataset, acquired_sampled_grasps = find_informative_tower(pf, object_set, logger, args)
+
+            data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
+
+            all_grasps = []
+            all_preds = []
+            for ix in range(0, args.n_samples):
+                grasp_data = data_sampler_fn(1)
+                preds = pf.get_particle_likelihoods(pf.particles.particles, grasp_data)
+                all_preds.append(preds)
+                all_grasps.append(grasp_data)
+
+            # NOTE: this is the computation we need for IG for visualization for particle filtering
+            pred_vec = torch.Tensor(np.stack(all_preds))
+            scores = particle_bald(pred_vec, pf.particles.weights)
+
+            # override for comparison experiments
+            if override_selection_fun is None:
+                best_ix = np.argmax(scores)
+            else:
+                best_ix = override_selection_fun(scores)
+
+            grasp_dataset = all_grasps[best_ix]
+
+            # merge all grasps to save them for visualization
+            acquired_sampled_grasps = all_grasps[0]
+            for grasp in all_grasps[1:]:
+                acquired_sampled_grasps = merge_gnp_datasets(acquired_sampled_grasps, grasp)
+
         else:
             raise NotImplementedError()
 
@@ -403,7 +432,6 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
         logger.save_particles(particles, tx + 1)
 
 
-# "grasp_train-ycb-test-ycb-1_fit_random_train_geo_object0": "learning/experiments/logs/grasp_train-ycb-test-ycb-1_fit_random_train_geo_object0-20220504-134253"
 def run_particle_filter_fitting(args):
     print(args)
     args.use_latents = True
