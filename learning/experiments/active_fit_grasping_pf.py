@@ -344,7 +344,7 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
             if override_selection_fun is None:
                 best_idx = np.argmax(info_gain)
             else:
-                best_idx = override_selection_fun(info_gain)
+                best_idx = override_selection_fun(info_gain, tx)
 
             # Get the observation for the chosen grasp.
             # means, and covariances here.
@@ -396,7 +396,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args, override_select
             if override_selection_fun is None:
                 best_ix = np.argmax(scores)
             else:
-                best_ix = override_selection_fun(scores)
+                best_ix = override_selection_fun(scores, tx)
 
             grasp_dataset = all_grasps[best_ix]
 
