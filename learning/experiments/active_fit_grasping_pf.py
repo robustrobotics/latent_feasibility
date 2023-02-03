@@ -466,8 +466,8 @@ def run_particle_filter_fitting(args):
     else:
         pf = GraspingDiscreteLikelihoodParticleBelief(
             object_set=object_set,
-            D=d_latents,
-            N=args.n_particles,
+            d_latents=d_latents,
+            n_particles=args.n_particles,
             likelihood=likelihood_model,
             resample=False,
             plot=False)

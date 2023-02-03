@@ -1,3 +1,5 @@
+from learning.active.utils import ActiveExperimentLogger
+from learning.domains.grasping.active_utils import explode_dataset_into_list_of_datasets
 from learning.experiments.grasping_experiment_scripts.run_grasping_experiments import EXPERIMENT_ROOT
 import argparse
 
@@ -7,7 +9,10 @@ from pathlib import Path
 import pickle
 import os
 
+from particle_belief import GraspingDiscreteLikelihoodParticleBelief
+
 LOG_ROOT = 'learning/experiments/logs'
+
 
 def copy_dir_and_rename(dir_to_copy, dir_new_name):
     dir_to_copy_path = Path(dir_to_copy)
@@ -18,8 +23,8 @@ def copy_dir_and_rename(dir_to_copy, dir_new_name):
 
     return copied_renamed_dir
 
-def main(args):
 
+def main(args):
     # find metadata folder and copy it to metadata with new name
     existing_exp_dir = os.path.join(EXPERIMENT_ROOT, args.existing_exp_name)
     ported_exp_dir = copy_dir_and_rename(existing_exp_dir, args.ported_exp_name)
@@ -55,7 +60,10 @@ def main(args):
             # modify the fitting args
             fitting_args_path = os.path.join(ported_fit_dir, 'args.pkl')
             with open(fitting_args_path, 'rb') as handle:
-               fitting_args = pickle.load(handle)
+                fitting_args = pickle.load(handle)
+
+            # keep note for post-processing if so
+            existing_used_progressive_priors = fitting_args.use_progressive_priors
 
             fitting_args.exp_name = ported_fit_name
             fitting_args.use_progressive_priors = args.belief == 'progressive'
@@ -66,7 +74,35 @@ def main(args):
             # store in ported_logs_lookup
             ported_logs_lookup['fitting_phase'][strategy][ported_fit_name] = ported_fit_dir
 
-            # TODO: do experiment post-processing
+            if args.belief == 'particle' and existing_used_progressive_priors:
+                # now we need to regenerate the particles.
+                # since context sets are ordered, let's pull the last one and just step through it
+                ported_logger = ActiveExperimentLogger(exp_path=ported_fit_dir, use_latents=True)
+                context_set, _ = ported_logger.load_acquisition_data(fitting_args.max_acquisitions - 1)
+                context_set_individual_grasps = explode_dataset_into_list_of_datasets(context_set)
+
+                obj_ix = list(context_set_individual_grasps[0]['grasp_data']['labels'].keys())[0]
+
+                with open(os.path.join(ported_logs_lookup['training_phase'], 'args.pkl'), 'rb') as handle:
+                    training_args = pickle.load(handle)
+
+                # think critically about what object_set looksl like
+                pf = GraspingDiscreteLikelihoodParticleBelief(
+                    object_set={
+                        'object_names': context_set['object_data']['object_names'][:obj_ix + 1],
+                        'object_properties': context_set['object_data']['object_properties'][:obj_ix + 1]
+                    },
+                    d_latents=training_args.d_latents,
+                    n_particles=fitting_args.n_particles,
+                    likelihood=ported_logger.get_neural_process(0),
+                    resample=False,
+                    plot=False
+                )
+
+                for tx, grasp in enumerate(context_set_individual_grasps):
+                    particles, _ = pf.update(grasp)
+                    ported_logger.save_particles(particles, tx)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
