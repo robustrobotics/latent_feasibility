@@ -151,7 +151,8 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
                     n_particles=fitting_args.n_particles,
                     likelihood=ported_logger.get_neural_process(0),
                     resample=False,
-                    plot=False
+                    plot=False,
+                    data_is_in_gnp_format=True
                 )
 
                 for tx, grasp in enumerate(context_set_individual_grasps):
