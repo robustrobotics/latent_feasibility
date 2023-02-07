@@ -254,10 +254,23 @@ class ActiveExperimentLogger:
             grasp_enc_src = 'grasp_encoder_0.pt'
             mesh_enc_src = 'mesh_encoder_0.pt'
             enc_src, dec_src = 'np_encoder_0.pt', 'np_decoder_0.pt'
-            os.symlink(grasp_enc_src, grasp_enc_path)
-            os.symlink(mesh_enc_src, mesh_enc_path)
-            os.symlink(enc_src, enc_path)
-            os.symlink(dec_src, dec_path)
+            # overwrite if symlink exists (which is safe, since we are not changing any files)
+            try:
+                os.symlink(grasp_enc_src, grasp_enc_path)
+                os.symlink(mesh_enc_src, mesh_enc_path)
+                os.symlink(enc_src, enc_path)
+                os.symlink(dec_src, dec_path)
+            except FileExistsError:
+                print('[INFO]: overwriting gnp symlinks: %s, %s, %s, %s.' %
+                      (grasp_enc_path, mesh_enc_path, enc_path, dec_path))
+                os.remove(grasp_enc_path)
+                os.remove(mesh_enc_path)
+                os.remove(enc_path)
+                os.remove(dec_path)
+                os.symlink(grasp_enc_src, grasp_enc_path)
+                os.symlink(mesh_enc_src, mesh_enc_path)
+                os.symlink(enc_src, enc_path)
+                os.symlink(dec_src, dec_path)
         else:
             torch.save(gnp.grasp_geom_encoder.state_dict(), os.path.join(grasp_enc_path))
             torch.save(gnp.mesh_encoder.state_dict(), os.path.join(mesh_enc_path))
