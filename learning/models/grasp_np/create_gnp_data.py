@@ -110,10 +110,8 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         curvatures_finger1 = grasp_vector[3, 0:6]
         curvatures_finger2 = grasp_vector[4, 0:6]
 
-        # TODO: nn-simplify -- should local curvature work, rather than computing the midpoint, just preserve fingers
         midpoint = (finger1 + finger2)/2.0
 
-        # TODO: nn-simplify -- should local curvature work, replace with local curvature information
         # Only sample points that are within 2cm of a grasp point.
         candidate_points = all_points_per_objects[object_id]
         d1 = np.linalg.norm(candidate_points-finger1, axis=1)
@@ -124,7 +122,6 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         if verbose:
             print(f'{n_found} points found for grasp {gx}, object {object_id}')
 
-        # TODO: nn-simplify -- should curvature work, get rid of this.
         # Put everything in grasp point ref frame for better generalization. (Including grasp points)
         if gx % 200 == 0:
             viz_data = False

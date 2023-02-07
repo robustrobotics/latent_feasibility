@@ -224,11 +224,13 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
     latent_samples = torch.Tensor(particles)
     gnp.eval()
     for (_, target_data, meshes) in dataloader:
-        t_grasp_geoms, t_midpoints, t_forces, t_labels = target_data
+        t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = target_data
 
         # TODO: Currently there are too many grasps (500 requires too much memory).
         # TODO: Implement better way to batch a lot of evaluation grasps.
         t_grasp_geoms = t_grasp_geoms[:, :100, :, :]
+        t_grasp_points = t_grasp_points[:, :100, :, :]
+        t_curvatures = t_curvatures[:, :100, :, :]
         t_midpoints = t_midpoints[:, :100, :]
         t_forces = t_forces[:, :100]
         t_labels = t_labels[:, :100].squeeze()
@@ -236,9 +238,13 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         if torch.cuda.is_available():
             meshes = meshes.cuda()
             t_grasp_geoms = t_grasp_geoms.cuda()
+            t_grasp_points = t_grasp_points.cuda()
+            t_curvatures = t_curvatures.cuda()
             t_midpoints = t_midpoints.cuda()
             t_forces = t_forces.cuda()
         t_grasp_geoms = t_grasp_geoms.expand(n_particle_samples, -1, -1, -1)
+        t_grasp_points = t_grasp_points.expand(n_particle_samples, -1, -1, -1)
+        t_curvatures = t_curvatures.expand(n_particle_samples, -1, -1, -1)
         t_midpoints = t_midpoints.expand(n_particle_samples, -1, -1)
         t_forces = t_forces.expand(n_particle_samples, -1)
 
@@ -251,7 +257,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         if torch.cuda.is_available():
             latents = latents.cuda()
         pred = gnp.conditional_forward(
-            target_xs=(t_grasp_geoms, t_midpoints, t_forces),
+            target_xs=(t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
             meshes=meshes,
             zs=latents
         ).squeeze().cpu().detach()
@@ -369,8 +375,6 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                     n_particle_samples=32
                 )
 
-                # TODO: check with Mike if this is sane - NO - you want the original particles that allowed
-                #   the collection of this relevant datapoint - not a resample (also: UNTESTED)
                 if vis:
                     # recover datasets used for item selection
                     context_data, sampled_unlabeled_data = logger.load_acquisition_data(tx)
@@ -383,7 +387,8 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                         n_particles=len(particles.particles),  # NOTE: for dummy
                         likelihood=gnp,  # this is the only parameter that matters
                         resample=False,
-                        plot=False
+                        plot=False,
+                        data_is_in_gnp_format=not ('grasp' in context_data['grasp_data'].keys())
                     )
                     all_grasps = explode_dataset_into_list_of_datasets(sampled_unlabeled_data)
                     all_preds = []
