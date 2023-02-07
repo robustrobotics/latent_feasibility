@@ -540,6 +540,9 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
                 bernoulli_probs.append(pred.cpu().detach().numpy())
         return np.concatenate(bernoulli_probs)
 
+    def get_label_from_observation(self, observation):
+        return observation['grasp_data']['labels'][0]
+
     def update(self, observation):
         """
         :param observation: tower_dict format for a single tower.
@@ -554,10 +557,10 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         # Forward simulation using the LatentEnsemble likelihood.
         if isinstance(self.likelihood, nn.Module):
             bernoulli_probs = self.get_particle_likelihoods(self.particles.particles, observation)
-            label = float(list(observation['grasp_data']['labels'].values())[0][0])
         else:
             bernoulli_probs = self.likelihood.get_particle_likelihoods(self.particles.particles, observation)
-            label = observation['grasp_data']['labels'][0]
+
+        label = self.get_label_from_observation(observation)
 
         n_correct = ((bernoulli_probs > 0.5).astype('float32') == label).sum()
         print('Correct for CURRENT sample:', n_correct / len(bernoulli_probs), len(bernoulli_probs))
@@ -602,6 +605,9 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
                  data_is_in_gnp_format=False):
         super().__init__(object_set, d_latents, n_particles, likelihood=likelihood, resample=resample, plot=plot)
         self.data_is_in_gnp_format = data_is_in_gnp_format
+
+    def get_label_from_observation(self, observation):
+        return label = float(list(observation['grasp_data']['labels'].values())[0][0])
 
     def get_particle_likelihoods(self, particles, observation, batch_size=1000):
         """
