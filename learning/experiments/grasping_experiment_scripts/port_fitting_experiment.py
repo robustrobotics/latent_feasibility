@@ -130,7 +130,7 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
                         n_particles=fitting_args.n_particles,
                         likelihood=gnp,
                         resample=False,
-                        plot=False
+                        plot=False,
                     )
                     particle_filter_loop(pf, object_set, ported_logger, 'bald', fitting_args,
                                          override_selection_fun=override_fun)

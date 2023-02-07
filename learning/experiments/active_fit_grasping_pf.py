@@ -17,6 +17,7 @@ from learning.domains.grasping.active_utils import (
 from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset
 from learning.models.grasp_np.train_grasp_np import check_to_cuda
+from learning.models.grasp_np.create_gnp_data import process_geometry
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
 
 
@@ -401,8 +402,11 @@ def particle_filter_loop(pf, object_set, logger, strategy, args, override_select
             grasp_dataset = all_grasps[best_ix]
 
             # merge all grasps to save them for visualization
-            acquired_sampled_grasps = all_grasps[0]
+            # convert into gnp form since we are now using the gnp model for the paper
+            acquired_sampled_grasps = process_geometry(all_grasps[0], radius=0.3, verbose=False)
             for grasp in all_grasps[1:]:
+                # convert into gnp form since we are now using the gnp model for the paper
+                grasp = process_geometry(grasp_dataset, radius=0.3, verbose=False)
                 acquired_sampled_grasps = merge_gnp_datasets(acquired_sampled_grasps, grasp)
 
         else:
@@ -410,18 +414,19 @@ def particle_filter_loop(pf, object_set, logger, strategy, args, override_select
 
         # Get the observation for the chosen tower.
         grasp_dataset = get_labels(grasp_dataset)
-
-        if tx == 0:
-            context_data = grasp_dataset
-        else:
-            context_data = merge_gnp_datasets(context_data, grasp_dataset)
-
         # Update the particle belief.
         particles, means = pf.update(grasp_dataset)
         print('[ParticleFilter] Particle Statistics')
         print(f'Min Weight: {np.min(pf.particles.weights)}')
         print(f'Max Weight: {np.max(pf.particles.weights)}')
         print(f'Sum Weights: {np.sum(pf.particles.weights)}')
+
+        grasp_dataset = process_geometry(grasp_dataset, radius=0.3, verbose=False)
+        if tx == 0:
+            context_data = grasp_dataset
+        else:
+            context_data = merge_gnp_datasets(context_data, grasp_dataset)
+
 
         # Save the model and particle distribution at each step.
         if args.likelihood == 'nn':
