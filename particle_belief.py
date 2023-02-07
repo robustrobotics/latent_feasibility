@@ -607,7 +607,10 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
         self.data_is_in_gnp_format = data_is_in_gnp_format
 
     def get_label_from_observation(self, observation):
-        return label = float(list(observation['grasp_data']['labels'].values())[0][0])
+        if self.data_is_in_gnp_format:
+            return float(list(observation['grasp_data']['labels'].values())[0][0])
+        else:
+            return observation['grasp_data']['labels'][0]
 
     def get_particle_likelihoods(self, particles, observation, batch_size=1000):
         """
