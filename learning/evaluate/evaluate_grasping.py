@@ -440,11 +440,11 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                 visualize_fitting_acquisition(pre_selection_context_data, sampled_unlabeled_data, info_gain,
                                               max_entropy,
                                               figpath='')
+                info_gains.append(info_gain)
 
             means_agg.append(means.numpy())
             covars_agg.append(covars.numpy())
             entropies.append(entropy.numpy())
-            info_gains.append(info_gain)
 
         thresholds = np.arange(0.05, 1.0, 0.05)
         for threshold in thresholds:
