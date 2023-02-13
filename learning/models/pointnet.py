@@ -88,7 +88,7 @@ class STNkd(nn.Module):
 
 
 class PointNetEncoder(nn.Module):
-    def __init__(self, global_feat=True, feature_transform=True, channel=3, n_out=1024):
+    def __init__(self, global_feat=True, feature_transform=True, channel=3, n_out=1024, use_batch_norm=False):
         super(PointNetEncoder, self).__init__()
         self.stn = STN3d(channel)
 
@@ -98,9 +98,14 @@ class PointNetEncoder(nn.Module):
         self.conv1 = torch.nn.Conv1d(channel, n_hidden1, 1)  # 64
         self.conv2 = torch.nn.Conv1d(n_hidden1, n_hidden2, 1)   # 64, 128
         self.conv3 = torch.nn.Conv1d(n_hidden2, n_out, 1)  # 128, 1024
-        self.bn1 = nn.BatchNorm1d(n_hidden1)  # 64
-        self.bn2 = nn.BatchNorm1d(n_hidden2)  # 128
-        self.bn3 = nn.BatchNorm1d(n_out)  # 1024
+        if use_batch_norm:
+            self.bn1 = nn.BatchNorm1d(n_hidden1)  # 64
+            self.bn2 = nn.BatchNorm1d(n_hidden2)  # 128
+            self.bn3 = nn.BatchNorm1d(n_out)  # 1024
+        else:
+            self.bn1 = nn.Identity()
+            self.bn2 = nn.Identity()
+            self.bn3 = nn.Identity()
         self.global_feat = global_feat
         self.feature_transform = feature_transform
         if self.feature_transform:
@@ -145,14 +150,14 @@ class PointNetClassifier(nn.Module):
         super(PointNetClassifier, self).__init__()
 
         n_enc = 512
-        self.feat = PointNetEncoder(global_feat=False, feature_transform=False, channel=n_in, n_out=n_enc)
+        self.feat = PointNetEncoder(global_feat=False, feature_transform=False, channel=n_in, n_out=n_enc, use_batch_norm=False)
 
         self.fc1 = nn.Linear(n_enc+n_enc//16, n_enc//2)  # 1024, 512
         self.fc2 = nn.Linear(n_enc//2, n_enc//4)  # 512, 256
         self.fc3 = nn.Linear(n_enc//4, 1)  # 256, 1
         self.dropout = nn.Dropout(p=0.)  # 0.4
-        self.bn1 = nn.BatchNorm1d(n_enc//2)  # 512
-        self.bn2 = nn.BatchNorm1d(n_enc//4)  # 256
+        self.bn1 = nn.Identity()  #nn.BatchNorm1d(n_enc//2)  # 512
+        self.bn2 = nn.Identity()  #nn.BatchNorm1d(n_enc//4)  # 256
         self.nonlin = nn.ReLU()
 
     def forward(self, x, zs):
@@ -168,18 +173,28 @@ class PointNetClassifier(nn.Module):
         return x #, trans_feat
 
 class PointNetRegressor(nn.Module):
-    def __init__(self, n_in, n_out):
+    def __init__(self, n_in, n_out, use_batch_norm=False):
         super(PointNetRegressor, self).__init__()
 
         n_enc = 512
-        self.feat = PointNetEncoder(global_feat=False, feature_transform=False, channel=n_in, n_out=n_enc)
+        self.feat = PointNetEncoder(
+            global_feat=False,
+            feature_transform=False,
+            channel=n_in,
+            n_out=n_enc,
+            use_batch_norm=use_batch_norm
+        )
 
         self.fc1 = nn.Linear(n_enc+n_enc//16, n_enc//2)  # 1024, 512
         self.fc2 = nn.Linear(n_enc//2, n_enc//4)  # 512, 256
         self.fc3 = nn.Linear(n_enc//4, n_out)  # 256, 1
         self.dropout = nn.Dropout(p=0.)  # 0.4
-        self.bn1 = nn.BatchNorm1d(n_enc//2)  # 512
-        self.bn2 = nn.BatchNorm1d(n_enc//4)  # 256
+        if use_batch_norm:
+            self.bn1 = nn.BatchNorm1d(n_enc//2)  # 512
+            self.bn2 = nn.BatchNorm1d(n_enc//4)  # 256
+        else:
+            self.bn1 = nn.Identity()  # nn.BatchNorm1d(n_enc//2)  # 512
+            self.bn2 = nn.Identity()  # nn.BatchNorm1d(n_enc//4)  # 256
         self.nonlin = nn.ReLU()
 
     def forward(self, x):

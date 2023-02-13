@@ -2,7 +2,7 @@ import argparse
 import copy
 import os
 
-import multiprocessing as  mp
+import multiprocessing as mp
 import numpy as np
 
 from pybullet_object_models import ycb_objects

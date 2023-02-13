@@ -32,6 +32,10 @@ def transform_points(points, finger1, finger2, ee, viz_data=False):
     new_points = np.hstack([points, np.ones((points.shape[0], 1))])
     new_points = (inv_tform@new_points.T).T[:, 0:3]
 
+    dist_to_finger = np.linalg.norm(finger1-midpoint)
+    new_points[:, 0] /= dist_to_finger
+    new_points[:, 1:] /= 0.02
+    
     if viz_data:
         fig = plt.figure()
         ax1 = fig.add_subplot(1, 2, 1, projection='3d')
@@ -65,12 +69,16 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     all_ids = train_dataset['grasp_data']['object_ids'][::skip]
     all_labels = train_dataset['grasp_data']['labels'][::skip]
     all_forces = train_dataset['grasp_data']['forces'][::skip]
+    if 'raw_grasps' in train_dataset['grasp_data']:
+        all_raw_grasps = train_dataset['grasp_data']['raw_grasps'][::skip]
+    else:
+        all_raw_grasps = [None]*len(all_grasps)
     gx = 0
 
     # Collect all mesh points for each object.
     all_points_per_objects = {}
     for grasp_vector, object_id in zip(all_grasps, all_ids):
-        mesh_points = grasp_vector[3:, 0:3]
+        mesh_points = grasp_vector[5:, 0:3]
         if object_id not in all_points_per_objects:
             all_points_per_objects[object_id] = mesh_points
         else:
@@ -83,9 +91,10 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     new_forces_dict = defaultdict(list) # obj_id -> [forces]
     new_grasp_points_dict = defaultdict(list) # obj_id -> [finger_pt_1, finger_pt_2]
     new_curvatures_dict = defaultdict(list) # obj_id -> [finger1_gauss concat finger1_mean, finger2_gauss concat finger2_mean]
+    new_raw_grasps_dict = defaultdict(list)
     new_meshes_dict = defaultdict(list)
 
-    for grasp_vector, object_id, force, label in zip(all_grasps, all_ids, all_forces, all_labels):
+    for grasp_vector, object_id, force, label, raw_grasp in zip(all_grasps, all_ids, all_forces, all_labels, all_raw_grasps):
         if verbose:
             print(f'Converting grasp {gx}/{len(all_ids)}...')
         gx += 1
@@ -101,10 +110,8 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         curvatures_finger1 = grasp_vector[3, 0:6]
         curvatures_finger2 = grasp_vector[4, 0:6]
 
-        # TODO: nn-simplify -- should local curvature work, rather than computing the midpoint, just preserve fingers
         midpoint = (finger1 + finger2)/2.0
 
-        # TODO: nn-simplify -- should local curvature work, replace with local curvature information
         # Only sample points that are within 2cm of a grasp point.
         candidate_points = all_points_per_objects[object_id]
         d1 = np.linalg.norm(candidate_points-finger1, axis=1)
@@ -115,7 +122,6 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         if verbose:
             print(f'{n_found} points found for grasp {gx}, object {object_id}')
 
-        # TODO: nn-simplify -- should curvature work, get rid of this.
         # Put everything in grasp point ref frame for better generalization. (Including grasp points)
         if gx % 200 == 0:
             viz_data = False
@@ -131,6 +137,7 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         new_forces_dict[object_id].append(force)
         new_labels_dict[object_id].append(label)
         new_meshes_dict[object_id].append(all_points_per_objects[object_id][:512,:])
+        new_raw_grasps_dict[object_id].append(raw_grasp)
 
     dataset = {
         'grasp_data': {
@@ -145,6 +152,9 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         'object_data': train_dataset['object_data'],
         'metadata': train_dataset['metadata']
     }
+    if 'raw_grasps' in train_dataset['grasp_data']:
+        dataset['grasp_data']['raw_grasps'] = new_raw_grasps_dict
+
     return dataset
 
 def process_and_save(func_args):
@@ -159,7 +169,7 @@ def process_and_save(func_args):
 
     with open(func_args.out_path, 'wb') as handle:
         pickle.dump(new_dataset, handle)
-    
+
 
 DATA_ROOT = 'learning/data/grasping'
 if __name__ == '__main__':

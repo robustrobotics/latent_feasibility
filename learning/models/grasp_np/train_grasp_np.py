@@ -52,16 +52,17 @@ def get_loss(y_probs, target_ys, q_z, q_z_n, alpha=1, use_informed_prior=True, b
     beta = 1
     if use_informed_prior:
         kld_loss = beta * torch.distributions.kl_divergence(q_z, q_z_n).sum()
-        bce_loss = bce_loss * bce_scale_factor
     else:
         p_z = torch.distributions.normal.Normal(torch.zeros_like(q_z.loc), torch.ones_like(q_z.scale))
         kld_loss = beta * torch.distributions.kl_divergence(q_z, p_z).sum()
+
+    bce_loss = bce_loss * bce_scale_factor
     # kld_loss = 0
     # weight = (1 + alpha)
     return bce_loss + kld_loss, bce_loss, kld_loss
 
 
-def train(train_dataloader, val_dataloader, model, n_epochs=10, use_informed_prior=True):
+def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_informed_prior=True):
     if torch.cuda.is_available():
         model = model.cuda()
 
@@ -72,12 +73,12 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10, use_informed_pri
 
     val_loss_bce_scale_factor = float(len(train_dataloader.dataset.hp_grasp_geometries[0])) / \
                                  len(val_dataloader.dataset.hp_grasp_geometries[0])
-
+    print('Scale Factor:', val_loss_bce_scale_factor)
     alpha = 0.
     for ep in range(n_epochs):
         print(f'----- Epoch {ep} -----')
         alpha *= 0.75
-        epoch_loss, train_probs, train_targets = 0, [], []
+        epoch_loss, epoch_bce, epoch_kld, train_probs, train_targets = 0, 0, 0, [], []
         model.train()
         for bx, (context_data, target_data, meshes) in enumerate(train_dataloader):
 
@@ -119,28 +120,31 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10, use_informed_pri
                 (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
                 meshes)
 
+            if np.random.rand() > 0.02: ep_use_informed_prior = use_informed_prior
+            else: ep_use_informed_prior = False
             loss, bce_loss, kld_loss = get_loss(y_probs, t_labels, q_z, q_z_n,
-                                                alpha=ep, use_informed_prior=use_informed_prior)
-            if bx == 0:
-                print(f'Loss: {loss.item()}\tBCE: {bce_loss}\tKLD: {kld_loss}')
-
+                                                alpha=ep, use_informed_prior=ep_use_informed_prior)
             loss.backward()
             optimizer.step()
 
             epoch_loss += loss.item()
+            epoch_bce += bce_loss.item()
+            epoch_kld += kld_loss.item()
             train_probs.append(y_probs.flatten())
             train_targets.append(t_labels.flatten())
 
         epoch_loss /= len(train_dataloader.dataset)
+        epoch_bce /= len(train_dataloader.dataset)
+        epoch_kld /= len(train_dataloader.dataset)
         train_acc = get_accuracy(
             torch.cat(train_probs).flatten(),
             torch.cat(train_targets).flatten()
         )
-        print(f'Train Loss: {epoch_loss}\tTrain Acc: {train_acc}')
+        print(f'Train Loss: {epoch_loss}\tBCE: {epoch_bce}\tKLD: {epoch_kld}\tTrain Acc: {train_acc}')
 
         model.eval()
         means = []
-        val_loss, val_probs, val_targets = 0, [], []
+        val_loss, val_kld, val_bce, val_probs, val_targets = 0, 0, 0, [], []
         with torch.no_grad():
             for bx, (context_data, target_data, meshes) in enumerate(val_dataloader):
 
@@ -175,24 +179,30 @@ def train(train_dataloader, val_dataloader, model, n_epochs=10, use_informed_pri
                     (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
                     meshes)
 
-                val_loss += get_loss(y_probs, t_labels, q_z, q_z_n,
+                batch_loss, batch_bce, batch_kld = get_loss(y_probs, t_labels, q_z, q_z_n,
                                      use_informed_prior=use_informed_prior,
-                                     bce_scale_factor=val_loss_bce_scale_factor)[0].item()
+                                     bce_scale_factor=val_loss_bce_scale_factor)
+                val_loss += batch_loss.item()
+                val_bce += batch_bce.item()
+                val_kld += batch_kld.item()
 
                 val_probs.append(y_probs.flatten())
                 val_targets.append(t_labels.flatten())
 
             val_loss /= len(val_dataloader.dataset)
+            val_bce /= len(val_dataloader.dataset)
+            val_kld /= len(val_dataloader.dataset)
             val_acc = get_accuracy(
                 torch.cat(val_probs),
                 torch.cat(val_targets),
                 test=True, save=True
             )
-            print(f'Val Loss: {val_loss}\tVal Acc: {val_acc}')
+            print(f'Val Loss: {val_loss}\tBCE: {val_bce}\tKLD: {val_kld}\tVal Acc: {val_acc}')
 
             if val_loss < best_loss:
                 best_loss = val_loss
                 best_weights = copy.deepcopy(model.state_dict())
+                logger.save_neural_process(gnp=model, tx=0, symlink_tx0=False)
                 print('New best loss: ', val_loss)
         # if val_acc > 0.9:
         #     import IPython; IPython.embed()
@@ -244,6 +254,7 @@ def run(args):
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
         model=model,
+        logger=logger,
         n_epochs=args.n_epochs,
         use_informed_prior=args.informed_prior_loss
     )
