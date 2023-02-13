@@ -6,6 +6,9 @@ import os
 import pickle
 import sys
 
+from pb_robot.planners.antipodalGraspPlanner import GraspSimulationClient
+from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector
+
 from learning.active.utils import ActiveExperimentLogger
 from learning.evaluate.evaluate_grasping import get_pf_validation_accuracy, get_pf_task_performance
 from learning.evaluate.plot_compare_grasping_runs import plot_val_loss, plot_from_dataframe
@@ -115,16 +118,16 @@ def run_fitting_phase(args):
     # Run fitting phase for all objects that have not yet been fitted
     # (each has a standard name in the experiment logs).
     for geo_type, objects_fname, n_objects, ignore in zip(
-            ['train_geo', 'test_geo'],
-            [train_geo_fname, test_geo_fname],
-            [n_train_geo, n_test_geo],
-            [TRAIN_IGNORE, TEST_IGNORE]
+            ['test_geo', 'train_geo'],
+            [test_geo_fname, train_geo_fname],
+            [n_test_geo, n_train_geo],
+            [TEST_IGNORE, TRAIN_IGNORE]
     ):
         # Get object data.
         with open(objects_fname, 'rb') as handle:
             fit_objects = pickle.load(handle)
 
-        min_pstable, max_pstable, min_dist = 0.00, 1.0, 0.00
+        min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.0
         valid_fit_objects, _, _ = filter_objects(
             object_names=fit_objects['object_data']['object_names'],
             ignore_list=ignore,
@@ -169,16 +172,14 @@ def run_fitting_phase(args):
             fitting_args.strategy = args.strategy
             fitting_args.n_particles = 1000
             fitting_args.use_progressive_priors = True
+            fitting_args.constrained = args.constrained
             if args.amortize:
                 fitting_args.likelihood = 'gnp'
             else:
                 fitting_args.likelihood = 'nn'
 
             print(f'Running fitting phase: {fitting_exp_name}')
-            if args.constrained:
-                fit_log_path = constrained_fitting_phase(fitting_args)
-            else:
-                fit_log_path = fitting_phase(fitting_args)
+            fit_log_path = fitting_phase(fitting_args)
 
             # Save fitting path in metadata.
             with open(logs_path, 'r') as handle:
@@ -318,10 +319,10 @@ def run_task_eval_phase(args):
     # Run fitting phase for all objects that have not yet been fitted
     # (each has a standard name in the experiment logs).
     for geo_type, objects_fname, n_objects, ignore in zip(
-            ['train_geo', 'test_geo'],
-            [train_geo_fname, test_geo_fname],
-            [n_train_geo, n_test_geo],
-            [TRAIN_IGNORE, TEST_IGNORE]
+            ['test_geo', 'train_geo'],
+            [test_geo_fname, train_geo_fname],
+            [n_test_geo, n_train_geo],
+            [TEST_IGNORE, TRAIN_IGNORE]
     ):
         for ox in range(min(n_objects, 100)):
             if ox in ignore: continue
@@ -350,7 +351,7 @@ def run_task_eval_phase(args):
                 DATA_ROOT, exp_args.dataset_name,
                 'grasps', 'fitting_phase', val_dataset_fname
             )
-            get_pf_task_performance(fit_logger, val_dataset_path)
+            get_pf_task_performance(fit_logger, val_dataset_path, use_progressive_priors=True)
 
 
 def run_training_phase(args):
@@ -378,7 +379,7 @@ def run_training_phase(args):
         training_args.exp_name = f'grasp_{exp_args.exp_name}_train'
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
-        training_args.n_epochs = 64
+        training_args.n_epochs = 25
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 16
         training_args.use_latents = False  # NOTE: this is a workaround for pointnet + latents,
@@ -431,9 +432,24 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
             'grasps', 'fitting_phase', val_dataset_fname
         )
         if not os.path.exists(val_dataset_path):
+            print('Does not exist!', val_dataset_path)
             continue
         with open(val_dataset_path, 'rb') as handle:
             data = pickle.load(handle)
+
+        name = data['object_data']['object_names'][ox]
+        props = data['object_data']['object_properties'][ox]
+        graspable_body = graspablebody_from_vector(name, props)
+        sim_client = GraspSimulationClient(graspable_body=graspable_body,
+            show_pybullet=False,
+            recompute_inertia=True)
+        mesh = sim_client.mesh
+        volume = mesh.volume
+        bb_volume = mesh.convex_hull.volume
+        ratio = bb_volume / volume
+        sim_client.disconnect()
+        if ratio > 4:
+            continue
 
         all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
         dists_to_closest = []
@@ -447,7 +463,6 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
 
         avg_min_dist = np.mean(dists_to_closest)
         p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-
         if avg_min_dist < min_dist_threshold:
             continue
         if p_stable < min_pstable or p_stable > max_pstable:

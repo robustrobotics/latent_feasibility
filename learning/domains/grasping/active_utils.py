@@ -3,7 +3,11 @@ import pickle
 import copy
 
 from learning.active.utils import ActiveExperimentLogger
-from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector, sample_grasp_X
+from learning.domains.grasping.generate_grasp_datasets import (
+    graspablebody_from_vector,
+    sample_grasp_X,
+    vector_from_graspablebody
+)
 from learning.models.grasp_np.create_gnp_data import process_geometry
 from pb_robot.planners.antipodalGraspPlanner import GraspSampler, GraspStabilityChecker
 
@@ -83,6 +87,42 @@ def explode_dataset_into_list_of_datasets(dataset):
 
 def sample_unlabeled_gnp_data(n_samples, object_set, object_ix):
     grasp_data = sample_unlabeled_data(n_samples, object_set, object_ix)
+    grasp_gnp_data = process_geometry(
+        grasp_data,
+        radius=0.03,
+        skip=1,
+        verbose=False
+    )
+    return grasp_gnp_data
+
+def gnp_dataset_from_raw_grasps(raw_grasps, labels, object_set, object_ix):
+    object_grasp_data, object_grasp_ids, object_grasp_forces, object_grasp_labels = [], [], [], []
+
+    for grasp, label in zip(raw_grasps, labels):
+        grasp, X = sample_grasp_X(
+            grasp.graspable_body,
+            vector_from_graspablebody(grasp.graspable_body),
+            10000,
+            (0.005, 0.01, 0.02),
+            grasp=grasp)
+        object_grasp_data.append(X)
+        object_grasp_ids.append(object_ix)
+        object_grasp_forces.append(grasp.force)
+        object_grasp_labels.append(label)
+
+    grasp_data = {
+        'grasp_data': {
+            'raw_grasps': raw_grasps,
+            'grasps': object_grasp_data,
+            'forces': object_grasp_forces,
+            'object_ids': object_grasp_ids,
+            'labels': object_grasp_labels
+        },
+        'object_data': object_set,
+        'metadata': {
+            'n_samples': len(raw_grasps),
+        }
+    }
     grasp_gnp_data = process_geometry(
         grasp_data,
         radius=0.03,

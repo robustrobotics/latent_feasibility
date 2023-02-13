@@ -71,10 +71,11 @@ def plot_val_loss(loggers, output_path):
     val_fname = 'val_accuracies.pkl'
     #val_fname = 'val_recalls_ 0.80.pkl'
     val_fname = 'val_average_precisions.pkl'
-    # val_fname = 'regrets_-20.pkl'
+    val_fname = 'regrets_0.pkl'
     # val_fname = 'val_precisions.pkl'
     # val_fname = 'val_f1s.pkl'
     for name, group_loggers in loggers.items():
+        if 'crandom' in name: continue
         # First create one large results dictionary with pooled results from each logger.
         all_accs = []
         for logger in group_loggers:
@@ -85,22 +86,24 @@ def plot_val_loss(loggers, output_path):
                 continue
             with open(val_path, 'rb') as handle:
                 vals = pickle.load(handle)
-
+            # if vals[-1] < 0.5:
+            #     import IPython; IPython.embed()
             if len(all_accs) == 0:
-                all_accs = [[acc] for acc in vals]
-            else:
-                for tx in range(len(all_accs)):
-                    if tx >= len(vals):
-                        all_accs[tx].append(vals[-1])
-                    else:
-                        #if vals[tx] != 1:
-                        all_accs[tx].append(vals[tx])
+                all_accs = [[] for _ in range(25)]
+
+            for tx in range(len(all_accs)):
+                if tx >= len(vals):
+                    all_accs[tx].append(vals[-1])
+                else:
+                    #if vals[tx] != 1:
+                    all_accs[tx].append(vals[tx])
+                
         if len(all_accs) == 0:
             continue
         # Then plot the regrets and save it in the results folder.
-        upper75 = [] 
-        median = [] 
-        lower25 = [] 
+        upper75 = []
+        median = []
+        lower25 = []
         for tx in range(len(all_accs)):
             median.append(np.median(all_accs[tx]))
             lower25.append(np.quantile(all_accs[tx], 0.25))
@@ -113,8 +116,8 @@ def plot_val_loss(loggers, output_path):
         axes.plot(xs, median, label=name)
         axes.fill_between(xs, lower25, upper75, alpha=0.2)
         axes.set_ylim(0.0, 1.1)
-        axes.set_ylabel('Val Accuracy')
-        axes.set_xlabel('Number of adaptation towers')
+        axes.set_ylabel(val_fname[:-4])
+        axes.set_xlabel('Number of adaptation grasps')
         axes.legend()
     # plt_fname = 'validation_accuracy.png'
     plt.savefig(output_path)

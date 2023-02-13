@@ -233,6 +233,52 @@ def analyze_objects(objects_all):
     plt.show()
     print(np.min(inertia), np.max(inertia))
 
+import multiprocessing as mp
+def get_object_stats(name, props):
+    graspable_body = graspablebody_from_vector(name, props)
+    sim_client = GraspSimulationClient(graspable_body=graspable_body,
+        show_pybullet=False,
+        recompute_inertia=True)
+    mesh = sim_client.mesh
+    volume = mesh.volume
+    bb_volume = mesh.convex_hull.volume
+    ratio = bb_volume / volume
+    if ratio > 4:
+        mesh.show()
+    max_dim = np.max(mesh.bounds[1]*2)
+    sim_client.disconnect()
+    return [bb_volume, volume, max_dim, ratio]
+
+def show_object_size_distributions(train_fname):
+    with open(train_fname, 'rb') as handle:
+        train_data = pickle.load(handle)
+
+    object_names = train_data['object_data']['object_names']
+    object_properties = train_data['object_data']['object_properties']
+
+    # pool = mp.Pool(processes=20)
+    # results = pool.starmap(get_object_stats, zip(object_names, object_properties))
+    for name, prop in zip(object_names[::5], object_properties[::5]):
+        get_object_stats(name, prop)
+
+    fig, axes = plt.subplots(nrows=4, ncols=1)
+    axes[0].hist([res[0] for res in results], bins=25)
+    axes[0].set_xlabel('BB Volume')
+    axes[0].set_ylabel('Count')
+
+    axes[1].hist([res[1] for res in results], bins=25)
+    axes[1].set_xlabel('Volume')
+    axes[1].set_ylabel('Count')
+
+    axes[2].hist([res[2] for res in results], bins=25)
+    axes[2].set_xlabel('Max Dimension')
+    axes[2].set_ylabel('Count')
+
+    axes[3].hist([res[3] for res in results], bins=25)
+    axes[3].set_xlabel('Ratio')
+    axes[3].set_ylabel('Count')
+
+    plt.show()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -268,6 +314,7 @@ if __name__ == '__main__':
     # inspect_train_dataset(dataset_root)
 
     train_grasps = os.path.join(dataset_root, 'grasps', 'training_phase', 'train_grasps.pkl')
+    show_object_size_distributions(train_grasps)
     figpath = os.path.join(dataset_figpath, 'train_grasps')
     if not os.path.exists(figpath):
         os.mkdir(figpath)

@@ -267,8 +267,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
 
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
 
-
-def get_pf_task_performance(logger, fname):
+def get_pf_task_performance(logger, fname, use_progressive_priors):
     """ 
     Perform minimum force evaluation for a specific object.
     :param logger: Logger object for the fitted object.
@@ -287,32 +286,47 @@ def get_pf_task_performance(logger, fname):
     for tx in eval_range:
         print('Eval timestep, ', tx)
 
-        particles = logger.load_particles(tx)
+        if not use_progressive_priors:
+            particles = logger.load_particles(tx)
 
-        # This is necessary if we're using a weighted particle filter.
-        sampling_dist = ParticleDistribution(
-            particles.particles,
-            particles.weights / np.sum(particles.weights)
-        )
-        resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
-        gnp = logger.get_neural_process(tx)
-        if torch.cuda.is_available():
-            gnp = gnp.cuda()
-        probs, labels = get_gnp_predictions_with_particles(
-            resampled_parts,
-            val_grasp_data,
-            gnp,
-            n_particle_samples=32
-        )
+            # This is necessary if we're using a weighted particle filter.
+            sampling_dist = ParticleDistribution(
+                particles.particles,
+                particles.weights/np.sum(particles.weights)
+            )
+            resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
+            gnp = logger.get_neural_process(tx)
+            if torch.cuda.is_available():
+                gnp = gnp.cuda()
+            probs, labels = get_gnp_predictions_with_particles(
+                resampled_parts,
+                val_grasp_data,
+                gnp,
+                n_particle_samples=32
+            )
+        else:
+            context_data, _ = logger.load_acquisition_data(tx)
+            gnp = logger.get_neural_process(tx)
+            if torch.cuda.is_available():
+                gnp = gnp.cuda()
+            # Write function to get predictions given a set of context data.
+            probs, labels = get_predictions_with_contexts(
+                gnp,
+                context_data,
+                val_grasp_data,
+                n_latent_samples=10
+            )
+
         probs = probs.cpu().numpy()
         labels = labels.cpu().numpy()
 
         max_force = 20
-        neg_reward = -max_force
+        neg_reward = 0#-max_force
 
         max_reward = neg_reward
         max_exp_reward = neg_reward
         max_achieved_reward = neg_reward
+        max_stable_force, min_stable_force = 0, 25
 
         print(f'# Stable: {np.sum(labels)}/{len(labels)}')
         for force, prob, label in zip(grasp_forces, probs, labels):
@@ -327,6 +341,12 @@ def get_pf_task_performance(logger, fname):
                 max_exp_reward = exp_reward
                 max_achieved_reward = true_reward
 
+            if label == 1:
+                if force > max_stable_force:
+                    max_stable_force = force
+                if force < min_stable_force:
+                    min_stable_force = force
+
             # if label == 1:
             #     print(f'F: {force}\tProb: {prob}\tExpR: {exp_reward}')
 
@@ -335,7 +355,9 @@ def get_pf_task_performance(logger, fname):
         else:
             regret = (max_reward - max_achieved_reward) / 15
         regrets.append(regret)
-        print(f'Max Reward: {max_reward}\tReward: {max_achieved_reward}\tRegret: {regret}')
+
+        valid_force_range = max_stable_force - min_stable_force
+        print(f'Max Reward: {max_reward}\tReward: {max_achieved_reward}\tRegret: {regret}\tRange: {valid_force_range}')
 
         with open(logger.get_figure_path(f'regrets_{neg_reward}.pkl'), 'wb') as handle:
             pickle.dump(regrets, handle)
@@ -427,7 +449,8 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
             probs, labels, means, covars, entropy = get_gnp_predictions_and_ig_evals(
                 gnp,
                 context_data,
-                val_grasp_data
+                val_grasp_data,
+                n_latent_samples=10
             )
             # we have to drop the last grasp in the context set to see what the ig comp looked like
 
