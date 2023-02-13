@@ -99,7 +99,7 @@ if __name__ == '__main__':
     parser.add_argument('--grasp-noise', type=float, required=True)
     parser.add_argument('--curvature-radii', type=float, nargs=3, required=True)  # we choose 3 for feature vector ease
     parser.add_argument('--n-processes', type=int, default=1)
-    parser.add_argument('--merge', action='store_true', default=False)
+    parser.add_argument('--merge', action='store_true', default=True)
     new_args = parser.parse_args()
     print(new_args)
 

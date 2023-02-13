@@ -21,6 +21,7 @@ from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.domains.grasping.tamp_grasping import GraspingAgent
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset
 from learning.models.grasp_np.train_grasp_np import check_to_cuda
+from learning.models.grasp_np.create_gnp_data import process_geometry
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
 
 
@@ -58,16 +59,22 @@ def find_informative_tower(pf, object_set, logger, args):
         all_preds.append(preds)
         all_grasps.append(grasp_data)
 
+    # NOTE: this is the computation we need for IG for visualization for particle filtering
     pred_vec = torch.Tensor(np.stack(all_preds))
     scores = particle_bald(pred_vec, pf.particles.weights)
     print('Scores:', scores)
     acquire_ix = np.argsort(scores)[::-1][0]
 
-    return all_grasps[acquire_ix]
+    # TODO: this is the choice we need to override
+    # merge all the grasps into the same dataset
+    merge_set = all_grasps[0]
+    for grasp in all_grasps[1:]:
+        merge_set = merge_gnp_datasets(merge_set, grasp)
+
+    return all_grasps[acquire_ix], merge_set
 
 
-def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_samples,
-                                             n_samples_from_latent_dist=10, batching_size=16):
+def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_dist=32, batching_size=20):
     """
     :param current_context: Grasp dict object with collected datapoints so far.
         Most-nested dictionaries: ox: [].
@@ -77,11 +84,14 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
     :param n_samples_from_latent_dist: Number of samples from latent distribution when computing expected
     entropy of the posterior.
     :param batching_size: batching size used to speed up computation
-    :return: The grasp index of the unlabeled samples with the highest info gain score.
+    :return: An array of IG scores with same length as unlabeled_samples, with index correspondence between the two.
     """
-
-    dataset = CustomGNPGraspDataset(data=unlabeled_samples, context_data=current_context)
-    context_data, unlabeled_data = dataset[0]  # apply post-processing
+    if list(current_context['grasp_data']['labels'].values())[0]:
+        dataset = CustomGNPGraspDataset(data=unlabeled_samples, context_data=current_context)
+        context_data, unlabeled_data = dataset[0]  # apply post-processing
+    else:
+        dataset = CustomGNPGraspDataset(data=unlabeled_samples)
+        context_data, unlabeled_data = dataset[0]
 
     n_unlabeled_sampled = len(unlabeled_data['grasp_forces'])
     n_batches = math.ceil(float(n_unlabeled_sampled) / batching_size)
@@ -91,57 +101,65 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
         gnp.cuda()
 
     with torch.no_grad():
-        context_mesh = torch.unsqueeze(
-            torch.swapaxes(
-                torch.tensor(context_data['object_mesh']),
-                1, 2
-            )[0],
-            0
-        )
+        if context_data is not None:
+            context_mesh = torch.unsqueeze(
+                torch.swapaxes(
+                    torch.tensor(context_data['object_mesh']),
+                    1, 2
+                )[0],
+                0
+            )
 
-        context_geoms = torch.unsqueeze(
-            torch.swapaxes(
-                torch.tensor(context_data['grasp_geometries']),
-                1, 2
-            ),
-            0
-        )
+            context_geoms = torch.unsqueeze(
+                torch.swapaxes(
+                    torch.tensor(context_data['grasp_geometries']),
+                    1, 2
+                ),
+                0
+            )
 
-        context_grasp_points = torch.unsqueeze(torch.tensor(context_data['grasp_points']), 0)
-        context_curvatures = torch.unsqueeze(torch.tensor(context_data['grasp_curvatures']), 0)
-        context_midpoints = torch.unsqueeze(torch.tensor(context_data['grasp_midpoints']), 0)
-        context_forces = torch.unsqueeze(torch.tensor(context_data['grasp_forces']), 0)
-        context_labels = torch.unsqueeze(torch.tensor(context_data['grasp_labels']), 0)
+            context_grasp_points = torch.unsqueeze(torch.tensor(context_data['grasp_points']), 0)
+            context_curvatures = torch.unsqueeze(torch.tensor(context_data['grasp_curvatures']), 0)
+            context_midpoints = torch.unsqueeze(torch.tensor(context_data['grasp_midpoints']), 0)
+            context_forces = torch.unsqueeze(torch.tensor(context_data['grasp_forces']), 0)
+            context_labels = torch.unsqueeze(torch.tensor(context_data['grasp_labels']), 0)
 
-        context_mesh, \
-        context_geoms, \
-        context_grasp_points, \
-        context_curvatures, \
-        context_midpoints, \
-        context_forces, \
-        context_labels = \
-            check_to_cuda([
-                context_mesh,
-                context_geoms,
-                context_grasp_points,
-                context_curvatures,
-                context_midpoints,
-                context_forces,
-                context_labels
-            ])
+            context_mesh, \
+            context_geoms, \
+            context_grasp_points, \
+            context_curvatures, \
+            context_midpoints, \
+            context_forces, \
+            context_labels = \
+                check_to_cuda([
+                    context_mesh,
+                    context_geoms,
+                    context_grasp_points,
+                    context_curvatures,
+                    context_midpoints,
+                    context_forces,
+                    context_labels
+                ])
 
-        # compute H(z)
-        q_z, mesh_enc = gnp.forward_until_latents(
-            (context_geoms,
-             context_grasp_points,
-             context_curvatures,
-             context_midpoints,
-             context_forces,
-             context_labels),
-            context_mesh
-        )
-        # need to reinterpret as a multivariate Gaussian and then compute entropy
-        h_z = torch.distributions.Independent(q_z, 1).entropy()
+            # compute H(z)
+            q_z, mesh_enc = gnp.forward_until_latents(
+                (context_geoms,
+                 context_grasp_points,
+                 context_curvatures,
+                 context_midpoints,
+                 context_forces,
+                 context_labels),
+                context_mesh
+            )
+            # need to reinterpret as a multivariate Gaussian and then compute entropy
+            h_z = torch.distributions.Independent(q_z, 1).entropy()
+        else:
+            # if there is no context data, we'll use an uninformed prior
+            zeros = torch.zeros((1, gnp.d_latents))
+            ones = torch.ones((1, gnp.d_latents))
+            zeros, ones = check_to_cuda([zeros, ones])
+            q_z = torch.distributions.Normal(zeros, ones)
+            h_z = torch.distributions.Independent(q_z, 1).entropy()
 
         # prepare unlabeled points as batched singletons
         unlabeled_mesh = torch.unsqueeze(
@@ -210,30 +228,39 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
 
         # next, we create all the candidate context sets and then compute the entropy of the latent distribution
         # for each
-        candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_midpoints, candidate_forces = \
-            [torch.cat([
-                c_set[0].broadcast_to(n_unlabeled_sampled, *c_set[0].shape),
-                u_set
-            ], dim=1)
-                for c_set, u_set in zip(
-                [context_geoms, context_grasp_points, context_curvatures, context_midpoints, context_forces],
-                [unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints,
-                 unlabeled_forces])
-            ]
+        if context_data is not None:
+            candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_midpoints, candidate_forces = \
+                [torch.cat([
+                    c_set[0].broadcast_to(n_unlabeled_sampled, *c_set[0].shape),
+                    u_set
+                ], dim=1)
+                    for c_set, u_set in zip(
+                    [context_geoms, context_grasp_points, context_curvatures, context_midpoints, context_forces],
+                    [unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints,
+                     unlabeled_forces])
+                ]
+        else:
+            # if there are no context, then the unlabeled sets are the actual candidate sets
+            candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_midpoints, candidate_forces = \
+                unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints, unlabeled_forces
 
         zero_labels = torch.zeros((n_unlabeled_sampled, 1))
         one_labels = torch.ones((n_unlabeled_sampled, 1))
         zero_labels, one_labels = check_to_cuda([zero_labels, one_labels])
 
-        candidate_labels_zero = torch.cat([
-            context_labels[0].broadcast_to(n_unlabeled_sampled, *context_labels[0].shape),
-            zero_labels
-        ], dim=1)
+        if context_data is not None:
+            candidate_labels_zero = torch.cat([
+                context_labels[0].broadcast_to(n_unlabeled_sampled, *context_labels[0].shape),
+                zero_labels
+            ], dim=1)
 
-        candidate_labels_one = torch.cat([
-            context_labels[0].broadcast_to(n_unlabeled_sampled, *context_labels[0].shape),
-            one_labels
-        ], dim=1)
+            candidate_labels_one = torch.cat([
+                context_labels[0].broadcast_to(n_unlabeled_sampled, *context_labels[0].shape),
+                one_labels
+            ], dim=1)
+        else:
+            candidate_labels_zero = zero_labels
+            candidate_labels_one = one_labels
 
         h_z_cond_x_y_equals_zero = torch.zeros(n_unlabeled_sampled)
         h_z_cond_x_y_equals_one = torch.zeros(n_unlabeled_sampled)
@@ -273,27 +300,25 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
         expected_h_z_cond_x_y = p_y_equals_one_cond_d_x * h_z_cond_x_y_equals_one + (
                 1 - p_y_equals_one_cond_d_x) * h_z_cond_x_y_equals_zero
         info_gain = h_z - expected_h_z_cond_x_y
-
-        # return the index with the largest information gain
-        return torch.argmax(info_gain).item()
+        return info_gain.cpu().numpy()
 
 
-def dummy_info_gain(gnp, current_context, unlabeled_samples):
-    """
-    Return first element for testing.
-    """
-    return 0
-
-
-def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
+def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_selection_fun=None):
+    # We generate the datasets here, but evaluate_grasping is when we actually
+    # play through the interaction data. So we will actually be saving the mean, covariance, and entropy data
+    # over there.
     print('----- Running fitting phase with learned progressive priors -----')
     logger.save_neural_process(gnp, 0, symlink_tx0=False)
 
+    # TODO: if we regularize with uninformed prior, we shouldn't start with a random sample.
+    #  we should be using IG the uninformed prior
     # Initialize data dictionary in GNP format with a random data point.
-    context_data = sample_unlabeled_gnp_data(n_samples=1, object_set=object_set, object_ix=args.eval_object_ix)
+    samples = sample_unlabeled_gnp_data(n_samples=args.n_samples, object_set=object_set,
+                                        object_ix=args.eval_object_ix)
+    context_data = select_gnp_dataset_ix(samples, 0)
     context_data = get_labels_gnp(context_data)
 
-    logger.save_acquisition_data(context_data, None, 0)
+    logger.save_acquisition_data(context_data, samples, 0)
 
     # All random grasps end up getting labeled, so parallelize this.
     if strategy == 'random' and not args.constrained:
@@ -318,6 +343,9 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
 
         if strategy == 'random' and not args.constrained:
             grasp_dataset = select_gnp_dataset_ix(random_pool, tx)
+            context_data = merge_gnp_datasets(context_data, grasp_dataset)
+            logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
+            logger.save_acquisition_data(context_data, random_pool, tx + 1)
         elif strategy == 'random' and args.constrained:
             # Sample a plan of horizon 1. Pick/place.
             (grasp, place) = agent.sample_plan(horizon=1)
@@ -325,29 +353,42 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
             label = agent.execute_first_action((grasp, place))
             # Convert plan to GNP data format.
             grasp_dataset = gnp_dataset_from_raw_grasps([grasp], [label], object_set, args.eval_object_ix)
-            print('HERE')
+
+            context_data = merge_gnp_datasets(context_data, grasp_dataset)
+            logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
+            logger.save_acquisition_data(context_data, random_pool, tx + 1)
         elif strategy == 'bald':
             # TODO: Sample target unlabeled dataset in parallel fashion.
             print('Sampling...')
             unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set, object_ix=args.eval_object_ix)
-            print('Finding best sample...')
-            best_idx = find_informative_tower_progressive_prior(gnp, context_data, unlabeled_dataset)
+
+            info_gain = compute_ig(gnp, context_data, unlabeled_dataset,
+                                   n_samples_from_latent_dist=32, batching_size=32)
+
+            # gives an opportunity to hijack the selection computation if needed for comparison experiments
+            if override_selection_fun is None:
+                best_idx = np.argmax(info_gain)
+            else:
+                best_idx = override_selection_fun(info_gain, tx)
+
             # Get the observation for the chosen grasp.
-            print('Labeling...')
+            # means, and covariances here.
             grasp_dataset = select_gnp_dataset_ix(unlabeled_dataset, best_idx)
             grasp_dataset = get_labels_gnp(grasp_dataset)
+
+            context_data = merge_gnp_datasets(context_data, grasp_dataset)
+            # TODO: why do we save this? we haven't changed anything
+            logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
+            logger.save_acquisition_data(context_data, unlabeled_dataset, tx + 1)
         else:
             raise NotImplementedError()
 
         # Add datapoint to context dictionary.
-        context_data = merge_gnp_datasets(context_data, grasp_dataset)
-        logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
-        logger.save_acquisition_data(context_data, None, tx + 1)
 
     if args.constrained:
         agent.disconnect()
 
-def particle_filter_loop(pf, object_set, logger, strategy, args):
+def particle_filter_loop(pf, object_set, logger, strategy, args, override_selection_fun=None):
     if args.likelihood == 'nn':
         logger.save_ensemble(pf.likelihood, 0, symlink_tx0=False)
     elif args.likelihood == 'gnp':
@@ -361,14 +402,44 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
         if strategy == 'random':
             data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
             grasp_dataset = data_sampler_fn(1)
+            acquired_sampled_grasps = None
         elif strategy == 'bald':
-            grasp_dataset = find_informative_tower(pf, object_set, logger, args)
+
+            data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
+
+            all_grasps = []
+            all_preds = []
+            for ix in range(0, args.n_samples):
+                grasp_data = data_sampler_fn(1)
+                preds = pf.get_particle_likelihoods(pf.particles.particles, grasp_data)
+                all_preds.append(preds)
+                all_grasps.append(grasp_data)
+
+            # NOTE: this is the computation we need for IG for visualization for particle filtering
+            pred_vec = torch.Tensor(np.stack(all_preds))
+            scores = particle_bald(pred_vec, pf.particles.weights)
+
+            # override for comparison experiments
+            if override_selection_fun is None:
+                best_ix = np.argmax(scores)
+            else:
+                best_ix = override_selection_fun(scores, tx)
+
+            grasp_dataset = all_grasps[best_ix]
+
+            # merge all grasps to save them for visualization
+            # convert into gnp form since we are now using the gnp model for the paper
+            acquired_sampled_grasps = process_geometry(all_grasps[0], radius=0.3, verbose=False)
+            for grasp in all_grasps[1:]:
+                # convert into gnp form since we are now using the gnp model for the paper
+                grasp = process_geometry(grasp_dataset, radius=0.3, verbose=False)
+                acquired_sampled_grasps = merge_gnp_datasets(acquired_sampled_grasps, grasp)
+
         else:
             raise NotImplementedError()
 
         # Get the observation for the chosen tower.
         grasp_dataset = get_labels(grasp_dataset)
-
         # Update the particle belief.
         particles, means = pf.update(grasp_dataset)
         print('[ParticleFilter] Particle Statistics')
@@ -376,16 +447,22 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
         print(f'Max Weight: {np.max(pf.particles.weights)}')
         print(f'Sum Weights: {np.sum(pf.particles.weights)}')
 
+        grasp_dataset = process_geometry(grasp_dataset, radius=0.3, verbose=False)
+        if tx == 0:
+            context_data = grasp_dataset
+        else:
+            context_data = merge_gnp_datasets(context_data, grasp_dataset)
+
+
         # Save the model and particle distribution at each step.
         if args.likelihood == 'nn':
             logger.save_ensemble(pf.likelihood, tx + 1, symlink_tx0=True)
         elif args.likelihood == 'gnp':
             logger.save_neural_process(pf.likelihood, tx + 1, symlink_tx0=True)
-        logger.save_acquisition_data(grasp_dataset, None, tx + 1)
+        logger.save_acquisition_data(context_data, acquired_sampled_grasps, tx)
         logger.save_particles(particles, tx + 1)
 
 
-# "grasp_train-ycb-test-ycb-1_fit_random_train_geo_object0": "learning/experiments/logs/grasp_train-ycb-test-ycb-1_fit_random_train_geo_object0-20220504-134253"
 def run_particle_filter_fitting(args):
     print(args)
     args.use_latents = True
@@ -448,8 +525,8 @@ def run_particle_filter_fitting(args):
     else:
         pf = GraspingDiscreteLikelihoodParticleBelief(
             object_set=object_set,
-            D=d_latents,
-            N=args.n_particles,
+            d_latents=d_latents,
+            n_particles=args.n_particles,
             likelihood=likelihood_model,
             resample=False,
             plot=False)
@@ -458,7 +535,7 @@ def run_particle_filter_fitting(args):
 
     # ----- Run particle filter loop -----
     if args.use_progressive_priors:
-        amoritized_filter_loop(likelihood_model, object_set, logger, args.strategy, args)
+        amortized_filter_loop(likelihood_model, object_set, logger, args.strategy, args)
     else:
         particle_filter_loop(pf, object_set, logger, args.strategy, args)
 
