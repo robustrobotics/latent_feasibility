@@ -48,6 +48,49 @@ def find_informative_tower(pf, object_set, logger, args):
 
     return all_grasps[acquire_ix]
 
+def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
+    print('----- Running fitting phase with learned progressive priors -----')
+    logger.save_neural_process(gnp, 0, symlink_tx0=False)
+
+    object_pos, object_orn = (0.4, 0., 1.), (0., 0., 0., 1.)
+    plan = None
+
+    object_name, object_properties, _ = get_fit_object(object_set)
+    graspable_body = graspablebody_from_vector(object_name, object_properties)
+    agent = GraspingAgent(
+        graspable_body=graspable_body,
+        init_pose=(object_pos, object_orn),
+        use_gui=False)
+
+    # Initialize data dictionary in GNP format with a random data point.
+    context_data = sample_unlabeled_gnp_data(n_samples=1, object_set=object_set, object_ix=args.eval_object_ix)
+    context_data = get_labels_gnp(context_data)
+
+    logger.save_acquisition_data(context_data, None, 0)
+
+    # All random grasps end up getting labeled, so parallelize this.
+    if strategy == 'random':
+        random_pool = sample_unlabeled_gnp_data(
+            n_samples=args.max_acquisitions,
+            object_set=object_set,
+            object_ix=args.eval_object_ix
+        )
+        random_pool = get_labels_gnp(random_pool)
+
+    for tx in range(0, args.max_acquisitions):
+        print('[AmortizedFilter] Interaction Number', tx)
+        if strategy == 'random':
+            grasp_dataset = select_gnp_dataset_ix(random_pool, tx)
+        elif strategy == 'bald':
+            raise NotImplementedError()
+        else:
+            raise NotImplementedError()
+
+        # Add datapoint to context dictionary.
+        context_data = merge_gnp_datasets(context_data, grasp_dataset)
+        logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
+        logger.save_acquisition_data(context_data, None, tx + 1)
+
 def particle_filter_loop(pf, object_set, logger, strategy, args):
     object_pos, object_orn = (0.4, 0., 1.), (0., 0., 0., 1.)
     plan = None
@@ -64,7 +107,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args):
 
     for tx in range(0, args.max_acquisitions):
         print('[ParticleFilter] Interaction Number', tx)
-        
+
         # Choose a tower to build that includes the new block.
         if strategy == 'random':
             if plan is None:
@@ -103,7 +146,7 @@ def run_particle_filter_fitting(args):
     print(args)
     args.use_latents = True
     args.fit_pf = True
-    
+
     logger = ActiveExperimentLogger.setup_experiment_directory(args)
 
     # ----- Load the block set -----
@@ -133,7 +176,7 @@ def run_particle_filter_fitting(args):
 
     # ----- Run particle filter loop -----
     particle_filter_loop(pf, object_set, logger, args.strategy, args)
-    
+
     return logger.exp_path
 
 if __name__ == '__main__':
@@ -148,6 +191,5 @@ if __name__ == '__main__':
     parser.add_argument('--strategy', type=str, choices=['bald', 'random', 'task'], default='bald')
     parser.add_argument('--n-particles', type=int, default=100)
     args = parser.parse_args()
-    
+
     run_particle_filter_fitting(args)
-    

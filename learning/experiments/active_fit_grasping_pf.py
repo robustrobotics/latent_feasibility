@@ -12,10 +12,13 @@ from learning.domains.grasping.active_utils import (
     get_labels,
     get_labels_gnp,
     get_train_and_fit_objects,
+    get_fit_object,
     select_gnp_dataset_ix,
-    merge_gnp_datasets
+    merge_gnp_datasets,
+    gnp_dataset_from_raw_grasps
 )
 from learning.domains.grasping.pybullet_likelihood import PBLikelihood
+from learning.domains.grasping.tamp_grasping import GraspingAgent
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset
 from learning.models.grasp_np.train_grasp_np import check_to_cuda
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
@@ -182,7 +185,7 @@ def find_informative_tower_progressive_prior(gnp, current_context, unlabeled_sam
         # compute p(y|D,x)
         q_z_batched = q_z.expand((n_unlabeled_sampled, q_z.batch_shape[1]))
         zs = q_z_batched.sample((n_samples_from_latent_dist,))
-
+        
         p_y_equals_one_cond_d_x = torch.zeros(n_unlabeled_sampled)
         p_y_equals_one_cond_d_x, = check_to_cuda([p_y_equals_one_cond_d_x])
 
@@ -293,7 +296,7 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
     logger.save_acquisition_data(context_data, None, 0)
 
     # All random grasps end up getting labeled, so parallelize this.
-    if strategy == 'random':
+    if strategy == 'random' and not args.constrained:
         random_pool = sample_unlabeled_gnp_data(
             n_samples=args.max_acquisitions,
             object_set=object_set,
@@ -301,16 +304,36 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
         )
         random_pool = get_labels_gnp(random_pool)
 
+    if args.constrained:
+        # Initialize PyBullet agent used for planning.
+        name, properties, _ = get_fit_object(object_set)
+        agent = GraspingAgent(
+            object_name=name,
+            object_properties=properties,
+            use_gui=False
+        )
+
     for tx in range(0, args.max_acquisitions):
         print('[AmortizedFilter] Interaction Number', tx)
 
-        if strategy == 'random':
+        if strategy == 'random' and not args.constrained:
             grasp_dataset = select_gnp_dataset_ix(random_pool, tx)
+        elif strategy == 'random' and args.constrained:
+            # Sample a plan of horizon 1. Pick/place.
+            (grasp, place) = agent.sample_plan(horizon=1)
+            # Execute plan. Set object state based on result.
+            label = agent.execute_first_action((grasp, place))
+            # Convert plan to GNP data format.
+            grasp_dataset = gnp_dataset_from_raw_grasps([grasp], [label], object_set, args.eval_object_ix)
+            print('HERE')
         elif strategy == 'bald':
             # TODO: Sample target unlabeled dataset in parallel fashion.
+            print('Sampling...')
             unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set, object_ix=args.eval_object_ix)
+            print('Finding best sample...')
             best_idx = find_informative_tower_progressive_prior(gnp, context_data, unlabeled_dataset)
             # Get the observation for the chosen grasp.
+            print('Labeling...')
             grasp_dataset = select_gnp_dataset_ix(unlabeled_dataset, best_idx)
             grasp_dataset = get_labels_gnp(grasp_dataset)
         else:
@@ -322,6 +345,8 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
         logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
         logger.save_acquisition_data(context_data, None, tx + 1)
 
+    if args.constrained:
+        agent.disconnect()
 
 def particle_filter_loop(pf, object_set, logger, strategy, args):
     if args.likelihood == 'nn':
@@ -455,6 +480,7 @@ if __name__ == '__main__':
     parser.add_argument('--strategy', type=str, choices=['bald', 'random', 'task'], default='bald')
     parser.add_argument('--n-particles', type=int, default=100)
     parser.add_argument('--likelihood', choices=['nn', 'pb', 'gnp'], default='nn')
+    parser.add_argument('--constrained', action='store_true', default=False)
     args = parser.parse_args()
 
     run_particle_filter_fitting(args)
