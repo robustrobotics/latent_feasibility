@@ -341,7 +341,6 @@ def amoritized_filter_loop(gnp, object_set, logger, strategy, args):
 
         # Add datapoint to context dictionary.
         context_data = merge_gnp_datasets(context_data, grasp_dataset)
-
         logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
         logger.save_acquisition_data(context_data, None, tx + 1)
 
