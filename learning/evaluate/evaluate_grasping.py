@@ -290,7 +290,7 @@ def get_pf_task_performance(logger, fname, use_progressive_priors):
         particles = logger.load_particles(tx)
 
         # This is necessary if we're using a weighted particle filter.
-        if use_progressive_priors:
+        if not use_progressive_priors:
             sampling_dist = ParticleDistribution(
                 particles.particles,
                 particles.weights / np.sum(particles.weights)
