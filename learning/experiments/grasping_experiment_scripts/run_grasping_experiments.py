@@ -351,7 +351,11 @@ def run_task_eval_phase(args):
                 DATA_ROOT, exp_args.dataset_name,
                 'grasps', 'fitting_phase', val_dataset_fname
             )
-            get_pf_task_performance(fit_logger, val_dataset_path, use_progressive_priors=True)
+
+            with open(os.path.join(fit_log_path, 'args.pkl'), 'rb') as handle:
+                fitting_args = pickle.load(handle)
+            get_pf_task_performance(fit_logger, val_dataset_path,
+                                    use_progressive_priors=fitting_args.use_progressive_priors)
 
 
 def run_training_phase(args):
