@@ -2,7 +2,7 @@ import argparse
 import os
 import pickle
 from learning.domains.grasping.generate_datasets_for_experiment import parse_ignore_file, get_object_list
-from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector, sample_grasp_X
+from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector, sample_grasps_and_Xs
 
 import signal
 from contextlib import contextmanager
@@ -34,7 +34,7 @@ def check_grasp_gen(objects_fname, object_ix, phase):
     # Sample random grasps with labels.
     try:
         with time_limit(2):
-            sample_grasp_X(graspable_body, property_vector, 100, (None, None, None, None))
+            sample_grasps_and_Xs(graspable_body, property_vector, 50, 100, ())
     except TimeoutException:
         print(f'{phase},{object_ix}')
 
@@ -46,7 +46,7 @@ if __name__ == '__main__':
     parser.add_argument('--start-train', type=int, default=-1)
     parser.add_argument('--start-test', type=int, default=-1)
     new_args = parser.parse_args()
-    
+
     data_root_path = os.path.join('learning/data/grasping', new_args.data_root_name)
     args_path = os.path.join(data_root_path, 'args.pkl')
     with open(args_path, 'rb') as handle:

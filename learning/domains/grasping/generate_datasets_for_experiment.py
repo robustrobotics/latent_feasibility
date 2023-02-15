@@ -137,17 +137,15 @@ if __name__ == '__main__':
     train_objects = get_object_list(args.train_objects_fname)
     test_objects = get_object_list(args.test_objects_fname)
 
-    # Generate initial object sets.
-    object_tasks = []
-
     print('[Objects] Generating train objects.')
     train_objects_path = os.path.join(objects_path, 'train_geo_train_props.pkl')
     if not os.path.exists(train_objects_path):
         train_objects_args = SimpleNamespace(
             fname=train_objects_path,
             object_names=train_objects,
-            n_property_samples=args.n_property_samples_train)
-        object_tasks.append(train_objects_args)
+            n_property_samples=args.n_property_samples_train,
+            n_processes=args.n_processes)
+        generate_objects(train_objects_args)
 
     print('[Objects] Generating test objects: novel geometry.')
     test_objects_path = os.path.join(objects_path, 'test_geo_test_props.pkl')
@@ -155,8 +153,9 @@ if __name__ == '__main__':
         test_objects_args = SimpleNamespace(
             fname=test_objects_path,
             object_names=test_objects,
-            n_property_samples=args.n_property_samples_test)
-        object_tasks.append(test_objects_args)
+            n_property_samples=args.n_property_samples_test,
+            n_processes=args.n_processes)
+        generate_objects(test_objects_args)
 
     print('[Objects] Generating test objects: train geometry.')
     test_objects_samegeo_path = os.path.join(objects_path, 'train_geo_test_props.pkl')
@@ -164,10 +163,9 @@ if __name__ == '__main__':
         test_objects_samegeo_args = SimpleNamespace(
             fname=test_objects_samegeo_path,
             object_names=train_objects,
-            n_property_samples=args.n_property_samples_test)
-        object_tasks.append(test_objects_samegeo_args)
-
-    worker_pool.map(generate_objects, object_tasks)
+            n_property_samples=args.n_property_samples_test,
+            n_processes=args.n_processes)
+        generate_objects(test_objects_samegeo_args)
 
     # Generate training and validation sets used for the training phase.
     training_phase_path = os.path.join(grasps_path, 'training_phase')

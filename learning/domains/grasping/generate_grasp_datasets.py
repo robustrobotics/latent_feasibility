@@ -2,7 +2,9 @@ import argparse
 import random
 import pickle
 import sys
+import time
 
+import multiprocessing as mp
 import matplotlib.pyplot as plt
 import numpy as np
 from trimesh.curvature import discrete_gaussian_curvature_measure, discrete_mean_curvature_measure
@@ -29,6 +31,123 @@ def graspablebody_from_vector(object_name, vector):
                                    friction=vector[4])
     return graspable_body
 
+def sample_grasps_and_Xs(graspable_body, property_vector, n_grasps, n_points_per_object, curvature_rads):
+    # Sample new point cloud for object.
+    start_mesh = time.time()
+    sim_client = GraspSimulationClient(graspable_body, False)
+    mesh_points = np.array(sim_client.mesh.sample(n_points_per_object*n_grasps, return_index=False),
+                           dtype='float32')
+    mesh_points = np.hstack([mesh_points,
+                             np.ones((n_points_per_object*n_grasps, 1), dtype='float32')])
+    mesh_points = (sim_client.mesh_tform @ (mesh_points.T)).T[:, 0:3].reshape((n_grasps, n_points_per_object, 3))
+    sim_client.disconnect()
+    # print('Mesh Time:', time.time() - start_mesh)
+
+    # Sample grasp.
+    try:
+        random.seed()
+        np.random.seed()
+        grasp_sampler = GraspSampler(graspable_body=graspable_body,
+                                        antipodal_tolerance=30,
+                                        show_pybullet=False)
+        grasps = grasp_sampler.sample_grasps(
+            num_grasps=n_grasps,
+            force_range=(5, 20),
+            show_trimesh=False
+        )
+        grasp_sampler.disconnect()
+    except Exception as e:
+        grasp_sampler.disconnect()
+        raise e
+    
+    # Encode grasp as points.
+    grasps_vectors = np.array(
+        [(g.pb_point1, g.pb_point2, g.ee_relpose[0]) for g in grasps],
+        dtype=np.float32
+    )
+
+    start_curvs = time.time()
+    if len(curvature_rads) > 0:
+        # compute Gaussian and mean curvatures at multiple resolutions
+        gaussian_curvatures_grasp_point1 = np.concatenate(
+            tuple(
+                map(
+                    lambda rad: discrete_gaussian_curvature_measure(sim_client.mesh, grasps_vectors[:, 0, :], rad)[:, None],
+                    curvature_rads
+                )
+            ),
+            axis=-1
+        )
+
+        mean_curvatures_grasp_point1 = np.concatenate(
+            tuple(
+                map(
+                    lambda rad: discrete_mean_curvature_measure(sim_client.mesh, grasps_vectors[:, 0, :], rad)[:, None],
+                    curvature_rads
+                )
+            ),
+            axis=-1
+        )
+
+        gaussian_curvatures_grasp_point2 = np.concatenate(
+            tuple(
+                map(
+                    lambda rad: discrete_gaussian_curvature_measure(sim_client.mesh, grasps_vectors[:, 1, :], rad)[:, None],
+                    curvature_rads
+                )
+            ),
+            axis=-1
+        )
+
+        mean_curvatures_grasp_point2 = np.concatenate(
+            tuple(
+                map(
+                    lambda rad: discrete_mean_curvature_measure(sim_client.mesh, grasps_vectors[:, 1, :], rad)[:, None],
+                    curvature_rads
+                )
+            ),
+            axis=-1
+        )
+    else:
+        gaussian_curvatures_grasp_point1 =  np.zeros((n_grasps, 3), dtype=np.float32)
+        gaussian_curvatures_grasp_point2 =  np.zeros((n_grasps, 3), dtype=np.float32)
+        mean_curvatures_grasp_point1 =  np.zeros((n_grasps, 3), dtype=np.float32)
+        mean_curvatures_grasp_point2 =  np.zeros((n_grasps, 3), dtype=np.float32)
+    # print('Curv time:', time.time() - start_curvs)
+
+    # Add grasp/object indicator features and curvature information
+    grasps_vectors = np.concatenate([
+        grasps_vectors,  # (N, 3, 3)
+        np.tile(np.eye(3, dtype='float32')[None, :, :], (n_grasps, 1, 1))  # (3, 3) -> (N, 3, 3)
+    ], axis=-1)
+
+    # order: [[pt1 gauss curvature x 3, pt1 mean curvature x 3],
+    # order:  [pt2 gauss curvature x 3, pt2 gauss curvature x 3]]
+    curvatures_pts1 = np.concatenate(
+        [gaussian_curvatures_grasp_point1, mean_curvatures_grasp_point1],  # Both (N x 3)
+        axis=-1
+    )
+    curvatures_pts2 = np.concatenate(
+        [gaussian_curvatures_grasp_point2, mean_curvatures_grasp_point2],  # Both (N x 3)
+        axis=-1
+    )
+
+    grasps_vectors = np.concatenate(
+        [grasps_vectors, curvatures_pts1[:, None, :], curvatures_pts2[:, None, :]],
+        axis=1
+    )
+
+    mesh_vectors = np.concatenate([
+        mesh_points,
+        np.zeros((n_grasps, n_points_per_object, 3), dtype='float32')
+    ], axis=-1)
+
+    # Concatenate all relevant vectors (points, indicators, properties).
+    Xs = np.concatenate([grasps_vectors, mesh_vectors], axis=1)
+    props = np.broadcast_to(property_vector, (Xs.shape[0], Xs.shape[1], len(property_vector)))
+    Xs = np.concatenate([Xs, props], axis=-1)
+
+    return grasps, Xs
 
 def sample_grasp_X(graspable_body, property_vector, n_points_per_object, curvature_rads, grasp=None):
     # Sample new point cloud for object.
@@ -155,6 +274,14 @@ def generate_datasets(dataset_args):
         print(f'Object name: {object_name}', property_vector)
         # Sample random grasps with labels.
 
+        grasps, Xs = sample_grasps_and_Xs(
+            graspable_body,
+            property_vector,
+            dataset_args.n_grasps_per_object,
+            dataset_args.n_points_per_object,
+            dataset_args.curvature_radii
+        )
+
         labeler = GraspStabilityChecker(graspable_body,
                                         stability_direction='all',
                                         label_type='relpose',
@@ -162,14 +289,8 @@ def generate_datasets(dataset_args):
                                         show_pybullet=False,
                                         recompute_inertia=True)
         print('PBID:', labeler.sim_client.pb_client_id)
-        for grasp_ix in range(0, dataset_args.n_grasps_per_object):
+        for grasp_ix, (grasp, X) in enumerate(zip(grasps, Xs)):
             print('Grasp %d/%d...' % (grasp_ix, dataset_args.n_grasps_per_object))
-
-            grasp, X = sample_grasp_X(graspable_body,
-                                      property_vector,
-                                      dataset_args.n_points_per_object,
-                                      dataset_args.curvature_radii
-                                      )
 
             # Get label.
             label = labeler.get_label(grasp)
@@ -195,27 +316,30 @@ def generate_datasets(dataset_args):
     with open('%s' % dataset_args.fname, 'wb') as handle:
         pickle.dump(dataset, handle)
 
+def get_property_vector(name):
+     # Sample a new object.
+    graspable_body = GraspableBodySampler.sample_random_object_properties(name)
+    # Get property label vector.
+    property_vector = vector_from_graspablebody(graspable_body)
+
+    return name, property_vector
 
 def generate_objects(obj_args):
     """ Sample random objects and intrinsic properties for those objects. """
     assert 'learning/data/grasping' in obj_args.fname
-    object_instance_names = []
-    object_instance_properties = []
+    tasks = []
     for obj_ix, name in enumerate(obj_args.object_names):
         print('Object %d/%d...' % (obj_ix, len(obj_args.object_names)))
         for prop_ix in range(0, obj_args.n_property_samples):
             print('Property sample %d/%d...' % (prop_ix, obj_args.n_property_samples))
+            tasks.append(name)
 
-            object_id = obj_ix * len(obj_args.object_names) + prop_ix
-
-            # Sample a new object.
-            graspable_body = GraspableBodySampler.sample_random_object_properties(name)
-
-            # Get property label vector.
-            property_vector = vector_from_graspablebody(graspable_body)
-
-            object_instance_names.append(name)
-            object_instance_properties.append(property_vector)
+    pool = mp.Pool(obj_args.n_processes)
+    results = pool.map(get_property_vector, tasks)
+    pool.close()
+    
+    object_instance_names = [res[0] for res in results]
+    object_instance_properties = [res[1] for res in results]
 
     dataset = {
         'object_data': {
