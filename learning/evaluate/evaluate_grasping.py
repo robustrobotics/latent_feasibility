@@ -124,7 +124,7 @@ def truncate_grasps(tensor_list, n_grasps):
     return [tensor[:, :n_grasps, ...] for tensor in tensor_list]
 
 
-def get_gnp_predictions_and_ig_evals(gnp, context_data, val_data):
+def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
     preds, labels, means, covars, entropy = [], [], [], [], []
     dataset = CustomGNPGraspDataset(
         data=val_data,
@@ -267,6 +267,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
 
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
 
+
 def get_pf_task_performance(logger, fname, use_progressive_priors):
     """ 
     Perform minimum force evaluation for a specific object.
@@ -286,13 +287,13 @@ def get_pf_task_performance(logger, fname, use_progressive_priors):
     for tx in eval_range:
         print('Eval timestep, ', tx)
 
-        if not use_progressive_priors:
-            particles = logger.load_particles(tx)
+        particles = logger.load_particles(tx)
 
-            # This is necessary if we're using a weighted particle filter.
+        # This is necessary if we're using a weighted particle filter.
+        if not use_progressive_priors:
             sampling_dist = ParticleDistribution(
                 particles.particles,
-                particles.weights/np.sum(particles.weights)
+                particles.weights / np.sum(particles.weights)
             )
             resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
             gnp = logger.get_neural_process(tx)
@@ -304,21 +305,21 @@ def get_pf_task_performance(logger, fname, use_progressive_priors):
                 gnp,
                 n_particle_samples=32
             )
+            probs = probs.cpu().numpy()
+            labels = labels.cpu().numpy()
         else:
-            context_data, _ = logger.load_acquisition_data(tx)
+            context_data, sampled_unlabeled_data = logger.load_acquisition_data(tx)
             gnp = logger.get_neural_process(tx)
             if torch.cuda.is_available():
                 gnp = gnp.cuda()
             # Write function to get predictions given a set of context data.
-            probs, labels = get_predictions_with_contexts(
+            probs, labels, _, _, _ = get_gnp_contextualized_gnp_predictions(
                 gnp,
                 context_data,
-                val_grasp_data,
-                n_latent_samples=10
+                val_grasp_data
             )
-
-        probs = probs.cpu().numpy()
-        labels = labels.cpu().numpy()
+            probs = probs.numpy()
+            labels = labels.numpy()
 
         max_force = 20
         neg_reward = 0#-max_force
@@ -353,7 +354,7 @@ def get_pf_task_performance(logger, fname, use_progressive_priors):
         if max_achieved_reward == neg_reward:
             regret = 1
         else:
-            regret = (max_reward - max_achieved_reward) / 15
+            regret = (max_reward - max_achieved_reward) / 15 # TODO: magic number alert! is this just a normalization?
         regrets.append(regret)
 
         valid_force_range = max_stable_force - min_stable_force
@@ -446,7 +447,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
             if torch.cuda.is_available():
                 gnp = gnp.cuda()
             # Write function to get predictions given a set of context data.
-            probs, labels, means, covars, entropy = get_gnp_predictions_and_ig_evals(
+            probs, labels, means, covars, entropy = get_gnp_contextualized_gnp_predictions(
                 gnp,
                 context_data,
                 val_grasp_data,

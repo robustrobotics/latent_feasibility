@@ -39,6 +39,15 @@ def main(args):
     existing_exp_dir = os.path.join(EXPERIMENT_ROOT, args.existing_exp_name)
     ported_exp_dir = copy_dir_and_rename(existing_exp_dir, args.ported_exp_name)
 
+    # replace exp name
+    with open(os.path.join(ported_exp_dir, 'args.pkl'), 'rb') as handle:
+        ported_exp_args = pickle.load(handle)
+
+    ported_exp_args.exp_name = args.ported_exp_name
+
+    with open(os.path.join(ported_exp_dir, 'args.pkl'), 'wb') as handle:
+        pickle.dump(ported_exp_args, handle)
+
     # load in both jsons
     with open(os.path.join(existing_exp_dir, 'logs_lookup.json'), 'r') as handle:
         existing_logs_lookup = json.load(handle)
