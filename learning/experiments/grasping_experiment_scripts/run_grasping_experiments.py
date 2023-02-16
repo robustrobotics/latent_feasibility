@@ -127,7 +127,7 @@ def run_fitting_phase(args):
         with open(objects_fname, 'rb') as handle:
             fit_objects = pickle.load(handle)
 
-        min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.0
+        min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.01
         valid_fit_objects, _, _ = filter_objects(
             object_names=fit_objects['object_data']['object_names'],
             ignore_list=ignore,
@@ -437,19 +437,19 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         with open(val_dataset_path, 'rb') as handle:
             data = pickle.load(handle)
 
-        name = data['object_data']['object_names'][ox]
-        props = data['object_data']['object_properties'][ox]
-        graspable_body = graspablebody_from_vector(name, props)
-        sim_client = GraspSimulationClient(graspable_body=graspable_body,
-            show_pybullet=False,
-            recompute_inertia=True)
-        mesh = sim_client.mesh
-        volume = mesh.volume
-        bb_volume = mesh.convex_hull.volume
-        ratio = bb_volume / volume
-        sim_client.disconnect()
-        if ratio > 4:
-            continue
+        # name = data['object_data']['object_names'][ox]
+        # props = data['object_data']['object_properties'][ox]
+        # graspable_body = graspablebody_from_vector(name, props)
+        # sim_client = GraspSimulationClient(graspable_body=graspable_body,
+        #     show_pybullet=False,
+        #     recompute_inertia=True)
+        # mesh = sim_client.mesh
+        # volume = mesh.volume
+        # bb_volume = mesh.convex_hull.volume
+        # ratio = bb_volume / volume
+        # sim_client.disconnect()
+        # if ratio > 4:
+        #     continue
 
         all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
         dists_to_closest = []

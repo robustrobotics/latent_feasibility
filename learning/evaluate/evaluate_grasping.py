@@ -450,7 +450,6 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                 gnp,
                 context_data,
                 val_grasp_data,
-                n_latent_samples=10
             )
             # we have to drop the last grasp in the context set to see what the ig comp looked like
 
