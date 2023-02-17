@@ -6,6 +6,7 @@ from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.generate_grasp_datasets import (
     graspablebody_from_vector,
     sample_grasp_X,
+    sample_grasps_and_Xs,
     vector_from_graspablebody
 )
 from learning.models.grasp_np.create_gnp_data import process_geometry
@@ -141,13 +142,15 @@ def sample_unlabeled_data(n_samples, object_set, object_ix=None):
     object_grasp_data, object_grasp_ids, object_grasp_forces, object_grasp_labels = [], [], [], []
     raw_grasps = []
 
-    worker_pool = mp.Pool(processes=20)
-    # TODO: MAGIC CURVATURE NUMBERS ALERT
-    fn_args = [graspable_body, object_properties, 10000, (0.005, 0.01, 0.02)]
-    results = worker_pool.starmap(sample_grasp_X, [fn_args] * n_samples)
-    worker_pool.close()
+    grasps, Xs = sample_grasps_and_Xs(
+        graspable_body=graspable_body,
+        property_vector=object_properties,
+        n_grasps=n_samples,
+        n_points_per_object=10000,
+        curvature_rads=()
+    )
 
-    for grasp, X in results:
+    for grasp, X in zip(grasps, Xs):
         raw_grasps.append(grasp)
         object_grasp_data.append(X)
         object_grasp_ids.append(object_ix)
@@ -204,3 +207,19 @@ def get_labels_gnp(grasp_dataset):
         grasp_dataset['grasp_data']['labels'][ox] = labels
     worker_pool.close()
     return grasp_dataset
+
+def get_label_gnp(grasp_dataset, labeler=None):
+    raw_grasps = grasp_dataset['grasp_data']['raw_grasps']
+    for ox in raw_grasps:
+        graspable_body = raw_grasps[ox][0].graspable_body
+        if labeler is None:
+            labeler = GraspStabilityChecker(
+                graspable_body,
+                stability_direction='all',
+                label_type='relpose',
+                recompute_inertia=True
+            )
+        for gx in range(0, len(raw_grasps[ox])):
+            labels = [labeler.get_label(raw_grasps[ox][gx])]
+        grasp_dataset['grasp_data']['labels'][ox] = labels
+    return grasp_dataset, labeler

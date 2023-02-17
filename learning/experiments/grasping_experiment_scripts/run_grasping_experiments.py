@@ -127,7 +127,7 @@ def run_fitting_phase(args):
         with open(objects_fname, 'rb') as handle:
             fit_objects = pickle.load(handle)
 
-        min_pstable, max_pstable, min_dist = 0.05, 1.0, 0.01
+        min_pstable, max_pstable, min_dist = 0.0, 1.0, 0.0
         valid_fit_objects, _, _ = filter_objects(
             object_names=fit_objects['object_data']['object_names'],
             ignore_list=ignore,
@@ -623,6 +623,7 @@ def run_testing_phase(args):
     ], names=['strategy', 'name', 'no_property_sample'])
 
     # construct non-time series data
+    import IPython; IPython.embed()
     d_const_train = pd.DataFrame(data=zip(
         valid_train_pstables * len(strategies_used_for_train),
         valid_train_min_dists * len(strategies_used_for_train),
@@ -768,7 +769,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
         min_pstable=0.0,
         max_pstable=1.0,
         min_dist_threshold=0.0,
-        max_objects=5
+        max_objects=250
     )
     for ox, object_name in valid_test_objects:
 

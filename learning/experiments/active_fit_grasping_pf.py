@@ -10,6 +10,7 @@ from learning.domains.grasping.active_utils import (
     sample_unlabeled_data,
     sample_unlabeled_gnp_data,
     get_labels,
+    get_label_gnp,
     get_labels_gnp,
     get_train_and_fit_objects,
     get_fit_object,
@@ -322,11 +323,13 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
 
     # All random grasps end up getting labeled, so parallelize this.
     if strategy == 'random' and not args.constrained:
+        print('[Random]: Sampling')
         random_pool = sample_unlabeled_gnp_data(
             n_samples=args.max_acquisitions,
             object_set=object_set,
             object_ix=args.eval_object_ix
         )
+        print('[Random]: Labeling')
         random_pool = get_labels_gnp(random_pool)
 
     if args.constrained:
@@ -338,6 +341,7 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
             use_gui=False
         )
 
+    grasp_labeler = None
     for tx in range(0, args.max_acquisitions):
         print('[AmortizedFilter] Interaction Number', tx)
 
@@ -359,9 +363,10 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
             logger.save_acquisition_data(context_data, random_pool, tx + 1)
         elif strategy == 'bald':
             # TODO: Sample target unlabeled dataset in parallel fashion.
-            print('Sampling...')
+            print('[BALD] Sampling...')
             unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set, object_ix=args.eval_object_ix)
 
+            print('[BALD] Selecting...')
             info_gain = compute_ig(gnp, context_data, unlabeled_dataset,
                                    n_samples_from_latent_dist=32, batching_size=32)
 
@@ -373,8 +378,9 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
 
             # Get the observation for the chosen grasp.
             # means, and covariances here.
+            print('[BALD] Labeling...')
             grasp_dataset = select_gnp_dataset_ix(unlabeled_dataset, best_idx)
-            grasp_dataset = get_labels_gnp(grasp_dataset)
+            grasp_dataset, grasp_labeler = get_label_gnp(grasp_dataset, labeler=grasp_labeler)
 
             context_data = merge_gnp_datasets(context_data, grasp_dataset)
             # TODO: why do we save this? we haven't changed anything
@@ -384,6 +390,8 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
             raise NotImplementedError()
 
         # Add datapoint to context dictionary.
+    if not grasp_labeler is None:
+        grasp_labeler.disconnect()
 
     if args.constrained:
         agent.disconnect()
