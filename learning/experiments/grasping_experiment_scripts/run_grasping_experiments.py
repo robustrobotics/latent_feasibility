@@ -427,6 +427,8 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
     valid_objects = []
     valid_pstables = []
     valid_min_dists = []
+    valid_ratios = []
+    valid_maxdims = []
     for ox, object_name in enumerate(object_names):
         if ox in ignore_list:
             continue
@@ -441,8 +443,12 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         with open(val_dataset_path, 'rb') as handle:
             data = pickle.load(handle)
 
-        # name = data['object_data']['object_names'][ox]
-        # props = data['object_data']['object_properties'][ox]
+        name = data['object_data']['object_names'][ox]
+        props = data['object_data']['object_properties'][ox]
+        prop_str = ''
+        for p in props:
+            prop_str += '%.3f' % p + '_'
+        prop_str = prop_str[:-1]
         # graspable_body = graspablebody_from_vector(name, props)
         # sim_client = GraspSimulationClient(graspable_body=graspable_body,
         #     show_pybullet=False,
@@ -450,10 +456,11 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         # mesh = sim_client.mesh
         # volume = mesh.volume
         # bb_volume = mesh.convex_hull.volume
+        # max_dim = np.max(mesh.bounds[1]*2)
         # ratio = bb_volume / volume
         # sim_client.disconnect()
-        # if ratio > 4:
-        #     continue
+        ratio = 1.2
+        max_dim = 0.2
 
         all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
         dists_to_closest = []
@@ -472,12 +479,14 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         if p_stable < min_pstable or p_stable > max_pstable:
             continue
 
-        valid_objects.append((ox, object_name))
+        valid_objects.append((ox, object_name, prop_str))
         valid_pstables.append(p_stable)
         valid_min_dists.append(avg_min_dist)
+        valid_ratios.append(ratio)
+        valid_maxdims.append(max_dim)
         print(f'{object_name} in range ({min_pstable}, {max_pstable}) ({p_stable})')
 
-    return valid_objects[:max_objects], valid_pstables[:max_objects], valid_min_dists[:max_objects]
+    return valid_objects[:max_objects], valid_pstables[:max_objects], valid_min_dists[:max_objects], valid_ratios[:max_objects], valid_maxdims[:max_objects]
 
 
 def run_testing_phase(args):
@@ -520,9 +529,13 @@ def run_testing_phase(args):
     valid_test_min_dists, \
     valid_test_objects, \
     valid_test_pstables, \
+    valid_test_ratios, \
+    valid_test_maxdims, \
     valid_train_min_dists, \
     valid_train_objects, \
-    valid_train_pstables = gather_experiment_logs_file_paths(
+    valid_train_pstables, \
+    valid_train_ratios, \
+    valid_train_maxdims = gather_experiment_logs_file_paths(
         TEST_IGNORE, TRAIN_IGNORE, args, exp_args, logs_lookup, test_objects, train_objects)
 
     # collect all of the stored metric data over the course of training
@@ -593,7 +606,7 @@ def run_testing_phase(args):
             if args.amortize:
                 means[obj_set][strategy] = mn
                 covars[obj_set][strategy] = cvr
-
+    
     # we now have all the data we need to construct the full dataframe
     # we first construct are two dataframes: one for the time-dependent metrics
     # one to store p_stability, p_size, and also the fitting directory so we can associate grasp selection later
@@ -601,7 +614,7 @@ def run_testing_phase(args):
     # construct hierarchical indices (we'll reuse them for both dataframes, and construct one for train and test
     # separately since they may not share the same strategies used)
     unique_object_names_train = list(dict.fromkeys(
-        [name for _, name in valid_train_objects]
+        [name for _, name, _ in valid_train_objects]
     ))
     strategies_used_for_train = metric_list[0]['train_geo'].keys()
 
@@ -612,7 +625,7 @@ def run_testing_phase(args):
     ], names=['strategy', 'name', 'no_property_sample'])
 
     unique_object_names_test = list(dict.fromkeys(
-        [name for _, name in valid_test_objects]
+        [name for _, name, _ in valid_test_objects]
     ))
     strategies_used_for_test = metric_list[0]['test_geo'].keys()
 
@@ -623,28 +636,45 @@ def run_testing_phase(args):
     ], names=['strategy', 'name', 'no_property_sample'])
 
     # construct non-time series data
-    import IPython; IPython.embed()
     d_const_train = pd.DataFrame(data=zip(
         valid_train_pstables * len(strategies_used_for_train),
         valid_train_min_dists * len(strategies_used_for_train),
+        valid_train_ratios * len(strategies_used_for_train),
+        valid_train_maxdims * len(strategies_used_for_train),
+        [obj[1] for obj in valid_train_objects] * len(strategies_used_for_train),
+        [obj[2] for obj in valid_train_objects] * len(strategies_used_for_train),
         log_paths_set['train_geo']
-    ), index=mi_train, columns=['pstable', 'avg_min_dist', 'log_paths'])
+    ), index=mi_train, columns=['pstable', 'avg_min_dist', 'ratio', 'maxdim', 'name', 'props', 'log_paths'])
 
     d_const_test = pd.DataFrame(data=zip(
         valid_test_pstables * len(strategies_used_for_test),
         valid_test_min_dists * len(strategies_used_for_test),
-        log_paths_set['train_geo']
-    ), index=mi_test, columns=['pstable', 'avg_min_dist', 'log_paths'])
+        valid_test_ratios * len(strategies_used_for_test),
+        valid_test_maxdims * len(strategies_used_for_test),
+        [obj[1] for obj in valid_test_objects] * len(strategies_used_for_test),
+        [obj[2] for obj in valid_test_objects] * len(strategies_used_for_test),
+        log_paths_set['test_geo']
+    ), index=mi_test, columns=['pstable', 'avg_min_dist', 'ratio', 'maxdim', 'name', 'props', 'log_paths'])
 
     # construct multi-index for columns in time-series data
     mc_time = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)], names=['time metric', 'acquisition'])
+    # formatted_metrics_train = np.hstack([
+    #     np.vstack(list(metric['train_geo'].values())) for metric in metric_list
+    # ])
     formatted_metrics_train = np.hstack([
-        np.vstack(list(metric['train_geo'].values())) for metric in metric_list
+        np.vstack([
+            metric['train_geo'][strat] for strat in strategies_used_for_train
+        ]) for metric in metric_list
     ])
     d_time_train = pd.DataFrame(data=formatted_metrics_train, index=mi_train, columns=mc_time)
 
+    # formatted_metrics_test = np.hstack([
+    #     np.vstack(list(metric['test_geo'].values())) for metric in metric_list
+    # ])
     formatted_metrics_test = np.hstack([
-        np.vstack(list(metric['test_geo'].values())) for metric in metric_list
+        np.vstack([
+            metric['test_geo'][strat] for strat in strategies_used_for_test
+        ]) for metric in metric_list
     ])
     d_time_test = pd.DataFrame(data=formatted_metrics_test, index=mi_test, columns=mc_time)
 
@@ -653,7 +683,7 @@ def run_testing_phase(args):
     d_time = pd.concat([d_time_train, d_time_test], keys=['train', 'test']).melt(
         value_name='time metric value', ignore_index=False)
     d_all = pd.merge(d_const, d_time, left_index=True, right_index=True)
-
+    
     # if we are amortizing, then we're tracking covariances + means, include in computation
     if args.amortize:
         # construct multi-index for columns in time-series data per latent property
@@ -720,7 +750,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
             }
         }
     }
-    valid_train_objects, valid_train_pstables, valid_train_min_dists = filter_objects(
+    valid_train_objects, valid_train_pstables, valid_train_min_dists, valid_train_ratios, valid_train_maxdims = filter_objects(
         object_names=train_objects['object_data']['object_names'],
         ignore_list=TRAIN_IGNORE,
         phase='train',
@@ -730,7 +760,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
         min_dist_threshold=0.0,
         max_objects=250
     )
-    for ox, object_name in valid_train_objects:
+    for ox, object_name, _ in valid_train_objects:
 
         if object_name not in logs_lookup_by_object['train_geo']['random']:
             logs_lookup_by_object['train_geo']['random'][object_name] = []
@@ -761,7 +791,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
             logs_lookup_by_object['train_geo']['bald']['all'].append(bald_log_fname)
             logs_lookup_by_object['train_geo']['bald'][object_name].append(bald_log_fname)
     print(f'{len(valid_train_objects)} train geo objects included.')
-    valid_test_objects, valid_test_pstables, valid_test_min_dists = filter_objects(
+    valid_test_objects, valid_test_pstables, valid_test_min_dists, valid_test_ratios, valid_test_maxdims = filter_objects(
         object_names=test_objects['object_data']['object_names'],
         ignore_list=TEST_IGNORE,
         phase='test',
@@ -771,7 +801,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
         min_dist_threshold=0.0,
         max_objects=250
     )
-    for ox, object_name in valid_test_objects:
+    for ox, object_name, _ in valid_test_objects:
 
         if object_name not in logs_lookup_by_object['test_geo']['random']:
             logs_lookup_by_object['test_geo']['random'][object_name] = []
@@ -800,7 +830,9 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
             logs_lookup_by_object['test_geo']['bald']['all'].append(bald_log_fname)
             logs_lookup_by_object['test_geo']['bald'][object_name].append(bald_log_fname)
     print(f'{len(valid_test_objects)} test geo objects included.')
-    return logs_lookup_by_object, valid_test_min_dists, valid_test_objects, valid_test_pstables, valid_train_min_dists, valid_train_objects, valid_train_pstables
+    return logs_lookup_by_object, \
+        valid_test_min_dists, valid_test_objects, valid_test_pstables, valid_test_ratios, valid_test_maxdims, \
+        valid_train_min_dists, valid_train_objects, valid_train_pstables, valid_train_ratios, valid_train_maxdims
 
 
 if __name__ == '__main__':

@@ -64,25 +64,26 @@ class CustomGNPGraspDataset(Dataset):
 
     def __getitem__(self, ix):
         ox = self.object_indices[ix]
+        object_scale, local_grasp_scale = 0.5, 0.01  # 0.1, 0.01
         if self.cp_grasp_geometries is None:
             cp_data = None
         else:
             cp_data = {
-                'object_mesh': self.cp_full_meshes[ox] / 0.1,
+                'object_mesh': self.cp_full_meshes[ox] / object_scale,
                 'grasp_geometries': self.cp_grasp_geometries[ox],
-                'grasp_points': self.cp_grasp_points[ox] / 0.01,
-                'grasp_curvatures': self.cp_grasp_curvatures[ox] / 0.01,
+                'grasp_points': self.cp_grasp_points[ox] / local_grasp_scale,
+                'grasp_curvatures': self.cp_grasp_curvatures[ox] / 1.4,
                 'grasp_forces': (self.cp_grasp_forces[ox] - 12.5) / 7.5,
-                'grasp_midpoints': self.cp_grasp_midpoints[ox] / 0.1,
+                'grasp_midpoints': self.cp_grasp_midpoints[ox] / object_scale,
                 'grasp_labels': self.cp_grasp_labels[ox]
             }
         hp_data = {
-            'object_mesh': self.hp_full_meshes[ox] / 0.1,
+            'object_mesh': self.hp_full_meshes[ox] / object_scale,
             'grasp_geometries': self.hp_grasp_geometries[ox],
-            'grasp_points': self.hp_grasp_points[ox] / 0.01,
-            'grasp_curvatures': self.hp_grasp_curvatures[ox] / 0.01,
+            'grasp_points': self.hp_grasp_points[ox] / local_grasp_scale,
+            'grasp_curvatures': self.hp_grasp_curvatures[ox] / 1.4,
             'grasp_forces': (self.hp_grasp_forces[ox] - 12.5) / 7.5,
-            'grasp_midpoints': self.hp_grasp_midpoints[ox] / 0.1,
+            'grasp_midpoints': self.hp_grasp_midpoints[ox] / object_scale,
             'grasp_labels': self.hp_grasp_labels[ox]
         }
         return cp_data, hp_data
@@ -173,6 +174,15 @@ def custom_collate_fn(items, rand_grasp_num=True):
     target_labels = torch.Tensor(np.array(target_labels).astype('float32'))
 
     full_meshes = torch.Tensor(np.array(full_meshes).astype('float32'))
+    
+    # Add random rotation.
+    rot_mat = torch.qr(torch.randn(3, 3))[0]
+    # import IPython; IPython.embed()
+
+    context_midpoints = context_midpoints@rot_mat
+    target_midpoints = target_midpoints@rot_mat
+    full_meshes = (full_meshes.transpose(1, 2)@rot_mat).transpose(1, 2)
+    
     return (
         (context_geoms,
          context_grasp_points,

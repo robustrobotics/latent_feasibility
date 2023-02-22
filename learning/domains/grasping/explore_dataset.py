@@ -243,8 +243,8 @@ def get_object_stats(name, props):
     volume = mesh.volume
     bb_volume = mesh.convex_hull.volume
     ratio = bb_volume / volume
-    if ratio > 4:
-        mesh.show()
+    # if ratio > 4:
+    #     mesh.show()
     max_dim = np.max(mesh.bounds[1]*2)
     sim_client.disconnect()
     return [bb_volume, volume, max_dim, ratio]
@@ -256,10 +256,10 @@ def show_object_size_distributions(train_fname):
     object_names = train_data['object_data']['object_names']
     object_properties = train_data['object_data']['object_properties']
 
-    # pool = mp.Pool(processes=20)
-    # results = pool.starmap(get_object_stats, zip(object_names, object_properties))
-    for name, prop in zip(object_names[::5], object_properties[::5]):
-        get_object_stats(name, prop)
+    pool = mp.Pool(processes=20)
+    results = pool.starmap(get_object_stats, zip(object_names, object_properties))
+    #for name, prop in zip(object_names[::5], object_properties[::5]):
+    #    get_object_stats(name, prop)
 
     fig, axes = plt.subplots(nrows=4, ncols=1)
     axes[0].hist([res[0] for res in results], bins=25)

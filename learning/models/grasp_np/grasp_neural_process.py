@@ -9,8 +9,8 @@ class CustomGraspNeuralProcess(nn.Module):
 
     def __init__(self, d_latents, use_local_point_clouds=True):
         super(CustomGraspNeuralProcess, self).__init__()
-        d_mesh = 3
-        n_out_geom = 1
+        d_mesh = 64
+        n_out_geom = 16
 
         self.encoder = CustomGNPEncoder(d_latents=d_latents, d_mesh=d_mesh,
                                         use_local_point_clouds=use_local_point_clouds)
@@ -81,7 +81,7 @@ class CustomGraspNeuralProcess(nn.Module):
 
         target_geoms, target_grasp_points, target_curvatures, target_mids, target_forces = target_xs
         n_batch, n_grasp, _, n_pts = target_geoms.shape
-        geoms = target_geoms.reshape(-1, 3, n_pts)
+        geoms = target_geoms.view(-1, 3, n_pts)
 
         if self.use_local_point_clouds:
             geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
@@ -136,9 +136,8 @@ class CustomGNPDecoder(nn.Module):
                 meshes_broadcast
             ], dim=2)
 
-        zs_grasp_broadcast = zs[:, None, :].expand(n_batch, n_grasp, self.d_latents)
         xs = xs_with_latents.view(-1, self.n_in)[:, :, None]
-        xs = self.pointnet(xs, zs_grasp_broadcast.reshape(-1, self.d_latents))
+        xs = self.pointnet(xs, None)
         return xs.view(n_batch, n_grasp, 1)
 
 
@@ -150,7 +149,7 @@ class CustomGNPEncoder(nn.Module):
         # Used to encode local geometry.
         self.use_local_point_clouds = use_local_point_clouds
         if self.use_local_point_clouds:
-            n_out_geom = 1
+            n_out_geom = 16
             self.pn_grasp = PointNetRegressor(n_in=3 + 1 + 1 + n_out_geom + d_mesh, n_out=d_latents * 2, use_batch_norm=False)
         else:  # grasp points + curvatures + midpoints + forces + labels
             self.pn_grasp = PointNetRegressor(n_in=6 + 12 + 1 + 1 + d_mesh, n_out=d_latents * 2, use_batch_norm=False)
