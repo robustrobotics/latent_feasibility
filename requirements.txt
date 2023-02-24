@@ -2,7 +2,7 @@ catkin-pkg==0.4.16
 ipython==7.15.0
 matplotlib==3.2.0
 networkx==2.4
-numpy==1.18.1
+numpy==1.20.3
 numpy-quaternion==2022.4.2
 git+https://github.com/mike-n-7/odio_urdf.git
 pybullet==2.6.6
