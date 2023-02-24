@@ -116,7 +116,7 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
             y_probs = y_probs.squeeze()
 
             # pass forward for n_grasps (but the encoder ONLY)
-            q_z_n, _ = model.forward_until_latents(
+            q_z_n, _, _ = model.forward_until_latents(
                 (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
                 meshes)
 
@@ -175,7 +175,7 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
                 means.append(q_z.loc)
                 y_probs = y_probs.squeeze()
 
-                q_z_n, _ = model.forward_until_latents(
+                q_z_n, _, _ = model.forward_until_latents(
                     (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
                     meshes)
 

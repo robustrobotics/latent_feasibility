@@ -5,6 +5,14 @@ import torch.nn as nn
 from learning.models.pointnet import PointNetEncoder, PointNetRegressor, PointNetClassifier, PointNetPerPointClassifier
 
 
+def _get_identity_transform(batch_size):
+    batched_identity = torch.eye(3).unsqueeze(0).repeat([batch_size, 1, 1])
+    if torch.cuda.is_available():
+        batched_identity = batched_identity.cuda()
+
+    return batched_identity
+
+
 class CustomGraspNeuralProcess(nn.Module):
 
     def __init__(self, d_latents, use_local_point_clouds=True):
@@ -12,33 +20,27 @@ class CustomGraspNeuralProcess(nn.Module):
         d_mesh = 64
         n_out_geom = 16
 
-        # TODO: Instantiate STN3d here (1) for world-frame geo (2) for local-grasp geo.
-
         self.encoder = CustomGNPEncoder(d_latents=d_latents, d_mesh=d_mesh,
                                         use_local_point_clouds=use_local_point_clouds)
 
         # need to adjust input if we are only using curvature features
         self.use_local_point_clouds = use_local_point_clouds
-        # TODO: Encoder and decoder need world-frame STN.
         if self.use_local_point_clouds:
-            self.decoder = CustomGNPDecoder(n_in=3 + 1 + n_out_geom + d_latents + d_mesh,
+            self.decoder = CustomGNPDecoder(n_in=6 + 1 + n_out_geom + d_latents + d_mesh,
                                             d_latents=d_latents, use_local_point_clouds=use_local_point_clouds)
         else:
             self.decoder = CustomGNPDecoder(n_in=6 + 12 + 1 + d_latents + d_mesh, d_latents=d_latents,
                                             use_local_point_clouds=use_local_point_clouds)
-        
-        # TODO: mesh encoder uses world-frame stn
+
         self.mesh_encoder = PointNetRegressor(n_in=3, n_out=d_mesh, use_batch_norm=False)
 
         # currently the local geom encoder is still here so that we do not need to modify the logger for saving/loading
-        # TODO: grasp geom encoder uses local frame STN.
         self.grasp_geom_encoder = PointNetRegressor(n_in=3, n_out=n_out_geom, use_batch_norm=False)
 
         self.d_latents = d_latents
 
     def forward(self, contexts, target_xs, meshes):
-        q_z, mesh_enc = self.forward_until_latents(contexts, meshes)
-
+        q_z, mesh_enc, global_transform = self.forward_until_latents(contexts, meshes)
         # Replace True properties with latent samples.
         target_geoms, target_grasp_points, target_curvatures, target_mids, target_forces = target_xs
         z = q_z.rsample()
@@ -46,16 +48,18 @@ class CustomGraspNeuralProcess(nn.Module):
         n_batch, n_grasp, _, n_pts = target_geoms.shape
         geoms = target_geoms.view(-1, 3, n_pts)
         if self.use_local_point_clouds:
-            geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+            geoms_enc = self.grasp_geom_encoder(
+                geoms, override_transform=_get_identity_transform(n_batch*n_grasp)
+            )[0].view(n_batch, n_grasp, -1)
         else:
             geoms_enc = None
         y_pred = self.decoder(geoms_enc,
                               target_grasp_points, target_curvatures, target_mids, target_forces,
-                              z, mesh_enc)
+                              z, mesh_enc, override_transform=global_transform)
         return y_pred, q_z
 
     def forward_until_latents(self, contexts, meshes):
-        mesh_enc = self.mesh_encoder(meshes)
+        mesh_enc, global_transform = self.mesh_encoder(meshes)
 
         context_geoms, \
             context_grasp_points, \
@@ -67,22 +71,25 @@ class CustomGraspNeuralProcess(nn.Module):
         n_batch, n_grasp, _, n_geom_pts = context_geoms.shape
         geoms = context_geoms.view(-1, 3, n_geom_pts)
         if self.use_local_point_clouds:
-            geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+            geoms_enc = self.grasp_geom_encoder(
+                geoms, override_transform=_get_identity_transform(n_batch*n_grasp)
+            )[0].view(n_batch, n_grasp, -1)
         else:
             geoms_enc = None
         mu, sigma = self.encoder(
             geoms_enc,
             context_grasp_points, context_curvatures, context_midpoints, context_forces, context_labels,
-            mesh_enc
+            mesh_enc,
+            override_transform=global_transform
         )
 
         # Sample via reparameterization trick.
         q_z = torch.distributions.normal.Normal(mu, sigma)
-        return q_z, mesh_enc
+        return q_z, mesh_enc, global_transform
 
     def conditional_forward(self, target_xs, meshes, zs):
         """ Forward function that specifies the latents (i.e., no encoder is used). """
-        mesh_enc = self.mesh_encoder(meshes)
+        mesh_enc, global_transform = self.mesh_encoder(meshes)
         # mesh_enc = torch.zeros_like(mesh_enc)
 
         target_geoms, target_grasp_points, target_curvatures, target_mids, target_forces = target_xs
@@ -90,13 +97,15 @@ class CustomGraspNeuralProcess(nn.Module):
         geoms = target_geoms.view(-1, 3, n_pts)
 
         if self.use_local_point_clouds:
-            geoms_enc = self.grasp_geom_encoder(geoms).view(n_batch, n_grasp, -1)
+            geoms_enc = self.grasp_geom_encoder(
+                geoms, override_transform=_get_identity_transform(n_batch*n_grasp)
+            )[0].view(n_batch, n_grasp, -1)
         else:
             geoms_enc = None
 
         y_pred = self.decoder(geoms_enc,
                               target_grasp_points, target_curvatures, target_mids, target_forces,
-                              zs, mesh_enc)
+                              zs, mesh_enc, override_transform=global_transform)
         return y_pred
 
 
@@ -105,13 +114,13 @@ class CustomGNPDecoder(nn.Module):
     def __init__(self, n_in, d_latents, use_local_point_clouds=True):
         super(CustomGNPDecoder, self).__init__()
         # TODO: Pass through world-frame STN.
-        self.pointnet = PointNetClassifier(n_in=n_in)
+        self.pointnet = PointNetClassifier(n_in=n_in, n_geometric_features=2)
         self.n_in = n_in
         self.d_latents = d_latents
         self.use_local_point_clouds = use_local_point_clouds
 
     def forward(self, target_geoms, target_grasp_points, target_curvatures, target_midpoints, target_forces, zs,
-                meshes):
+                meshes, override_transform=None):
         """
         :param target geoms: (batch_size, n_grasps, 3, n_points)
         :param target_midpoint: (batch_size, n_grasps, 3)
@@ -123,10 +132,11 @@ class CustomGNPDecoder(nn.Module):
         # midpoints_broadcast = target_midpoints[:, :, :, None].expand(n_batch, n_grasp, 3, n_pts)
         meshes_broadcast = meshes[:, None, :].expand(n_batch, n_grasp, -1)
 
-        
+
         if self.use_local_point_clouds:
+            target_grasp_points_flat = target_grasp_points.flatten(start_dim=2)
             xs_with_latents = torch.cat([
-                target_midpoints,
+                target_grasp_points_flat,
                 target_geoms,
                 target_forces[:, :, None],
                 zs_broadcast,
@@ -147,7 +157,10 @@ class CustomGNPDecoder(nn.Module):
             ], dim=2)
 
         xs = xs_with_latents.view(-1, self.n_in)[:, :, None]
-        xs = self.pointnet(xs, None)
+        if override_transform is not None:
+            override_transform = override_transform[:, None, :, :].expand(n_batch, n_grasp, 3, 3).reshape(-1, 3, 3)
+
+        xs, _ = self.pointnet(xs, None, override_transform=override_transform)
         return xs.view(n_batch, n_grasp, 1)
 
 
@@ -160,13 +173,17 @@ class CustomGNPEncoder(nn.Module):
         self.use_local_point_clouds = use_local_point_clouds
         if self.use_local_point_clouds:
             n_out_geom = 16
-            self.pn_grasp = PointNetRegressor(n_in=3 + 1 + 1 + n_out_geom + d_mesh, n_out=d_latents * 2, use_batch_norm=False)
+            self.pn_grasp = PointNetRegressor(n_in=6 + 1 + 1 + n_out_geom + d_mesh, n_out=d_latents * 2,
+                                              use_batch_norm=False,
+                                              n_geometric_features=2)
         else:  # grasp points + curvatures + midpoints + forces + labels
-            self.pn_grasp = PointNetRegressor(n_in=6 + 12 + 1 + 1 + d_mesh, n_out=d_latents * 2, use_batch_norm=False)
+            self.pn_grasp = PointNetRegressor(n_in=6 + 12 + 1 + 1 + d_mesh, n_out=d_latents * 2,
+                                              use_batch_norm=False,
+                                              n_geometric_features=2)
         self.d_latents = d_latents
 
     def forward(self, geoms_enc, context_grasp_points, context_curvatures, context_midpoints, context_forces,
-                context_labels, meshes):
+                context_labels, meshes, override_transform=None):
         """
         :param context_geoms: (batch_size, n_grasps, 3, n_points)
         :param context_midpoints: (batch_size, n_grasps, 3)
@@ -176,10 +193,11 @@ class CustomGNPEncoder(nn.Module):
 
         # expand single object global mesh encodings for all grasps
         meshes = meshes[:, None, :].expand(n_batch, n_grasp, -1)
+        context_grasp_points_flat = context_grasp_points.flatten(start_dim=2).clone()
 
         if self.use_local_point_clouds:
             grasp_input = torch.cat([
-                context_midpoints,
+                context_grasp_points_flat,
                 context_forces[:, :, None],
                 context_labels[:, :, None],
                 geoms_enc,
@@ -199,7 +217,7 @@ class CustomGNPEncoder(nn.Module):
                 context_labels[:, :, None],
                 meshes
             ], dim=2).swapaxes(1, 2)
-        x = self.pn_grasp(grasp_input)
+        x, _ = self.pn_grasp(grasp_input, override_transform=override_transform)
         mu, log_sigma = x[..., :self.d_latents], x[..., self.d_latents:]
         # sigma = 0.01 + 0.99 * torch.sigmoid(log_sigma)
         sigma = 0.0001 + torch.exp(log_sigma)

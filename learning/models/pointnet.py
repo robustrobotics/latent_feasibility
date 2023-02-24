@@ -9,6 +9,8 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
+# write a dummy no transform module
+
 class STN3d(nn.Module):
     def __init__(self, channel):
         super(STN3d, self).__init__()
@@ -88,17 +90,19 @@ class STNkd(nn.Module):
 
 
 class PointNetEncoder(nn.Module):
-    def __init__(self, global_feat=True, feature_transform=True, channel=3, n_out=1024, use_batch_norm=False):
+    def __init__(self, global_feat=True, feature_transform=True, num_geom_features=1,
+                 channel=3, n_out=1024, use_batch_norm=False):
         super(PointNetEncoder, self).__init__()
 
-        # TODO: accept self.stn as an argument.
+        self.num_geom_feats = num_geom_features
+
         self.stn = STN3d(channel)
 
         self.n_out = n_out
-        n_hidden1, n_hidden2 = n_out//16, n_out//8
+        n_hidden1, n_hidden2 = n_out // 16, n_out // 8
 
         self.conv1 = torch.nn.Conv1d(channel, n_hidden1, 1)  # 64
-        self.conv2 = torch.nn.Conv1d(n_hidden1, n_hidden2, 1)   # 64, 128
+        self.conv2 = torch.nn.Conv1d(n_hidden1, n_hidden2, 1)  # 64, 128
         self.conv3 = torch.nn.Conv1d(n_hidden2, n_out, 1)  # 128, 1024
         if use_batch_norm:
             self.bn1 = nn.BatchNorm1d(n_hidden1)  # 64
@@ -115,17 +119,26 @@ class PointNetEncoder(nn.Module):
 
         self.nonlin = nn.ReLU()
 
-    def forward(self, x):
+    def forward(self, x, override_transform=None):
         B, D, N = x.size()
-        trans = self.stn(x)
+
+        # if we are co-opting a transform that has been produce in some other part of the process,
+        # then use the one passed instead
+        if override_transform is None:
+            trans = self.stn(x)
+        else:
+            trans = override_transform
+
         x = x.transpose(2, 1)
         if D > 3:
-            feature = x[:, :, 3:]
-            x = x[:, :, :3]
-        # TODO: Add some way to apply transform to multiple sets of input dimensions.
-        x = torch.bmm(x, trans)
-        if D > 3:
-            x = torch.cat([x, feature], dim=2)
+            non_geometric_feats = x[:, :, self.num_geom_feats*3:]
+            geom_feats = []
+            for i in range(self.num_geom_feats):
+                geom_feats.append(torch.bmm(x[:, :, i * 3:(i + 1) * 3], trans))
+            x = torch.cat([*geom_feats, non_geometric_feats], dim=2)
+        else:
+            x = torch.bmm(x, trans)
+
         x = x.transpose(2, 1)
         x = self.nonlin(self.bn1(self.conv1(x)))
         if self.feature_transform:
@@ -149,22 +162,23 @@ class PointNetEncoder(nn.Module):
 
 
 class PointNetClassifier(nn.Module):
-    def __init__(self, n_in):
+    def __init__(self, n_in, n_geometric_features=1):
         super(PointNetClassifier, self).__init__()
 
         n_enc = 512
-        self.feat = PointNetEncoder(global_feat=False, feature_transform=False, channel=n_in, n_out=n_enc, use_batch_norm=False)
+        self.feat = PointNetEncoder(global_feat=False, feature_transform=False, channel=n_in, n_out=n_enc,
+                                    use_batch_norm=False, num_geom_features=n_geometric_features)
 
-        self.fc1 = nn.Linear(n_enc+n_enc//16, n_enc//2)  # 1024, 512
-        self.fc2 = nn.Linear(n_enc//2, n_enc//4)  # 512, 256
-        self.fc3 = nn.Linear(n_enc//4, 1)  # 256, 1
+        self.fc1 = nn.Linear(n_enc + n_enc // 16, n_enc // 2)  # 1024, 512
+        self.fc2 = nn.Linear(n_enc // 2, n_enc // 4)  # 512, 256
+        self.fc3 = nn.Linear(n_enc // 4, 1)  # 256, 1
         self.dropout = nn.Dropout(p=0.)  # 0.4
-        self.bn1 = nn.Identity()  #nn.BatchNorm1d(n_enc//2)  # 512
-        self.bn2 = nn.Identity()  #nn.BatchNorm1d(n_enc//4)  # 256
+        self.bn1 = nn.Identity()  # nn.BatchNorm1d(n_enc//2)  # 512
+        self.bn2 = nn.Identity()  # nn.BatchNorm1d(n_enc//4)  # 256
         self.nonlin = nn.ReLU()
 
-    def forward(self, x, zs):
-        x, trans, trans_feat = self.feat(x)
+    def forward(self, x, zs, override_transform=None):
+        x, trans, trans_feat = self.feat(x, override_transform=override_transform)
         n_batch, n_feat, n_pts = x.shape
         x = x.swapaxes(1, 2).reshape(-1, n_feat)
         x = self.nonlin(self.bn1(self.fc1(x)))
@@ -173,10 +187,13 @@ class PointNetClassifier(nn.Module):
         x = x.view(n_batch, n_pts, x.shape[-1])
         x = x.mean(dim=1)
         x = torch.sigmoid(x)
-        return x #, trans_feat
+        return x, trans
+
+    # TODO: add option to add a transform override
+
 
 class PointNetRegressor(nn.Module):
-    def __init__(self, n_in, n_out, use_batch_norm=False):
+    def __init__(self, n_in, n_out, n_geometric_features=1, use_batch_norm=False):
         super(PointNetRegressor, self).__init__()
 
         n_enc = 512
@@ -185,34 +202,36 @@ class PointNetRegressor(nn.Module):
             feature_transform=False,
             channel=n_in,
             n_out=n_enc,
-            use_batch_norm=use_batch_norm
+            use_batch_norm=use_batch_norm,
+            num_geom_features=n_geometric_features
         )
 
-        self.fc1 = nn.Linear(n_enc+n_enc//16, n_enc//2)  # 1024, 512
-        self.fc2 = nn.Linear(n_enc//2, n_enc//4)  # 512, 256
-        self.fc3 = nn.Linear(n_enc//4, n_out)  # 256, 1
+        self.fc1 = nn.Linear(n_enc + n_enc // 16, n_enc // 2)  # 1024, 512
+        self.fc2 = nn.Linear(n_enc // 2, n_enc // 4)  # 512, 256
+        self.fc3 = nn.Linear(n_enc // 4, n_out)  # 256, 1
         self.dropout = nn.Dropout(p=0.)  # 0.4
         if use_batch_norm:
-            self.bn1 = nn.BatchNorm1d(n_enc//2)  # 512
-            self.bn2 = nn.BatchNorm1d(n_enc//4)  # 256
+            self.bn1 = nn.BatchNorm1d(n_enc // 2)  # 512
+            self.bn2 = nn.BatchNorm1d(n_enc // 4)  # 256
         else:
             self.bn1 = nn.Identity()  # nn.BatchNorm1d(n_enc//2)  # 512
             self.bn2 = nn.Identity()  # nn.BatchNorm1d(n_enc//4)  # 256
         self.nonlin = nn.ReLU()
 
-    def forward(self, x):
-        x, trans, trans_feat = self.feat(x)
+    def forward(self, x, override_transform=None):
+        x, trans, trans_feat = self.feat(x, override_transform=override_transform)
         n_batch, n_feat, n_pts = x.shape
         x = x.swapaxes(1, 2).reshape(-1, n_feat)
         x = self.nonlin(self.bn1(self.fc1(x)))
         x = self.nonlin(self.bn2(self.dropout(self.fc2(x))))
         x = self.fc3(x)
         x = x.view(n_batch, n_pts, x.shape[-1])
-        x = x.mean(dim=1) # TODO: this may cause input number to be lost, may need to substitute for an operation that
-                          # preserves this information
+        x = x.mean(dim=1)  # TODO: this may cause input number to be lost, may need to substitute for an operation that
+        # preserves this information
         # x = self.nonlin(self.bn1(self.fc1(x)))
         # x = self.nonlin(self.bn2(self.dropout(self.fc2(x))))
-        return x
+        return x, trans
+
 
 class PointNetPerPointClassifier(nn.Module):
     def __init__(self, n_in):
@@ -235,6 +254,6 @@ class PointNetPerPointClassifier(nn.Module):
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
         x = self.conv4(x)
-        x = x.transpose(2,1).contiguous()
+        x = x.transpose(2, 1).contiguous()
         x = F.sigmoid(x)
         return x
