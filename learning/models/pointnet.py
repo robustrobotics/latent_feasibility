@@ -90,6 +90,8 @@ class STNkd(nn.Module):
 class PointNetEncoder(nn.Module):
     def __init__(self, global_feat=True, feature_transform=True, channel=3, n_out=1024, use_batch_norm=False):
         super(PointNetEncoder, self).__init__()
+
+        # TODO: accept self.stn as an argument.
         self.stn = STN3d(channel)
 
         self.n_out = n_out
@@ -120,6 +122,7 @@ class PointNetEncoder(nn.Module):
         if D > 3:
             feature = x[:, :, 3:]
             x = x[:, :, :3]
+        # TODO: Add some way to apply transform to multiple sets of input dimensions.
         x = torch.bmm(x, trans)
         if D > 3:
             x = torch.cat([x, feature], dim=2)

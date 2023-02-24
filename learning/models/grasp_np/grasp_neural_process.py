@@ -12,20 +12,26 @@ class CustomGraspNeuralProcess(nn.Module):
         d_mesh = 64
         n_out_geom = 16
 
+        # TODO: Instantiate STN3d here (1) for world-frame geo (2) for local-grasp geo.
+
         self.encoder = CustomGNPEncoder(d_latents=d_latents, d_mesh=d_mesh,
                                         use_local_point_clouds=use_local_point_clouds)
 
         # need to adjust input if we are only using curvature features
         self.use_local_point_clouds = use_local_point_clouds
+        # TODO: Encoder and decoder need world-frame STN.
         if self.use_local_point_clouds:
             self.decoder = CustomGNPDecoder(n_in=3 + 1 + n_out_geom + d_latents + d_mesh,
                                             d_latents=d_latents, use_local_point_clouds=use_local_point_clouds)
         else:
             self.decoder = CustomGNPDecoder(n_in=6 + 12 + 1 + d_latents + d_mesh, d_latents=d_latents,
                                             use_local_point_clouds=use_local_point_clouds)
+        
+        # TODO: mesh encoder uses world-frame stn
         self.mesh_encoder = PointNetRegressor(n_in=3, n_out=d_mesh, use_batch_norm=False)
 
         # currently the local geom encoder is still here so that we do not need to modify the logger for saving/loading
+        # TODO: grasp geom encoder uses local frame STN.
         self.grasp_geom_encoder = PointNetRegressor(n_in=3, n_out=n_out_geom, use_batch_norm=False)
 
         self.d_latents = d_latents
@@ -98,6 +104,7 @@ class CustomGNPDecoder(nn.Module):
 
     def __init__(self, n_in, d_latents, use_local_point_clouds=True):
         super(CustomGNPDecoder, self).__init__()
+        # TODO: Pass through world-frame STN.
         self.pointnet = PointNetClassifier(n_in=n_in)
         self.n_in = n_in
         self.d_latents = d_latents
@@ -116,7 +123,7 @@ class CustomGNPDecoder(nn.Module):
         # midpoints_broadcast = target_midpoints[:, :, :, None].expand(n_batch, n_grasp, 3, n_pts)
         meshes_broadcast = meshes[:, None, :].expand(n_batch, n_grasp, -1)
 
-        target_grasp_points_flat = target_grasp_points.flatten(start_dim=2)
+        
         if self.use_local_point_clouds:
             xs_with_latents = torch.cat([
                 target_midpoints,
@@ -127,6 +134,9 @@ class CustomGNPDecoder(nn.Module):
             ], dim=2)
         else:
             target_curvatures_flat = target_curvatures.flatten(start_dim=2)
+            target_grasp_points_flat = target_grasp_points.flatten(start_dim=2)
+            # target_grasp_points_flat[:, :, 0:3] = target_midpoints
+            # target_grasp_points_flat[:, :, 3:6] = target_grasp_points[:, :, 0] - target_grasp_points[:, :, 1]
 
             xs_with_latents = torch.cat([
                 target_grasp_points_flat,
@@ -145,8 +155,8 @@ class CustomGNPEncoder(nn.Module):
 
     def __init__(self, d_latents, d_mesh, use_local_point_clouds):
         super(CustomGNPEncoder, self).__init__()
-
         # Used to encode local geometry.
+        # TODO: Pass through world-frame STN.
         self.use_local_point_clouds = use_local_point_clouds
         if self.use_local_point_clouds:
             n_out_geom = 16
@@ -167,7 +177,6 @@ class CustomGNPEncoder(nn.Module):
         # expand single object global mesh encodings for all grasps
         meshes = meshes[:, None, :].expand(n_batch, n_grasp, -1)
 
-        context_grasp_points = context_grasp_points.flatten(start_dim=2)
         if self.use_local_point_clouds:
             grasp_input = torch.cat([
                 context_midpoints,
@@ -179,9 +188,12 @@ class CustomGNPEncoder(nn.Module):
         else:
             # adjust curvature and grasp point format to single vectors
             context_curvatures = context_curvatures.flatten(start_dim=2)
+            context_grasp_points_flat = context_grasp_points.flatten(start_dim=2).clone()
+            # context_grasp_points_flat[:, :, 0:3] = context_midpoints
+            # context_grasp_points_flat[:, :, 3:6] = context_grasp_points[:, :, 0] - context_grasp_points[:, :, 1]
 
             grasp_input = torch.cat([
-                context_grasp_points,
+                context_grasp_points_flat,
                 context_curvatures,
                 context_forces[:, :, None],
                 context_labels[:, :, None],
