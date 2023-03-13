@@ -195,7 +195,11 @@ if __name__ == '__main__':
                 grasp_noise=args.grasp_noise,
                 curvature_radii=args.curvature_radii)
             train_dataset_tasks.append(train_grasps_args)
+            print(f'train,{ox}')
 
+    # for t_args in train_dataset_tasks:
+    #     generate_datasets(t_args)
+    print(len(train_dataset_tasks))
     worker_pool.map(generate_datasets, train_dataset_tasks)
 
     train_grasps_path = os.path.join(training_phase_path, 'train_grasps.pkl')
@@ -234,7 +238,7 @@ if __name__ == '__main__':
         os.mkdir(fitting_phase_path)
 
     fit_dataset_tasks = []
-    for ox in range(0, min(250, len(test_objects) * args.n_property_samples_test)):
+    for ox in range(0, min(500, len(test_objects) * args.n_property_samples_test)):
         if ox in TEST_IGNORE:
             continue
         print(f'[Grasps] Generating grasps for fitting phase eval for obj {ox}.')
@@ -253,7 +257,7 @@ if __name__ == '__main__':
     worker_pool.map(generate_datasets, fit_dataset_tasks)
 
     fit_dataset_samegeo_tasks = []
-    for ox in range(0, min(250, len(train_objects) * args.n_property_samples_test)):
+    for ox in range(0, min(500, len(train_objects) * args.n_property_samples_test)):
         if ox in TRAIN_IGNORE:
             continue
         print(f'[Grasps] Generating grasps for fitting phase eval for samegeo obj {ox}.')
@@ -274,6 +278,7 @@ if __name__ == '__main__':
 
     fit_dataset_samegeo_tasks = []
     for ox in range(0, min(100, len(train_objects) * args.n_property_samples_train)):
+        break
         if ox in TRAIN_IGNORE:
             continue
         print(f'[Grasps] Generating grasps for fitting phase eval for samegeo sameprop obj {ox}.')

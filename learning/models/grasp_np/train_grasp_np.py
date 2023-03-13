@@ -55,7 +55,7 @@ def get_loss(y_probs, target_ys, q_z, q_z_n, alpha=1, use_informed_prior=True, b
     else:
         p_z = torch.distributions.normal.Normal(torch.zeros_like(q_z.loc), torch.ones_like(q_z.scale))
         kld_loss = beta * torch.distributions.kl_divergence(q_z, p_z).sum()
-
+    # kld_loss.fill_(0.)
     bce_loss = bce_loss * bce_scale_factor
     # kld_loss = 0
     # weight = (1 + alpha)
@@ -71,8 +71,8 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
     best_loss = 10000
     best_weights = None
 
-    val_loss_bce_scale_factor = float(len(train_dataloader.dataset.hp_grasp_geometries[0])) / \
-                                 len(val_dataloader.dataset.hp_grasp_geometries[0])
+    val_loss_bce_scale_factor = float(len(train_dataloader.dataset.hp_grasp_geometries[5])) / \
+                                 len(val_dataloader.dataset.hp_grasp_geometries[5])
     print('Scale Factor:', val_loss_bce_scale_factor)
     alpha = 0.
     for ep in range(n_epochs):
@@ -80,17 +80,15 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
         alpha *= 0.75
         epoch_loss, epoch_bce, epoch_kld, train_probs, train_targets = 0, 0, 0, [], []
         model.train()
-        for bx, (context_data, target_data, meshes) in enumerate(train_dataloader):
-
+        for bx, (context_data, target_data, object_data) in enumerate(train_dataloader):
             # sample a t \in \{0, ..., max_grasps_per_object}
             # sampling t data points (grasps + geoms + labels) from batched objects (make sure the
             # sampling we choose per object have the same indices
             # REMEMBER THEM!!!
 
-            c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
-            t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
-            if torch.cuda.is_available():
-                meshes = meshes.cuda()
+            c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
+            t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
+            meshes, object_properties = check_to_cuda(object_data)
 
             # sample a sub collection of the target set to better represent model adaptation phase in training
             max_n_grasps = c_grasp_geoms.shape[1]
@@ -101,6 +99,7 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
             n_c_grasp_geoms = c_grasp_geoms[:, n_indices, :, :]
             n_c_grasp_points = c_grasp_points[:, n_indices, :, :]
             n_c_curvatures = c_curvatures[:, n_indices, :, :]
+            n_c_normals = c_normals[:, n_indices, :, :]
             n_c_midpoints = c_midpoints[:, n_indices, :]
             n_c_forces = c_forces[:, n_indices]
             n_c_labels = c_labels[:, n_indices]
@@ -109,15 +108,15 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
 
             # pass forward for max_n_grasps
             y_probs, q_z = model.forward(
-                (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels),
-                (t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
-                meshes
+                (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels),
+                (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
+                (meshes, object_properties)
             )
             y_probs = y_probs.squeeze()
 
             # pass forward for n_grasps (but the encoder ONLY)
             q_z_n, _, _ = model.forward_until_latents(
-                (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
+                (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_normals, n_c_midpoints, n_c_forces, n_c_labels),
                 meshes)
 
             if np.random.rand() > 0.02: ep_use_informed_prior = use_informed_prior
@@ -146,14 +145,13 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
         means = []
         val_loss, val_kld, val_bce, val_probs, val_targets = 0, 0, 0, [], []
         with torch.no_grad():
-            for bx, (context_data, target_data, meshes) in enumerate(val_dataloader):
-
-                c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = \
+            for bx, (context_data, target_data, object_data) in enumerate(val_dataloader):
+                
+                c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels = \
                     check_to_cuda(context_data)
-                t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = \
+                t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, t_labels = \
                     check_to_cuda(target_data)
-                if torch.cuda.is_available():
-                    meshes = meshes.cuda()
+                meshes, object_properties = check_to_cuda(object_data)
 
                 # sample a sub collection of the target set to better represent model adaptation phase in training
                 max_n_grasps = c_grasp_geoms.shape[1]
@@ -163,20 +161,21 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
                 n_c_grasp_geoms = c_grasp_geoms[:, n_indices, :, :]
                 n_c_grasp_points = c_grasp_points[:, n_indices, :, :]
                 n_c_curvatures = c_curvatures[:, n_indices, :, :]
+                n_c_normals = c_normals[:, n_indices, :, :]
                 n_c_midpoints = c_midpoints[:, n_indices, :]
                 n_c_forces = c_forces[:, n_indices]
                 n_c_labels = c_labels[:, n_indices]
 
                 y_probs, q_z = model.forward(
-                    (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels),
-                    (t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
-                    meshes
+                    (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels),
+                    (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
+                    (meshes, object_properties)
                 )
                 means.append(q_z.loc)
                 y_probs = y_probs.squeeze()
 
                 q_z_n, _, _ = model.forward_until_latents(
-                    (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_midpoints, n_c_forces, n_c_labels),
+                    (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_normals, n_c_midpoints, n_c_forces, n_c_labels),
                     meshes)
 
                 batch_loss, batch_bce, batch_kld = get_loss(y_probs, t_labels, q_z, q_z_n,
@@ -224,7 +223,19 @@ def run(args):
     logger = ActiveExperimentLogger.setup_experiment_directory(args)
 
     # build the model # args.5
-    model = CustomGraspNeuralProcess(d_latents=args.d_latents, use_local_point_clouds=args.use_local_grasp_geometry)
+    model = CustomGraspNeuralProcess(
+        d_latents=args.d_latents,
+        input_features={
+            'mesh_normals': True,  # For both object and grasp meshes.
+            'mesh_curvatures': True,
+            'grasp_normals': False,  # Including in the grasp feature vector post-mesh processing.
+            'grasp_curvatures': False,
+            'grasp_mesh': True,  # Whether to process local grasp point clouds.
+            'object_properties': True  # Latent (False) or ground truth (True)
+        },
+        d_grasp_mesh_enc=8,
+        d_object_mesh_enc=8
+    )
 
     # load datasets
     with open(args.train_dataset_fname, 'rb') as handle:
@@ -232,19 +243,26 @@ def run(args):
     with open(args.val_dataset_fname, 'rb') as handle:
         val_data = pickle.load(handle)
 
-    train_dataset = CustomGNPGraspDataset(data=train_data)
-    val_dataset_eval = CustomGNPGraspDataset(data=val_data, context_data=train_data)
+    train_dataset = CustomGNPGraspDataset(
+        data=train_data,
+        add_mesh_curvatures=args.add_mesh_curvatures,
+        add_mesh_normals=args.add_mesh_normals
+    )
+    val_dataset_eval = CustomGNPGraspDataset(
+        data=val_data, context_data=train_data,
+        add_mesh_curvatures=args.add_mesh_curvatures,
+        add_mesh_normals=args.add_mesh_normals
+    )
 
     train_dataloader = DataLoader(
         dataset=train_dataset,
         batch_size=args.batch_size,
-        collate_fn=custom_collate_fn,
+        collate_fn=lambda x: custom_collate_fn(x, add_mesh_normals=args.add_mesh_normals),
         shuffle=True
     )
-
     val_dataloader = DataLoader(
         dataset=val_dataset_eval,
-        collate_fn=custom_collate_fn,
+        collate_fn=lambda x: custom_collate_fn(x, add_mesh_normals=args.add_mesh_normals),
         batch_size=args.batch_size,
         shuffle=False
     )

@@ -128,7 +128,7 @@ def run_fitting_phase(args):
             fit_objects = pickle.load(handle)
 
         min_pstable, max_pstable, min_dist = 0.0, 1.0, 0.0
-        valid_fit_objects, _, _ = filter_objects(
+        valid_fit_objects, _, _, _, _ = filter_objects(
             object_names=fit_objects['object_data']['object_names'],
             ignore_list=ignore,
             phase=geo_type.split('_')[0],
@@ -136,11 +136,11 @@ def run_fitting_phase(args):
             min_pstable=min_pstable,
             max_pstable=max_pstable,
             min_dist_threshold=min_dist,
-            max_objects=250
+            max_objects=500
         )
         print(f'Total: {len(valid_fit_objects)} to fit for {geo_type}.')
 
-        for (ox, _) in valid_fit_objects:
+        for (ox, _, _) in valid_fit_objects:
             # Some geometries have trouble when considering IK (e.g., always close to table).
             # TODO: Make this more modular when we use constraints again.
             # if args.constrained and geo_type == 'test_geo' and ox in [15, 16, 17, 18, 19]:
@@ -383,7 +383,7 @@ def run_training_phase(args):
         training_args.exp_name = f'grasp_{exp_args.exp_name}_train'
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
-        training_args.n_epochs = 25
+        training_args.n_epochs = 150
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 16
         training_args.use_latents = False  # NOTE: this is a workaround for pointnet + latents,
@@ -391,6 +391,8 @@ def run_training_phase(args):
         # cleanly in the model specification and training
         training_args.informed_prior_loss = True
         training_args.use_local_grasp_geometry = True
+        training_args.add_mesh_normals = True
+        training_args.add_mesh_curvatures = True
 
         train_log_path = training_phase_amortized(training_args)
 
@@ -655,6 +657,7 @@ def run_testing_phase(args):
         [obj[2] for obj in valid_test_objects] * len(strategies_used_for_test),
         log_paths_set['test_geo']
     ), index=mi_test, columns=['pstable', 'avg_min_dist', 'ratio', 'maxdim', 'name', 'props', 'log_paths'])
+    # d_const_train = d_const_test
 
     # construct multi-index for columns in time-series data
     mc_time = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)], names=['time metric', 'acquisition'])
@@ -758,7 +761,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
         min_pstable=0.0,
         max_pstable=1.0,
         min_dist_threshold=0.0,
-        max_objects=250
+        max_objects=5
     )
     for ox, object_name, _ in valid_train_objects:
 
@@ -799,7 +802,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
         min_pstable=0.0,
         max_pstable=1.0,
         min_dist_threshold=0.0,
-        max_objects=250
+        max_objects=500
     )
     for ox, object_name, _ in valid_test_objects:
 

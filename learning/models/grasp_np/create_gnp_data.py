@@ -16,12 +16,12 @@ from pb_robot.planners.antipodalGraspPlanner import GraspSimulationClient, Grasp
 from types import SimpleNamespace
 
 
-def transform_points(points, finger1, finger2, ee, viz_data=False):
+def transform_points(local_points, all_points, finger1, finger2, ee, viz_data=False):
     midpoint = (finger1 + finger2)/2
     new_x = (finger1 - finger2)/np.linalg.norm(finger1 - finger2)
     new_y = (midpoint - ee)/np.linalg.norm(midpoint - ee)
     new_z = np.cross(new_x, new_y)
-    
+
     # Build transfrom from world frame to grasp frame.
     R, t = np.hstack([new_x[:, None], new_y[:, None], new_z[:, None]]), midpoint
     tform = np.eye(4)
@@ -29,30 +29,65 @@ def transform_points(points, finger1, finger2, ee, viz_data=False):
     tform[0:3, 3] = t
     inv_tform = np.linalg.inv(tform)
 
-    new_points = np.hstack([points, np.ones((points.shape[0], 1))])
-    new_points = (inv_tform@new_points.T).T[:, 0:3]
+    local_xyzs = local_points[:, 0:3]
+    new_xyzs = np.hstack([local_xyzs, np.ones((local_xyzs.shape[0], 1))])
+    new_xyzs = (inv_tform@new_xyzs.T).T[:, 0:3]
+    local_normals = local_points[:, 3:6]
+    new_normals = np.hstack([local_normals, np.ones((local_normals.shape[0], 1))])
+    new_normals = (inv_tform@new_normals.T).T[:, 0:3]
 
+    new_points = np.concatenate(
+        [new_xyzs, new_normals, local_points[:, 6:]], axis=1
+    )
     dist_to_finger = np.linalg.norm(finger1-midpoint)
     new_points[:, 0] /= dist_to_finger
-    new_points[:, 1:] /= 0.02
-    
+    new_points[:, 1:3] /= 0.03
+
     if viz_data:
         fig = plt.figure()
-        ax1 = fig.add_subplot(1, 2, 1, projection='3d')
-        ax2 = fig.add_subplot(1, 2, 2, projection='3d')
+        ax0 = fig.add_subplot(1, 3, 1, projection='3d')
+        ax1 = fig.add_subplot(1, 3, 2, projection='3d')
+        ax2 = fig.add_subplot(1, 3, 3, projection='3d')
 
-        ax1.scatter(points[:, 0], points[:, 1], points[:, 2], color='k', alpha=0.2)
-        ax1.scatter(*finger1, color='r')
-        ax1.scatter(*finger2, color='g')
+        all_xyzs = all_points[:2048, 0:3]
+        all_normals = all_points[:2048, 3:6]
+        normal_lines = np.zeros((all_normals.shape[0], 3, 2), dtype='float32')
+        normal_lines[:, :, 0] = all_xyzs
+        normal_lines[:, :, 1] = all_xyzs + 0.01*all_normals
+
+        ax0.scatter(all_xyzs[:, 0], all_xyzs[:, 1], all_xyzs[:, 2], color='k', alpha=0.2, s=5)
+        ax0.scatter(*finger1, color='r', s=50)
+        ax0.scatter(*finger2, color='g', s=50)
+        for lx in range(0, normal_lines.shape[0]):
+            ax0.plot(normal_lines[lx, 0, :], normal_lines[lx ,1, :], normal_lines[lx, 2, :], color='y', linewidth=1, alpha=0.2)
+
+        normal_lines = np.zeros((local_normals.shape[0], 3, 2), dtype='float32')
+        normal_lines[:, :, 0] = local_xyzs
+        normal_lines[:, :, 1] = local_xyzs + 0.01*local_normals
+        ax1.scatter(local_xyzs[:, 0], local_xyzs[:, 1], local_xyzs[:, 2], color='k', alpha=0.2, s=5)
+        for lx in range(0, normal_lines.shape[0]):
+            ax1.plot(normal_lines[lx, 0, :], normal_lines[lx ,1, :], normal_lines[lx, 2, :], color='y', linewidth=1, alpha=0.2)
+        ax1.scatter(*finger1, color='r', s=50)
+        ax1.scatter(*finger2, color='g', s=50)
         ax1.scatter(*ee, color='b')
+        finger1_line = np.vstack([finger1, ee])
+        finger2_line = np.vstack([finger2, ee])
+        ax1.plot(finger1_line[:, 0], finger1_line[:, 1], finger1_line[:, 2], color='r')
+        ax1.plot(finger2_line[:, 0], finger2_line[:, 1], finger2_line[:, 2], color='r')
 
+        normal_lines = np.zeros((new_normals.shape[0], 3, 2), dtype='float32')
+        normal_lines[:, :, 0] = new_points[:, 0:3]
+        normal_lines[:, :, 1] = new_points[:, 0:3] + 0.1*new_normals
         ax2.scatter(new_points[:, 0], new_points[:, 1], new_points[:, 2], color='k', alpha=0.2)
         ax2.scatter(0, 0, 0, color='r')
+        for lx in range(0, normal_lines.shape[0]):
+            ax2.plot(normal_lines[lx, 0, :], normal_lines[lx ,1, :], normal_lines[lx, 2, :], color='y', linewidth=2, alpha=0.2)
+        
 
         ax1.set_xlabel('x')
         ax1.set_ylabel('y')
         ax1.set_zlabel('z')
-        
+
         ax2.set_xlabel('x')
         ax2.set_ylabel('y')
         ax2.set_zlabel('z')
@@ -78,19 +113,20 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     # Collect all mesh points for each object.
     all_points_per_objects = {}
     for grasp_vector, object_id in zip(all_grasps, all_ids):
-        mesh_points = grasp_vector[5:, 0:3]
+        mesh_points = grasp_vector[3:, :]
         if object_id not in all_points_per_objects:
             all_points_per_objects[object_id] = mesh_points
         else:
             all_points_per_objects[object_id] = np.concatenate([all_points_per_objects[object_id], mesh_points], axis=0)
 
     # For each grasp, find close points and convert them to the local grasp frame.
-    new_geometries_dict = defaultdict(list) # obj_id -> [grasp__points]
-    new_midpoints_dict = defaultdict(list) # obj_id -> [grasp_midpoint]
-    new_labels_dict = defaultdict(list) # obj_id -> [grasp_label]
-    new_forces_dict = defaultdict(list) # obj_id -> [forces]
-    new_grasp_points_dict = defaultdict(list) # obj_id -> [finger_pt_1, finger_pt_2]
-    new_curvatures_dict = defaultdict(list) # obj_id -> [finger1_gauss concat finger1_mean, finger2_gauss concat finger2_mean]
+    new_geometries_dict = defaultdict(list)  # obj_id -> [grasp__points]
+    new_midpoints_dict = defaultdict(list)  # obj_id -> [grasp_midpoint]
+    new_labels_dict = defaultdict(list)  # obj_id -> [grasp_label]
+    new_forces_dict = defaultdict(list)  # obj_id -> [forces]
+    new_grasp_points_dict = defaultdict(list)  # obj_id -> [finger_pt_1, finger_pt_2]
+    new_curvatures_dict = defaultdict(list)  # obj_id -> [finger1_gauss concat finger1_mean, finger2_gauss concat finger2_mean]
+    new_normals_dict = defaultdict(list)  # obj_id -> [finger1_normal, finger2_normal]
     new_raw_grasps_dict = defaultdict(list)
     new_meshes_dict = defaultdict(list)
 
@@ -107,36 +143,47 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         finger1 = grasp_vector[0, 0:3]
         finger2 = grasp_vector[1, 0:3]
         ee = grasp_vector[2, 0:3]
-        curvatures_finger1 = grasp_vector[3, 0:6]
-        curvatures_finger2 = grasp_vector[4, 0:6]
+        normal1 = grasp_vector[0, 3:6]
+        normal2 = grasp_vector[1, 3:6]
+        curvatures_finger1 = grasp_vector[0, 6:]
+        curvatures_finger2 = grasp_vector[1, 6:]
 
         midpoint = (finger1 + finger2)/2.0
 
         # Only sample points that are within 2cm of a grasp point.
         candidate_points = all_points_per_objects[object_id]
-        d1 = np.linalg.norm(candidate_points-finger1, axis=1)
-        d2 = np.linalg.norm(candidate_points-finger2, axis=1)
+        d1 = np.linalg.norm(candidate_points[:, :3]-finger1, axis=1)
+        d2 = np.linalg.norm(candidate_points[:, :3]-finger2, axis=1)
         to_keep = np.logical_or(d1 < radius, d2 < radius)
-        points = candidate_points[to_keep][:512]
+
+        points = all_points_per_objects[object_id][to_keep][:512, :]  # Keep 512 points closest to fingers.
         n_found = points.shape[0]
         if verbose:
-            print(f'{n_found} points found for grasp {gx}, object {object_id}')
+            print(f'{n_found}/{to_keep.sum()} points found for grasp {gx}, object {object_id}')
 
         # Put everything in grasp point ref frame for better generalization. (Including grasp points)
         if gx % 200 == 0:
             viz_data = False
         else:
-            viz_data=False
-        points = transform_points(points, finger1, finger2, ee, viz_data=viz_data)
+            viz_data = False
+        points = transform_points(
+            local_points=points,
+            finger1=finger1,
+            finger2=finger2,
+            ee=ee,
+            viz_data=viz_data,
+            all_points=candidate_points
+        )
 
         # Assemble dataset.
-        new_grasp_points_dict[object_id].append(np.array([finger1, finger2]))
-        new_curvatures_dict[object_id].append(np.array([curvatures_finger1, curvatures_finger2]))
+        new_grasp_points_dict[object_id].append(np.array([finger1, finger2], dtype='float32'))
+        new_curvatures_dict[object_id].append(np.array([curvatures_finger1, curvatures_finger2], dtype='float32'))
         new_geometries_dict[object_id].append(points)
+        new_normals_dict[object_id].append(np.array([normal1, normal2], dtype='float32'))
         new_midpoints_dict[object_id].append(midpoint)
         new_forces_dict[object_id].append(force)
         new_labels_dict[object_id].append(label)
-        new_meshes_dict[object_id].append(all_points_per_objects[object_id][:512,:])
+        new_meshes_dict[object_id] = all_points_per_objects[object_id][:512, :]
         new_raw_grasps_dict[object_id].append(raw_grasp)
 
     dataset = {
@@ -145,6 +192,7 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
             'grasp_points': new_grasp_points_dict,
             'grasp_curvatures': new_curvatures_dict,
             'grasp_geometries': new_geometries_dict,
+            'grasp_normal': new_normals_dict,
             'grasp_midpoints': new_midpoints_dict,
             'grasp_forces': new_forces_dict,
             'labels': new_labels_dict
@@ -154,7 +202,6 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     }
     if 'raw_grasps' in train_dataset['grasp_data']:
         dataset['grasp_data']['raw_grasps'] = new_raw_grasps_dict
-
     return dataset
 
 def process_and_save(func_args):
@@ -164,7 +211,8 @@ def process_and_save(func_args):
     new_dataset = process_geometry(
         dataset,
         radius=func_args.radius,
-        skip=1
+        skip=1,
+        verbose=True
     )
 
     with open(func_args.out_path, 'wb') as handle:
@@ -227,7 +275,7 @@ if __name__ == '__main__':
 
     # ----- Training phase grasps -----
     train_grasps_path = os.path.join(out_training_phase_path, 'train_grasps.pkl')
-    if not os.path.exists(train_grasps_path):
+    if True: # not os.path.exists(train_grasps_path):
         train_data_path = os.path.join(
             in_data_root_path,
             'grasps',
