@@ -58,7 +58,7 @@ def transform_points(points, finger1, finger2, ee, viz_data=False):
         ax2.set_zlabel('z')
         plt.show()
 
-    return new_points.astype('float32')
+    return new_points.astype('float32'), tform
 
 
 def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
@@ -90,6 +90,7 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     new_labels_dict = defaultdict(list) # obj_id -> [grasp_label]
     new_forces_dict = defaultdict(list) # obj_id -> [forces]
     new_grasp_points_dict = defaultdict(list) # obj_id -> [finger_pt_1, finger_pt_2]
+    new_grasp_tforms_dict = defaultdict(list) # obj_id -> [tforms {4x4 homogeneous matrix}]
     new_curvatures_dict = defaultdict(list) # obj_id -> [finger1_gauss concat finger1_mean, finger2_gauss concat finger2_mean]
     new_raw_grasps_dict = defaultdict(list)
     new_meshes_dict = defaultdict(list)
@@ -127,10 +128,11 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
             viz_data = False
         else:
             viz_data=False
-        points = transform_points(points, finger1, finger2, ee, viz_data=viz_data)
+        points, world_to_grasp_tform = transform_points(points, finger1, finger2, ee, viz_data=viz_data)
 
         # Assemble dataset.
         new_grasp_points_dict[object_id].append(np.array([finger1, finger2]))
+        new_grasp_tforms_dict[object_id].append(world_to_grasp_tform)
         new_curvatures_dict[object_id].append(np.array([curvatures_finger1, curvatures_finger2]))
         new_geometries_dict[object_id].append(points)
         new_midpoints_dict[object_id].append(midpoint)
@@ -143,6 +145,7 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         'grasp_data': {
             'object_meshes': new_meshes_dict,
             'grasp_points': new_grasp_points_dict,
+            'grasp_tforms': new_grasp_tforms_dict,
             'grasp_curvatures': new_curvatures_dict,
             'grasp_geometries': new_geometries_dict,
             'grasp_midpoints': new_midpoints_dict,
