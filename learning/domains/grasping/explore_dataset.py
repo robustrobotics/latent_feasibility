@@ -13,7 +13,7 @@ from PIL import Image
 from mpl_toolkits.axes_grid1 import ImageGrid
 
 from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector
-from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspSimulationClient
+from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspSimulationClient, GraspSampler
 
 
 def get_success_per_test_object(dataset_root, n_bins=10):
@@ -49,17 +49,28 @@ def inspect_train_dataset(dataset_root):
     labels = train_data['grasp_data']['labels']
     p_successes = []
     masses, frictions = [], []
-    for ox in range(len(object_names)):
+
+    p_success_type = {}
+    for ox, name in enumerate(object_names):
         ox_ids = np.array(ids) == ox
         ox_labels = np.array(labels)[ox_ids]
+        if len(ox_labels) == 0:
+            print('Skipping')
+            continue
+
         p_success = np.mean(ox_labels)
         p_successes.append(p_success)
+        if name in p_success_type:
+            p_success_type[name].append(p_success)
+        else:
+            p_success_type[name] = [p_success]
 
         m, f = object_properties[ox][-2:]
         masses.append(m)
         frictions.append(f)
 
     print(p_successes)
+    print(np.var(p_successes), np.mean([np.var(geom_successes) for _, geom_successes in p_success_type.items()]))
     hist = np.histogram(p_successes, bins=10)
     print(hist)
     plt.hist(p_successes, bins=10)
@@ -69,6 +80,7 @@ def inspect_train_dataset(dataset_root):
     plt.savefig(fname)
 
     plt.clf()
+    print('Length:', len(masses), len(frictions))
     plt.scatter(masses, frictions, c=p_successes, cmap=plt.get_cmap('viridis'))
     plt.xlabel('mass')
     plt.ylabel('friction')
@@ -249,6 +261,59 @@ def get_object_stats(name, props):
     sim_client.disconnect()
     return [bb_volume, volume, max_dim, ratio]
 
+def get_effective_sampling_size(name, props):
+    """
+    For each object, approximate how diverse the set of grasps is.
+    """
+    graspable_body = graspablebody_from_vector(name, props)
+    grasp_sampler = GraspSampler(
+        graspable_body=graspable_body,
+        antipodal_tolerance=30
+    )
+    grasps, rejection_rate = grasp_sampler.sample_grasps(50, (5, 20))
+    grasp_sampler.disconnect()
+
+    all_midpoints = np.array([(g.pb_point1 + g.pb_point2)/2.0 for g in grasps])
+    dists_to_closest = []
+    for gx, midpoint in enumerate(all_midpoints):
+        other_points = np.concatenate(
+            [all_midpoints[:gx, :], all_midpoints[gx + 1:, :]],
+            axis=0
+        )
+        dists = np.linalg.norm(midpoint - other_points, axis=1)
+        dists_to_closest.append(np.min(dists))
+
+    avg_min_dist = np.mean(dists_to_closest)
+    if len(grasps) == 0:
+        avg_min_dist = -1
+
+    print(rejection_rate, avg_min_dist)
+    return (rejection_rate, avg_min_dist)
+
+def show_object_effective_sampling_sizes(train_fname):
+    with open(train_fname, 'rb') as handle:
+        train_data = pickle.load(handle)
+
+    object_names = train_data['object_data']['object_names'][::5]
+    object_properties = train_data['object_data']['object_properties'][::5]
+
+    pool = mp.Pool(processes=20)
+    results = pool.starmap(get_effective_sampling_size, zip(object_names, object_properties))
+    #for name, prop in zip(object_names[::5], object_properties[::5]):
+    #    get_object_stats(name, prop)
+
+    fig, axes = plt.subplots(nrows=2, ncols=1)
+    axes[0].hist([res[0] for res in results], bins=25)
+    axes[0].set_xlabel('Rejection Rate')
+    axes[0].set_ylabel('Count')
+
+    axes[1].hist([res[1] for res in results if res[1] > 0], bins=25)
+    axes[1].set_xlabel('Avg Min Dist')
+    axes[1].set_ylabel('Count')
+
+    # plt.show()
+    plt.savefig('/home/mnosew/snv2_hist.png')
+
 def show_object_size_distributions(train_fname):
     with open(train_fname, 'rb') as handle:
         train_data = pickle.load(handle)
@@ -312,8 +377,11 @@ if __name__ == '__main__':
     # generate_object_grid(val_objects, val_meshes_path)
 
     # inspect_train_dataset(dataset_root)
+    # sys.exit()
 
     train_grasps = os.path.join(dataset_root, 'grasps', 'training_phase', 'train_grasps.pkl')
+    show_object_effective_sampling_sizes(train_grasps)
+    sys.exit()
     show_object_size_distributions(train_grasps)
     figpath = os.path.join(dataset_figpath, 'train_grasps')
     if not os.path.exists(figpath):

@@ -25,3 +25,5 @@ learning/experiments/logs/
 *.zip
 learning/active/experiments/
 .idea
+logs_lookup.json
+ignore.txt

@@ -48,7 +48,12 @@ def select_gnp_dataset_ix(dataset, ix):
     for field_name in dataset['grasp_data']:
         new_dataset['grasp_data'][field_name] = {}
         for ox, val_list in dataset['grasp_data'][field_name].items():
-            new_dataset['grasp_data'][field_name][ox] = [val_list[ix]]
+            if field_name in ['object_meshes', 'object_properties']:
+                # These properties only have one per object.
+                new_dataset['grasp_data'][field_name][ox] = val_list
+            else:
+                new_dataset['grasp_data'][field_name][ox] = [val_list[ix]]
+
 
     return new_dataset
 
@@ -57,7 +62,8 @@ def merge_gnp_datasets(dataset1, dataset2):
     for field_name in dataset1['grasp_data']:
         for ox in dataset1['grasp_data'][field_name]:
             new_data = dataset2['grasp_data'][field_name][ox]
-            dataset1['grasp_data'][field_name][ox].extend(new_data)
+            if field_name not in ['object_meshes', 'object_properties']:
+                dataset1['grasp_data'][field_name][ox].extend(new_data)
     return dataset1
 
 
@@ -144,7 +150,6 @@ def sample_unlabeled_data(n_samples, object_set, object_ix=None):
 
     grasps, Xs = sample_grasps_and_Xs(
         graspable_body=graspable_body,
-        property_vector=object_properties,
         n_grasps=n_samples,
         n_points_per_object=10000,
         curvature_rads=()

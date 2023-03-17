@@ -113,12 +113,12 @@ class CustomGraspNeuralProcess(nn.Module):
 
     def forward_until_latents(self, contexts, meshes):
         mesh_enc, global_transform = self.mesh_encoder(meshes)
-        mesh_enc = torch.zeros_like(mesh_enc)
 
         context_geoms, context_grasp_points, \
             context_curvatures, context_normals, \
             context_midpoints, context_forces, \
             context_labels = contexts
+        # print(context_geoms.shape, context_grasp_points.shape, context_curvatures.shape, context_normals.shape, context_forces.shape)
 
         n_batch, n_grasp, n_feat, n_geom_pts = context_geoms.shape
         geoms = context_geoms.view(-1, n_feat, n_geom_pts)

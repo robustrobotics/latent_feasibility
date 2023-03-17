@@ -18,10 +18,10 @@ IGNORE_MODELS = [
     'YCB::YcbPear',
     'ShapeNet::ChestOfDrawers_1aada3ab6bb4295635469b95109803c',
 ]
-with open('learning/data/grasping/object_lists/non-watertight.txt', 'r') as handle:
-    IGNORE_MODELS += handle.read().split('\n')
-with open('learning/data/grasping/object_lists/no-valid-grasps.txt', 'r') as handle:
-    IGNORE_MODELS += handle.read().split('\n')
+# with open('learning/data/grasping/object_lists/non-watertight.txt', 'r') as handle:
+#     IGNORE_MODELS += handle.read().split('\n')
+# with open('learning/data/grasping/object_lists/no-valid-grasps.txt', 'r') as handle:
+#     IGNORE_MODELS += handle.read().split('\n')
 SHAPENET_IGNORE_CATEGORIES = [
     'Paper',
     'Room'
@@ -87,7 +87,7 @@ def select_objects(ycb_object_names, sn_object_names, pm_object_names, datasets,
 
     return chosen_objects
 
-def get_object_volume(object_name):
+def get_object_volumes(object_name):
     body = graspablebody_from_vector(
         object_name=object_name,
         vector=[0., 0., 0., 0.5, 0.5]
@@ -97,23 +97,41 @@ def get_object_volume(object_name):
         show_pybullet=False
     )
     volume = client.mesh.volume
+    bb_volume = client.mesh.bounding_box.volume
+    ch_volume = client.mesh.convex_hull.volume
     client.disconnect()
-    return volume
+    return {
+        'volume': volume,
+        'convex_hull': ch_volume,
+        'bounding_box': bb_volume
+    }
 
 
-def filter_by_volume(object_list, min_volume=0.001, max_volume=0.008, n_processes=1):   
-    worker_pool = mp.Pool(processes=n_processes)
-    volumes = worker_pool.map(get_object_volume, object_list)
-    worker_pool.close()
-
+def filter_by_volume(object_list, volumes, min_volume=0.001, max_volume=0.027):   
     new_objects = []
-    for name, vol in zip(object_list, volumes):
+    for name, vols in zip(object_list, volumes):
+        vol = vols['volume']
         if vol > min_volume and vol < max_volume:
             new_objects.append(name)
-            if vol < 0.0015 or vol > 0.0075:
-                print(vol, name)
+            # if vol < 0.0015 or vol > 0.0075:
+            #     print(vol, name)
     return new_objects
 
+def filter_by_ratio(object_list, volumes):
+    """
+    Check how similar the object's volume is to the bounding box. Remove those near the extreme.
+    """
+    new_objects = []
+    for name, vols in zip(object_list, volumes):
+        bb_ratio = vols['bounding_box'] / vols['volume']
+        ch_ratio = vols['convex_hull'] / vols['volume']
+        if bb_ratio < 1.1:
+            continue
+        if ch_ratio > 5.:
+            continue
+        new_objects.append(name)
+
+    return new_objects
 
 OBJECTS_LIST_DIR = 'learning/data/grasping/object_lists'
 if __name__ == '__main__':
@@ -139,8 +157,13 @@ if __name__ == '__main__':
     all_shapenet_objects = get_shapenet_models(os.path.join(shapenet_root, 'urdfs'))
     if 'ShapeNet' in args.train_objects_datasets + args.test_objects_datasets:
         print(f'Before length: {len(all_shapenet_objects)}')
-        all_shapenet_objects = filter_by_volume(all_shapenet_objects, n_processes=args.n_processes)
-        print(f'After length: {len(all_shapenet_objects)}')
+        worker_pool = mp.Pool(processes=args.n_processes)
+        volumes = worker_pool.map(get_object_volumes, all_shapenet_objects)
+        worker_pool.close()
+        all_shapenet_objects = filter_by_ratio(all_shapenet_objects, volumes)
+        print(f'After ratio length: {len(all_shapenet_objects)}')
+        all_shapenet_objects = filter_by_volume(all_shapenet_objects, volumes)
+        print(f'After volume length: {len(all_shapenet_objects)}')
 
     # then use train_object_datasets and then lookup with try except and then just inform
     # user if the set name passed as an argument does not exist
@@ -170,6 +193,7 @@ if __name__ == '__main__':
                                   datasets=args.test_objects_datasets,
                                   n_objects=args.n_test)
 
+    # import sys; sys.exit()
     with open(os.path.join(OBJECTS_LIST_DIR, args.train_objects_fname), 'w') as handle:
         handle.write('\n'.join(train_objects))
     with open(os.path.join(OBJECTS_LIST_DIR, args.test_objects_fname), 'w') as handle:

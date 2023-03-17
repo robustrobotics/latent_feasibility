@@ -200,6 +200,7 @@ if __name__ == '__main__':
     # for t_args in train_dataset_tasks:
     #     generate_datasets(t_args)
     print(len(train_dataset_tasks))
+    np.random.shuffle(train_dataset_tasks)
     worker_pool.map(generate_datasets, train_dataset_tasks)
 
     train_grasps_path = os.path.join(training_phase_path, 'train_grasps.pkl')
@@ -254,6 +255,7 @@ if __name__ == '__main__':
                 curvature_radii=args.curvature_radii)
             fit_dataset_tasks.append(fit_grasps_args)
 
+    np.random.shuffle(fit_dataset_tasks)
     worker_pool.map(generate_datasets, fit_dataset_tasks)
 
     fit_dataset_samegeo_tasks = []

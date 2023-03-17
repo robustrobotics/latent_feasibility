@@ -128,7 +128,7 @@ def run_fitting_phase(args):
             fit_objects = pickle.load(handle)
 
         min_pstable, max_pstable, min_dist = 0.0, 1.0, 0.0
-        valid_fit_objects, _, _, _, _ = filter_objects(
+        valid_fit_objects, _, _, _, _, _ = filter_objects(
             object_names=fit_objects['object_data']['object_names'],
             ignore_list=ignore,
             phase=geo_type.split('_')[0],
@@ -383,7 +383,7 @@ def run_training_phase(args):
         training_args.exp_name = f'grasp_{exp_args.exp_name}_train'
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
-        training_args.n_epochs = 150
+        training_args.n_epochs = 100
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 16
         training_args.use_latents = False  # NOTE: this is a workaround for pointnet + latents,
@@ -391,8 +391,8 @@ def run_training_phase(args):
         # cleanly in the model specification and training
         training_args.informed_prior_loss = True
         training_args.use_local_grasp_geometry = True
-        training_args.add_mesh_normals = True
-        training_args.add_mesh_curvatures = True
+        training_args.add_mesh_normals = False
+        training_args.add_mesh_curvatures = False
 
         train_log_path = training_phase_amortized(training_args)
 
@@ -431,6 +431,11 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
     valid_min_dists = []
     valid_ratios = []
     valid_maxdims = []
+    valid_rrates = []
+
+    with open(f'{os.environ["SHAPENET_ROOT"]}/object_infos.pkl', 'rb') as handle:
+        metadata = pickle.load(handle)
+
     for ox, object_name in enumerate(object_names):
         if ox in ignore_list:
             continue
@@ -444,7 +449,7 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
             continue
         with open(val_dataset_path, 'rb') as handle:
             data = pickle.load(handle)
-
+        
         name = data['object_data']['object_names'][ox]
         props = data['object_data']['object_properties'][ox]
         prop_str = ''
@@ -456,25 +461,26 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         #     show_pybullet=False,
         #     recompute_inertia=True)
         # mesh = sim_client.mesh
-        # volume = mesh.volume
-        # bb_volume = mesh.convex_hull.volume
+        volume = metadata[name]['volume']
+        bb_volume = metadata[name]['bb_volume']
         # max_dim = np.max(mesh.bounds[1]*2)
-        # ratio = bb_volume / volume
+        ratio = bb_volume / volume
         # sim_client.disconnect()
-        ratio = 1.2
         max_dim = 0.2
+        rejection_rate = metadata[name]['rejection_rate']
 
-        all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
-        dists_to_closest = []
-        for gx, midpoint in enumerate(all_midpoints):
-            other_points = np.concatenate(
-                [all_midpoints[:gx, :], all_midpoints[gx + 1:, :]],
-                axis=0
-            )
-            dists = np.linalg.norm(midpoint - other_points, axis=1)
-            dists_to_closest.append(np.min(dists))
+        # all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
+        # dists_to_closest = []
+        # for gx, midpoint in enumerate(all_midpoints):
+        #     other_points = np.concatenate(
+        #         [all_midpoints[:gx, :], all_midpoints[gx + 1:, :]],
+        #         axis=0
+        #     )
+        #     dists = np.linalg.norm(midpoint - other_points, axis=1)
+        #     dists_to_closest.append(np.min(dists))
 
-        avg_min_dist = np.mean(dists_to_closest)
+        # avg_min_dist = np.mean(dists_to_closest)
+        avg_min_dist = metadata[name]['avg_min_dist50']
         p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
         if avg_min_dist < min_dist_threshold:
             continue
@@ -486,9 +492,10 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         valid_min_dists.append(avg_min_dist)
         valid_ratios.append(ratio)
         valid_maxdims.append(max_dim)
+        valid_rrates.append(rejection_rate)
         print(f'{object_name} in range ({min_pstable}, {max_pstable}) ({p_stable})')
 
-    return valid_objects[:max_objects], valid_pstables[:max_objects], valid_min_dists[:max_objects], valid_ratios[:max_objects], valid_maxdims[:max_objects]
+    return valid_objects[:max_objects], valid_pstables[:max_objects], valid_min_dists[:max_objects], valid_ratios[:max_objects], valid_maxdims[:max_objects], valid_rrates[:max_objects]
 
 
 def run_testing_phase(args):
@@ -533,11 +540,13 @@ def run_testing_phase(args):
     valid_test_pstables, \
     valid_test_ratios, \
     valid_test_maxdims, \
+    valid_test_rrates, \
     valid_train_min_dists, \
     valid_train_objects, \
     valid_train_pstables, \
     valid_train_ratios, \
-    valid_train_maxdims = gather_experiment_logs_file_paths(
+    valid_train_maxdims, \
+    valid_train_rrates = gather_experiment_logs_file_paths(
         TEST_IGNORE, TRAIN_IGNORE, args, exp_args, logs_lookup, test_objects, train_objects)
 
     # collect all of the stored metric data over the course of training
@@ -643,20 +652,22 @@ def run_testing_phase(args):
         valid_train_min_dists * len(strategies_used_for_train),
         valid_train_ratios * len(strategies_used_for_train),
         valid_train_maxdims * len(strategies_used_for_train),
+        valid_train_rrates * len(strategies_used_for_train),
         [obj[1] for obj in valid_train_objects] * len(strategies_used_for_train),
         [obj[2] for obj in valid_train_objects] * len(strategies_used_for_train),
         log_paths_set['train_geo']
-    ), index=mi_train, columns=['pstable', 'avg_min_dist', 'ratio', 'maxdim', 'name', 'props', 'log_paths'])
+    ), index=mi_train, columns=['pstable', 'avg_min_dist', 'ratio', 'maxdim', 'rrate', 'name', 'props', 'log_paths'])
 
     d_const_test = pd.DataFrame(data=zip(
         valid_test_pstables * len(strategies_used_for_test),
         valid_test_min_dists * len(strategies_used_for_test),
         valid_test_ratios * len(strategies_used_for_test),
         valid_test_maxdims * len(strategies_used_for_test),
+        valid_test_rrates * len(strategies_used_for_test),
         [obj[1] for obj in valid_test_objects] * len(strategies_used_for_test),
         [obj[2] for obj in valid_test_objects] * len(strategies_used_for_test),
         log_paths_set['test_geo']
-    ), index=mi_test, columns=['pstable', 'avg_min_dist', 'ratio', 'maxdim', 'name', 'props', 'log_paths'])
+    ), index=mi_test, columns=['pstable', 'avg_min_dist', 'ratio', 'maxdim', 'rrate', 'name', 'props', 'log_paths'])
     # d_const_train = d_const_test
 
     # construct multi-index for columns in time-series data
@@ -753,7 +764,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
             }
         }
     }
-    valid_train_objects, valid_train_pstables, valid_train_min_dists, valid_train_ratios, valid_train_maxdims = filter_objects(
+    valid_train_objects, valid_train_pstables, valid_train_min_dists, valid_train_ratios, valid_train_maxdims, valid_train_rrates = filter_objects(
         object_names=train_objects['object_data']['object_names'],
         ignore_list=TRAIN_IGNORE,
         phase='train',
@@ -794,7 +805,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
             logs_lookup_by_object['train_geo']['bald']['all'].append(bald_log_fname)
             logs_lookup_by_object['train_geo']['bald'][object_name].append(bald_log_fname)
     print(f'{len(valid_train_objects)} train geo objects included.')
-    valid_test_objects, valid_test_pstables, valid_test_min_dists, valid_test_ratios, valid_test_maxdims = filter_objects(
+    valid_test_objects, valid_test_pstables, valid_test_min_dists, valid_test_ratios, valid_test_maxdims, valid_test_rrates = filter_objects(
         object_names=test_objects['object_data']['object_names'],
         ignore_list=TEST_IGNORE,
         phase='test',
@@ -834,8 +845,8 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
             logs_lookup_by_object['test_geo']['bald'][object_name].append(bald_log_fname)
     print(f'{len(valid_test_objects)} test geo objects included.')
     return logs_lookup_by_object, \
-        valid_test_min_dists, valid_test_objects, valid_test_pstables, valid_test_ratios, valid_test_maxdims, \
-        valid_train_min_dists, valid_train_objects, valid_train_pstables, valid_train_ratios, valid_train_maxdims
+        valid_test_min_dists, valid_test_objects, valid_test_pstables, valid_test_ratios, valid_test_maxdims, valid_test_rrates, \
+        valid_train_min_dists, valid_train_objects, valid_train_pstables, valid_train_ratios, valid_train_maxdims, valid_train_rrates
 
 
 if __name__ == '__main__':

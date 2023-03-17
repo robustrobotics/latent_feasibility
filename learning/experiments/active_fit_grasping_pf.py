@@ -106,8 +106,8 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
             context_mesh = torch.unsqueeze(
                 torch.swapaxes(
                     torch.tensor(context_data['object_mesh']),
-                    1, 2
-                )[0],
+                    0, 1
+                ),
                 0
             )
 
@@ -121,6 +121,7 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
 
             context_grasp_points = torch.unsqueeze(torch.tensor(context_data['grasp_points']), 0)
             context_curvatures = torch.unsqueeze(torch.tensor(context_data['grasp_curvatures']), 0)
+            context_normals = torch.unsqueeze(torch.tensor(context_data['grasp_normals']), 0)
             context_midpoints = torch.unsqueeze(torch.tensor(context_data['grasp_midpoints']), 0)
             context_forces = torch.unsqueeze(torch.tensor(context_data['grasp_forces']), 0)
             context_labels = torch.unsqueeze(torch.tensor(context_data['grasp_labels']), 0)
@@ -129,6 +130,7 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
             context_geoms, \
             context_grasp_points, \
             context_curvatures, \
+            context_normals, \
             context_midpoints, \
             context_forces, \
             context_labels = \
@@ -137,16 +139,18 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
                     context_geoms,
                     context_grasp_points,
                     context_curvatures,
+                    context_normals,
                     context_midpoints,
                     context_forces,
                     context_labels
                 ])
 
             # compute H(z)
-            q_z, mesh_enc = gnp.forward_until_latents(
+            q_z, mesh_enc, _ = gnp.forward_until_latents(
                 (context_geoms,
                  context_grasp_points,
                  context_curvatures,
+                 context_normals,
                  context_midpoints,
                  context_forces,
                  context_labels),
@@ -166,10 +170,10 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
         unlabeled_mesh = torch.unsqueeze(
             torch.swapaxes(
                 torch.tensor(unlabeled_data['object_mesh']),
-                1, 2
+                0, 1
             ),
-            1
-        )
+            0
+        ).repeat(n_unlabeled_sampled, 1, 1)
         unlabeled_geoms = torch.unsqueeze(
             torch.swapaxes(
                 torch.tensor(unlabeled_data['grasp_geometries']),
@@ -181,6 +185,8 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
             torch.tensor(unlabeled_data['grasp_points']), 1)
         unlabeled_curvatures = torch.unsqueeze(
             torch.tensor(unlabeled_data['grasp_curvatures']), 1)
+        unlabeled_normals = torch.unsqueeze(
+            torch.tensor(unlabeled_data['grasp_normals']), 1)
         unlabeled_midpoints = torch.unsqueeze(
             torch.tensor(unlabeled_data['grasp_midpoints']), 1)
         unlabeled_forces = torch.unsqueeze(
@@ -190,6 +196,7 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
         unlabeled_geoms, \
         unlabeled_grasp_points, \
         unlabeled_curvatures, \
+        unlabeled_normals, \
         unlabeled_midpoints, \
         unlabeled_forces = \
             check_to_cuda([
@@ -197,6 +204,7 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
                 unlabeled_geoms,
                 unlabeled_grasp_points,
                 unlabeled_curvatures,
+                unlabeled_normals,
                 unlabeled_midpoints,
                 unlabeled_forces,
             ])
@@ -219,10 +227,11 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
                         unlabeled_geoms[start:end],
                         unlabeled_grasp_points[start:end],
                         unlabeled_curvatures[start:end],
+                        unlabeled_normals[start:end],
                         unlabeled_midpoints[start:end],
                         unlabeled_forces_batch,
                     ),
-                    unlabeled_mesh[start:end].squeeze(),
+                    unlabeled_mesh[start:end],
                     zs[z_ix, start:end, :],
                 ).squeeze()
         p_y_equals_one_cond_d_x /= n_samples_from_latent_dist
@@ -230,20 +239,20 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
         # next, we create all the candidate context sets and then compute the entropy of the latent distribution
         # for each
         if context_data is not None:
-            candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_midpoints, candidate_forces = \
+            candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_normals, candidate_midpoints, candidate_forces = \
                 [torch.cat([
                     c_set[0].broadcast_to(n_unlabeled_sampled, *c_set[0].shape),
                     u_set
                 ], dim=1)
                     for c_set, u_set in zip(
-                    [context_geoms, context_grasp_points, context_curvatures, context_midpoints, context_forces],
-                    [unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints,
+                    [context_geoms, context_grasp_points, context_curvatures, context_normals, context_midpoints, context_forces],
+                    [unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_normals, unlabeled_midpoints,
                      unlabeled_forces])
                 ]
         else:
             # if there are no context, then the unlabeled sets are the actual candidate sets
-            candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_midpoints, candidate_forces = \
-                unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_midpoints, unlabeled_forces
+            candidate_geoms, candidate_grasp_points, candidate_curvatures, candidate_normals, candidate_midpoints, candidate_forces = \
+                unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_normals, unlabeled_midpoints, unlabeled_forces
 
         zero_labels = torch.zeros((n_unlabeled_sampled, 1))
         one_labels = torch.ones((n_unlabeled_sampled, 1))
@@ -277,11 +286,12 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
                     candidate_geoms[start:end],
                     candidate_grasp_points[start:end],
                     candidate_curvatures[start:end],
+                    candidate_normals[start:end],
                     candidate_midpoints[start:end],
                     candidate_forces[start:end],
                     candidate_labels_zero[start:end]
                 ),
-                unlabeled_mesh[start:end].squeeze()
+                unlabeled_mesh[start:end]
             )[0]
             h_z_cond_x_y_equals_zero[start:end] = torch.distributions.Independent(q_z_zero, 1).entropy()
 
@@ -290,11 +300,12 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
                     candidate_geoms[start:end],
                     candidate_grasp_points[start:end],
                     candidate_curvatures[start:end],
+                    candidate_normals[start:end],
                     candidate_midpoints[start:end],
                     candidate_forces[start:end],
                     candidate_labels_one[start:end]
                 ),
-                unlabeled_mesh[start:end].squeeze()
+                unlabeled_mesh[start:end]
             )[0]
             h_z_cond_x_y_equals_one[start:end] = torch.distributions.Independent(q_z_one, 1).entropy()
         # compute expected entropy and information gain

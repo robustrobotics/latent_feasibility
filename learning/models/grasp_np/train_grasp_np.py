@@ -226,12 +226,12 @@ def run(args):
     model = CustomGraspNeuralProcess(
         d_latents=args.d_latents,
         input_features={
-            'mesh_normals': True,  # For both object and grasp meshes.
-            'mesh_curvatures': True,
+            'mesh_normals': args.add_mesh_normals,  # For both object and grasp meshes.
+            'mesh_curvatures': args.add_mesh_curvatures,
             'grasp_normals': False,  # Including in the grasp feature vector post-mesh processing.
             'grasp_curvatures': False,
             'grasp_mesh': True,  # Whether to process local grasp point clouds.
-            'object_properties': True  # Latent (False) or ground truth (True)
+            'object_properties': False  # Latent (False) or ground truth (True)
         },
         d_grasp_mesh_enc=8,
         d_object_mesh_enc=8

@@ -138,19 +138,18 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
     )
 
     gnp.eval()
-    for (context_data, target_data, meshes) in dataloader:
-        t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = \
+    for (context_data, target_data, object_data) in dataloader:
+        t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, t_labels = \
             check_to_cuda(truncate_grasps(target_data, 100))
-        c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
-
-        if torch.cuda.is_available():
-            meshes = meshes.cuda()
+        c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
+        meshes, object_properties = check_to_cuda(object_data)
+        
         t_labels = t_labels.squeeze()
 
         pred, q_z = gnp.forward(
-            (c_grasp_geoms, c_grasp_points, c_curvatures, c_midpoints, c_forces, c_labels),
-            (t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
-            meshes
+            (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels),
+            (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
+            (meshes, object_properties)
         )
         pred = pred.squeeze().cpu().detach()
 

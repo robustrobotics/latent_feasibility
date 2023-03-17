@@ -14,19 +14,19 @@ from torch.autograd import Variable
 class STN3d(nn.Module):
     def __init__(self, channel):
         super(STN3d, self).__init__()
-        self.conv1 = torch.nn.Conv1d(channel, 32, 1)  # 64
-        self.conv2 = torch.nn.Conv1d(32, 64, 1)  # 64, 128
-        self.conv3 = torch.nn.Conv1d(64, 256, 1)  # 128, 1024
-        self.fc1 = nn.Linear(256, 128)  # 1024, 512
-        self.fc2 = nn.Linear(128, 64)  # 512, 256
-        self.fc3 = nn.Linear(64, 9)  # 256, 9
+        self.conv1 = torch.nn.Conv1d(channel, 64, 1)  # 64
+        self.conv2 = torch.nn.Conv1d(64, 128, 1)  # 64, 128
+        self.conv3 = torch.nn.Conv1d(128, 1024, 1)  # 128, 1024
+        self.fc1 = nn.Linear(1024, 512)  # 1024, 512
+        self.fc2 = nn.Linear(512, 256)  # 512, 256
+        self.fc3 = nn.Linear(256, 9)  # 256, 9
         self.nonlin = nn.ReLU()
 
-        self.bn1 = nn.BatchNorm1d(32)
-        self.bn2 = nn.BatchNorm1d(64)
-        self.bn3 = nn.BatchNorm1d(256)
-        self.bn4 = nn.BatchNorm1d(128)
-        self.bn5 = nn.BatchNorm1d(64)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.bn2 = nn.BatchNorm1d(128)
+        self.bn3 = nn.BatchNorm1d(1024)
+        self.bn4 = nn.BatchNorm1d(512)
+        self.bn5 = nn.BatchNorm1d(256)
 
     def forward(self, x):
         batchsize = x.size()[0]
@@ -34,7 +34,7 @@ class STN3d(nn.Module):
         x = self.nonlin(self.bn2(self.conv2(x)))
         x = self.nonlin(self.bn3(self.conv3(x)))
         x = torch.max(x, 2, keepdim=True)[0]
-        x = x.view(-1, 256)
+        x = x.view(-1, 1024)
 
         x = self.nonlin(self.bn4(self.fc1(x)))
         x = self.nonlin(self.bn5(self.fc2(x)))
@@ -44,7 +44,7 @@ class STN3d(nn.Module):
             batchsize, 1)
         if x.is_cuda:
             iden = iden.cuda()
-        x = x + iden
+        x = iden + x
         x = x.view(-1, 3, 3)
         return x
 
@@ -86,17 +86,19 @@ class STNkd(nn.Module):
             iden = iden.cuda()
         x = x + iden
         x = x.view(-1, self.k, self.k)
+        x = torch.linalg.qr(x)[0]  # Make sure X is a valid rotation matrix.
         return x
 
 
 class PointNetEncoder(nn.Module):
     def __init__(self, global_feat=True, feature_transform=True, num_geom_features=1,
-                 channel=3, n_out=1024, use_batch_norm=False):
+                 channel=3, n_out=1024, use_batch_norm=False, use_stn=True):
         super(PointNetEncoder, self).__init__()
 
         self.num_geom_feats = num_geom_features
 
-        self.stn = STN3d(channel)
+        if use_stn:
+            self.stn = STN3d(channel)
 
         self.n_out = n_out
         n_hidden1, n_hidden2 = n_out // 16, n_out // 8
@@ -162,12 +164,12 @@ class PointNetEncoder(nn.Module):
 
 
 class PointNetClassifier(nn.Module):
-    def __init__(self, n_in, n_geometric_features=1):
+    def __init__(self, n_in, n_geometric_features=1, use_stn=True):
         super(PointNetClassifier, self).__init__()
 
-        n_enc = 512
+        n_enc = 1024
         self.feat = PointNetEncoder(global_feat=False, feature_transform=False, channel=n_in, n_out=n_enc,
-                                    use_batch_norm=False, num_geom_features=n_geometric_features)
+                                    use_batch_norm=False, num_geom_features=n_geometric_features, use_stn=use_stn)
 
         self.fc1 = nn.Linear(n_enc + n_enc // 16, n_enc // 2)  # 1024, 512
         self.fc2 = nn.Linear(n_enc // 2, n_enc // 4)  # 512, 256
@@ -193,23 +195,24 @@ class PointNetClassifier(nn.Module):
 
 
 class PointNetRegressor(nn.Module):
-    def __init__(self, n_in, n_out, n_geometric_features=1, use_batch_norm=False):
+    def __init__(self, n_in, n_out, n_geometric_features=1, use_batch_norm=False, use_stn=True):
         super(PointNetRegressor, self).__init__()
 
-        n_enc = 512
+        n_enc = 1024
         self.feat = PointNetEncoder(
             global_feat=False,
             feature_transform=False,
             channel=n_in,
             n_out=n_enc,
             use_batch_norm=use_batch_norm,
-            num_geom_features=n_geometric_features
+            num_geom_features=n_geometric_features,
+            use_stn=use_stn
         )
 
         self.fc1 = nn.Linear(n_enc + n_enc // 16, n_enc // 2)  # 1024, 512
         self.fc2 = nn.Linear(n_enc // 2, n_enc // 4)  # 512, 256
         self.fc3 = nn.Linear(n_enc // 4, n_out)  # 256, 1
-        self.dropout = nn.Dropout(p=0.)  # 0.4
+        self.dropout = nn.Dropout(p=0.2)  # 0.4
         if use_batch_norm:
             self.bn1 = nn.BatchNorm1d(n_enc // 2)  # 512
             self.bn2 = nn.BatchNorm1d(n_enc // 4)  # 256
@@ -231,29 +234,3 @@ class PointNetRegressor(nn.Module):
         # x = self.nonlin(self.bn1(self.fc1(x)))
         # x = self.nonlin(self.bn2(self.dropout(self.fc2(x))))
         return x, trans
-
-
-class PointNetPerPointClassifier(nn.Module):
-    def __init__(self, n_in):
-        super(PointNetPerPointClassifier, self).__init__()
-
-        self.feat = PointNetEncoder(global_feat=False, feature_transform=False, channel=n_in)
-        self.conv1 = torch.nn.Conv1d(1088, 512, 1)
-        self.conv2 = torch.nn.Conv1d(512, 256, 1)
-        self.conv3 = torch.nn.Conv1d(256, 128, 1)
-        self.conv4 = torch.nn.Conv1d(128, 1, 1)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(256)
-        self.bn3 = nn.BatchNorm1d(128)
-
-    def forward(self, x):
-        batchsize = x.size()[0]
-        n_pts = x.size()[2]
-        x, trans, trans_feat = self.feat(x)
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.relu(self.bn3(self.conv3(x)))
-        x = self.conv4(x)
-        x = x.transpose(2, 1).contiguous()
-        x = F.sigmoid(x)
-        return x
