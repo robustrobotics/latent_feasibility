@@ -35,12 +35,12 @@ def run(args):
 
                 new_object_property = copy.deepcopy(object_property)
                 new_object_property[i_com_x], new_object_property[i_com_y], new_object_property[i_com_z] = com
-                new_object_properties.append(object_property)
+                new_object_properties.append(new_object_property)
 
             object_sample_dict['object_data']['object_properties'] = new_object_properties
             with open(path_to_object_pickle, 'wb') as handle:
                 pickle.dump(object_sample_dict, handle)
-                
+
         except EOFError:
             print('Looks like ' + file_to_process + ' reached EOF quicker than expected.')
 
