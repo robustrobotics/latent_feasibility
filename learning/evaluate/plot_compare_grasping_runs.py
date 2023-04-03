@@ -10,8 +10,8 @@ import matplotlib
 from matplotlib import pyplot as plt
 
 import seaborn as sns
-matplotlib.rc('font', family='normal', size=28)
 
+matplotlib.rc('font', family='normal', size=28)
 
 NAMES = {
     'ensemble-comp': {
@@ -36,6 +36,7 @@ COLORS = {
         '50_norot_pf_active_long': 'g'
     }
 }
+
 
 def create_output_dir(args):
     output_path = os.path.join('learning/evaluate/grasping_comparisons', args.output_folder_name)
@@ -65,11 +66,12 @@ def get_loggers_from_run_groups(run_groups):
             loggers[name].append(logger)
     return loggers
 
+
 def plot_val_loss(loggers, output_path):
     plt.clf()
-    fig, axes = plt.subplots(1, sharex=False, figsize=(20,10))
+    fig, axes = plt.subplots(1, sharex=False, figsize=(20, 10))
     val_fname = 'val_accuracies.pkl'
-    #val_fname = 'val_recalls_ 0.80.pkl'
+    # val_fname = 'val_recalls_ 0.80.pkl'
     val_fname = 'val_average_precisions.pkl'
     val_fname = 'regrets_0.pkl'
     # val_fname = 'val_precisions.pkl'
@@ -95,9 +97,9 @@ def plot_val_loss(loggers, output_path):
                 if tx >= len(vals):
                     all_accs[tx].append(vals[-1])
                 else:
-                    #if vals[tx] != 1:
+                    # if vals[tx] != 1:
                     all_accs[tx].append(vals[tx])
-                
+
         if len(all_accs) == 0:
             continue
         # Then plot the regrets and save it in the results folder.
@@ -109,7 +111,7 @@ def plot_val_loss(loggers, output_path):
             lower25.append(np.quantile(all_accs[tx], 0.25))
             upper75.append(np.quantile(all_accs[tx], 0.75))
 
-        xs = np.arange(init, init+len(median), n_acquire)
+        xs = np.arange(init, init + len(median), n_acquire)
         # if 'ensemble' in name:
         #     print(name)
         #     xs = xs *3
@@ -123,47 +125,119 @@ def plot_val_loss(loggers, output_path):
     plt.savefig(output_path)
     plt.close()
 
+
 def plot_from_dataframe(d, output_path):
-    maxp, minp, ratio, maxdim, avgmindist = 0.25, 0.05, 5, 0.5, 0.0
+    # maxp, minp, ratio, maxdim, avgmindist = 0.25, 0.05, 5, 0.5, 0.0
+    # d_stable = d_train[
+    #     (maxp > d_train.pstable) & (d_train.pstable > minp) & \
+    #     (d_train.ratio  < ratio) & (d_train.maxdim < maxdim) & (d_train.avg_min_dist > avgmindist)
+    # ].drop_duplicates()
+    # print(d.loc['train']['pstable'].mean())
+    # good_idxs = (d_stable['time metric'] == 'average precision') & \
+    #             (d_stable['time metric value'] > 0.8) & \
+    #              (d_stable['acquisition'] == 24)
+    # good_log_paths = d_stable[good_idxs].log_paths
+    # d_stable = d_stable[d_stable['log_paths'].isin(good_log_paths)]
+    #
+    # bad_idxs = (d_stable['time metric'] == 'average precision') & \
+    #             (d_stable['time metric value'] < 0.8) & \
+    # d_stable = d_test[
+    #     (minp < d_test.pstable) & (d_test.pstable < maxp) & \
+    #     (d_test.ratio < ratio) & (d_test.maxdim < maxdim) & (d_test.avg_min_dist > avgmindist)
+    # ].drop_duplicates()
+    # print(d.loc['test']['pstable'].mean())
+    # good_idxs = (d_stable['time metric'] == 'average precision') & \
+    #             (d_stable['time metric value'] > 0.8) & \
+    #              (d_stable['acquisition'] == 24)
+    # good_log_paths = d_stable[good_idxs].log_paths
+    # d_stable = d_stable[d_stable['log_paths'].isin(good_log_paths)]
+    # plt.figure(figsize=(12, 9))
+    # sns.relplot(data=d_test, x='acquisition', y='time metric value', estimator='median',
+    #             col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar=('pi', 50))
+    # plt.savefig(os.path.join(output_path, 'all_metrics_test_plot.png'))
+    # plt.show()
+
+    # drop all entries that are not relevant otherwise seaborn will hang from too much data
+    d_time_only = d.drop(columns=['latent parameter', 'latent', 'latent time value']).drop_duplicates()
+    d_time_only_no_entropy = d_time_only[d_time_only['time metric'] != 'entropy']
+
+    d_train = d_time_only_no_entropy.loc['train']
     plt.figure(figsize=(12, 9))
     sns.set_theme(style='darkgrid')
-    d_train = d.loc['train']
-    d_stable = d_train[
-        (maxp > d_train.pstable) & (d_train.pstable > minp) & \
-        (d_train.ratio  < ratio) & (d_train.maxdim < maxdim) & (d_train.avg_min_dist > avgmindist)
-    ].drop_duplicates()
-    print(d.loc['train']['pstable'].mean())
-    good_idxs = (d_stable['time metric'] == 'average precision') & \
-                (d_stable['time metric value'] > 0.8) & \
-                 (d_stable['acquisition'] == 24)
-    good_log_paths = d_stable[good_idxs].log_paths
-    d_stable = d_stable[d_stable['log_paths'].isin(good_log_paths)]
-
-    bad_idxs = (d_stable['time metric'] == 'average precision') & \
-                (d_stable['time metric value'] < 0.8) & \
-                 (d_stable['acquisition'] == 24)
-    import IPython; IPython.embed()
-    sns.relplot(data=d_stable, x='acquisition', y='time metric value', estimator='median',
+    sns.relplot(data=d_train, x='acquisition', y='time metric value', estimator='median',
                 col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar=('pi', 50))
     plt.savefig(os.path.join(output_path, 'all_metrics_train_plot.png'))
 
-    plt.figure()
-    d_test = d.loc['test']
-    d_stable = d_test[
-        (minp < d_test.pstable) & (d_test.pstable < maxp) & \
-        (d_test.ratio < ratio) & (d_test.maxdim < maxdim) & (d_test.avg_min_dist > avgmindist)
-    ].drop_duplicates()
-    print(d.loc['test']['pstable'].mean())
-    good_idxs = (d_stable['time metric'] == 'average precision') & \
-                (d_stable['time metric value'] > 0.8) & \
-                 (d_stable['acquisition'] == 24)
-    good_log_paths = d_stable[good_idxs].log_paths
-    d_stable = d_stable[d_stable['log_paths'].isin(good_log_paths)]
-    sns.relplot(data=d_stable, x='acquisition', y='time metric value', estimator='median',
+    d_test = d_time_only_no_entropy.loc['test']
+    plt.figure(figsize=(12, 9))
+    sns.set_theme(style='darkgrid')
+    sns.relplot(data=d_test, x='acquisition', y='time metric value', estimator='median',
                 col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar=('pi', 50))
     plt.savefig(os.path.join(output_path, 'all_metrics_test_plot.png'))
 
+    # top 5 objects with highest and lowest average precision at the end
+    d_train_avg_prec = d_train[(d_train['time metric'] == 'average precision')
+                               & (d_train['acquisition'] == 24)].nsmallest(100, columns='time metric value')
+    d_train_avg_prec.to_csv(os.path.join(output_path, 'worst_avg_prec_objs_train.csv'))
 
+    d_test_avg_prec = d_test[(d_test['time metric'] == 'average precision')
+                             & (d_test['acquisition'] == 24)].nsmallest(100, columns='time metric value')
+    d_test_avg_prec.to_csv(os.path.join(output_path, 'worst_avg_prec_objs_test.csv'))
+
+    d_pstable_eigprod_rrate_only = d[['eigval_prod', 'pstable', 'rrate']].drop_duplicates()
+    d_pstable_train = d_pstable_eigprod_rrate_only.loc['train']
+    plt.figure(figsize=(6, 6))
+    sns.set_theme(style='whitegrid')
+    sns.scatterplot(x='rrate', y='pstable', data=d_pstable_train, hue='eigval_prod', palette='viridis')
+    plt.savefig(os.path.join(output_path, 'pstable_fun_of_rrate_eigval_prod_train.png'))
+
+    d_pstable_test = d_pstable_eigprod_rrate_only.loc['test']
+    plt.figure(figsize=(6, 6))
+    sns.set_theme(style='whitegrid')
+    sns.scatterplot(x='rrate', y='pstable', data=d_pstable_test, hue='eigval_prod', palette='viridis')
+    plt.savefig(os.path.join(output_path, 'pstable_fun_of_rrate_eigval_prod_test.png'))
+
+    d_pstable_train_08_and_up = d_pstable_train[d_pstable_train.rrate >= 0.8]
+    plt.figure(figsize=(18, 6))
+    sns.set_theme(style='whitegrid')
+    sns.scatterplot(x='rrate', y='pstable', data=d_pstable_train_08_and_up, hue='eigval_prod', palette='viridis')
+    plt.savefig(os.path.join(output_path, 'pstable_fun_of_rrate_eigval_prod_train_08_and_up.png'))
+
+    d_pstable_test_08_and_up = d_pstable_test[d_pstable_test.rrate >= 0.8]
+    plt.figure(figsize=(18, 6))
+    sns.set_theme(style='whitegrid')
+    sns.scatterplot(x='rrate', y='pstable', data=d_pstable_test_08_and_up, hue='eigval_prod', palette='viridis')
+    plt.savefig(os.path.join(output_path, 'pstable_fun_of_rrate_eigval_prod_test_08_and_up.png'))
+
+    d_pstable_eigprod_rrate_only = d[['pstable']].drop_duplicates()
+    d_pstable_train = d_pstable_eigprod_rrate_only.loc['train']
+    plt.figure(figsize=(6, 6))
+    sns.set_theme(style='whitegrid')
+    sns.histplot(x='pstable', data=d_pstable_train)
+    plt.savefig(os.path.join(output_path, 'pstable_histogram_train.png'))
+
+    d_pstable_eigprod_rrate_only = d[['pstable']].drop_duplicates()
+    d_pstable_train = d_pstable_eigprod_rrate_only.loc['train']
+    plt.figure(figsize=(6, 6))
+    sns.set_theme(style='whitegrid')
+    sns.histplot(x='pstable', data=d_pstable_train)
+    plt.savefig(os.path.join(output_path, 'pstable_histogram_test.png'))
+
+    d_entropy_only = d[d['time metric'] == 'entropy'].drop_duplicates()
+    d_entropy_only_train = d_entropy_only.loc['train']
+    plt.figure(figsize=(6, 6))
+    sns.set_theme(style='darkgrid')
+    sns.lineplot(x='acquisition', y='time metric value', hue='strategy', estimator='median', error_bar=('pi', 50),
+                 data = d_entropy_only_train)
+    plt.savefig(os.path.join(output_path, 'entropy_train.png'))
+
+    d_entropy_only = d[d['time metric'] == 'entropy'].drop_duplicates()
+    d_entropy_only_test = d_entropy_only.loc['test']
+    plt.figure(figsize=(6, 6))
+    sns.set_theme(style='darkgrid')
+    sns.lineplot(x='acquisition', y='time metric value', hue='strategy', estimator='median', error_bar=('pi', 50),
+                 data=d_entropy_only_test)
+    plt.savefig(os.path.join(output_path, 'entropy_test.png'))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -177,11 +251,9 @@ if __name__ == '__main__':
     output_path = create_output_dir(args)
 
     loggers = get_loggers_from_run_groups(args.run_groups)
-    
+
     if args.eval_type == 'val':
         plot_val_loss(loggers, output_path)
     else:
-        assert(len(args.problem) > 1)
+        assert (len(args.problem) > 1)
         plot_task_regret(loggers, args.problem, output_path, args.comp_name)
-
-
