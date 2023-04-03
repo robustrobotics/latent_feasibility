@@ -227,7 +227,7 @@ def plot_from_dataframe(d, output_path):
     d_entropy_only_train = d_entropy_only.loc['train']
     plt.figure(figsize=(6, 6))
     sns.set_theme(style='darkgrid')
-    sns.lineplot(x='acquisition', y='time metric value', hue='strategy', estimator='median', error_bar=('pi', 50),
+    sns.lineplot(x='acquisition', y='time metric value', hue='strategy', estimator='median', errorbar='pi',
                  data = d_entropy_only_train)
     plt.savefig(os.path.join(output_path, 'entropy_train.png'))
 
@@ -235,7 +235,7 @@ def plot_from_dataframe(d, output_path):
     d_entropy_only_test = d_entropy_only.loc['test']
     plt.figure(figsize=(6, 6))
     sns.set_theme(style='darkgrid')
-    sns.lineplot(x='acquisition', y='time metric value', hue='strategy', estimator='median', error_bar=('pi', 50),
+    sns.lineplot(x='acquisition', y='time metric value', hue='strategy', estimator='median', errorbar='pi',
                  data=d_entropy_only_test)
     plt.savefig(os.path.join(output_path, 'entropy_test.png'))
 
