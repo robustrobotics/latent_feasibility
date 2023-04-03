@@ -98,7 +98,7 @@ def filter_by_maxdim(object_list, metadata, max_val):
         if maxdim >= max_val:
             continue
         new_objects.append(name)
-    
+
     return new_objects
 
 
@@ -122,10 +122,10 @@ if __name__ == '__main__':
     all_shapenet_objects = get_shapenet_models(os.path.join(shapenet_root, 'urdfs'), metadata)
     print(f'Before length: {len(all_shapenet_objects)}')
     all_shapenet_objects = filter_by_rejection_rate(all_shapenet_objects, metadata, rate_threshold=0.9)
-    # print(f'After rejection rate length: {len(all_shapenet_objects)}')
+    print(f'After rejection rate length: {len(all_shapenet_objects)}')
     # all_shapenet_objects = filter_by_ratio(all_shapenet_objects, metadata)
-    print(f'After ratio length: {len(all_shapenet_objects)}')
-    #all_shapenet_objects = filter_by_volume(all_shapenet_objects, metadata, min_volume=0.001, max_volume=0.027)
+    # print(f'After ratio length: {len(all_shapenet_objects)}')
+    # all_shapenet_objects = filter_by_volume(all_shapenet_objects, metadata, min_volume=0.001, max_volume=0.027)
     # print(f'After volume length: {len(all_shapenet_objects)}')
     # all_shapenet_objects = filter_by_avg_min_dist(all_shapenet_objects, metadata, min_val=0.005, max_val=0.02)
     # print(f'After avg_min_dist length: {len(all_shapenet_objects)}')
@@ -145,7 +145,7 @@ if __name__ == '__main__':
         n_objects=args.n_test
     )
 
-    import sys; sys.exit()
+    # import sys; sys.exit()
     with open(os.path.join(OBJECTS_LIST_DIR, args.train_objects_fname), 'w') as handle:
         handle.write('\n'.join(train_objects))
     with open(os.path.join(OBJECTS_LIST_DIR, args.test_objects_fname), 'w') as handle:

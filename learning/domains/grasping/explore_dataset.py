@@ -290,6 +290,18 @@ def get_effective_sampling_size(name, props):
     print(rejection_rate, avg_min_dist)
     return (rejection_rate, avg_min_dist)
 
+def get_effective_sampling_size_from_metadata(names):
+    metadata_path = os.path.join(os.environ['SHAPENET_ROOT'], 'object_infos.pkl')
+    with open(metadata_path, 'rb') as handle:
+        metadata = pickle.load(handle)
+
+    results = []
+    for name in names:
+        obj_info = metadata[name]
+        results.append((obj_info['rejection_rate'], obj_info['avg_min_dist50']))
+    return results
+
+
 def show_object_effective_sampling_sizes(train_fname):
     with open(train_fname, 'rb') as handle:
         train_data = pickle.load(handle)
@@ -297,9 +309,10 @@ def show_object_effective_sampling_sizes(train_fname):
     object_names = train_data['object_data']['object_names'][::5]
     object_properties = train_data['object_data']['object_properties'][::5]
 
-    pool = mp.Pool(processes=20)
-    results = pool.starmap(get_effective_sampling_size, zip(object_names, object_properties))
-    #for name, prop in zip(object_names[::5], object_properties[::5]):
+    # pool = mp.Pool(processes=1)
+    # results = pool.starmap(get_effective_sampling_size_from_metadata, zip(object_names, object_properties))
+    results = get_effective_sampling_size_from_metadata(object_names)
+    # for name, prop in zip(object_names[::5], object_properties[::5]):
     #    get_object_stats(name, prop)
 
     fig, axes = plt.subplots(nrows=2, ncols=1)

@@ -24,7 +24,7 @@ def transform_points(local_points, all_points, finger1, finger2, ee, viz_data=Fa
 
     # Build transfrom from world frame to grasp frame.
     R, t = np.hstack([new_x[:, None], new_y[:, None], new_z[:, None]]), midpoint
-    tform = np.eye(4)
+    tform = np.eye(4, dtype='float32')
     tform[0:3, 0:3] = R
     tform[0:3, 3] = t
     inv_tform = np.linalg.inv(tform)
@@ -113,12 +113,15 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
     # Collect all mesh points for each object.
     all_points_per_objects = {}
     for grasp_vector, object_id in zip(all_grasps, all_ids):
-        mesh_points = grasp_vector[3:, :]
+        mesh_points = grasp_vector[3:, :].copy()
         if object_id not in all_points_per_objects:
             all_points_per_objects[object_id] = mesh_points
         else:
             all_points_per_objects[object_id] = np.concatenate([all_points_per_objects[object_id], mesh_points], axis=0)
-
+    
+    train_dataset['grasp_data']['grasps'] = [np.delete(g, np.s_[3:], 0) for g in train_dataset['grasp_data']['grasps']]
+    all_grasps = train_dataset['grasp_data']['grasps'][::skip]
+    
     # For each grasp, find close points and convert them to the local grasp frame.
     new_geometries_dict = defaultdict(list)  # obj_id -> [grasp__points]
     new_midpoints_dict = defaultdict(list)  # obj_id -> [grasp_midpoint]
@@ -279,7 +282,7 @@ if __name__ == '__main__':
 
     # ----- Training phase grasps -----
     train_grasps_path = os.path.join(out_training_phase_path, 'train_grasps.pkl')
-    if True: # not os.path.exists(train_grasps_path):
+    if not os.path.exists(train_grasps_path):
         train_data_path = os.path.join(
             in_data_root_path,
             'grasps',
