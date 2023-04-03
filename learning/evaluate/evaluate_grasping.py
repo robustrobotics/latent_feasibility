@@ -6,14 +6,14 @@ import os
 import pickle
 import torch
 import matplotlib.cm as cm
-
+import pb_robot
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.axes_grid1 import ImageGrid
 from sklearn.metrics import recall_score, precision_score, balanced_accuracy_score, f1_score, confusion_matrix, \
     accuracy_score, average_precision_score
 from torch.utils.data import DataLoader
 from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, \
-    get_train_and_fit_objects, drop_last_grasp_in_dataset, explode_dataset_into_list_of_datasets
+    get_train_and_fit_objects, drop_last_grasp_in_dataset, explode_dataset_into_list_of_datasets, select_gnp_dataset_firstk
 from learning.active.acquire import bald
 
 from block_utils import ParticleDistribution
@@ -128,12 +128,14 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
     preds, labels, means, covars, entropy = [], [], [], [], []
     dataset = CustomGNPGraspDataset(
         data=val_data,
-        context_data=context_data
+        context_data=context_data,
+        add_mesh_curvatures=True,
+        add_mesh_normals=True
     )
     dataloader = DataLoader(
         dataset=dataset,
         collate_fn=custom_collate_fn,
-        batch_size=1,
+        batch_size=16,
         shuffle=False
     )
 
@@ -144,14 +146,15 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
         c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
         meshes, object_properties = check_to_cuda(object_data)
         
-        t_labels = t_labels.squeeze()
+        c_sizes = torch.ones_like(c_forces)*c_forces.shape[1]/50
+        t_labels = t_labels.squeeze(dim=-1)
 
         pred, q_z = gnp.forward(
-            (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels),
+            (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels, c_sizes),
             (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
             (meshes, object_properties)
         )
-        pred = pred.squeeze().cpu().detach()
+        pred = pred.squeeze(dim=-1).cpu().detach()
 
         preds.append(pred)
         labels.append(t_labels)
@@ -633,10 +636,144 @@ def visualize_gnp_predictions():
         else:
             print(f'----- Object {ox}: {acc} True {targets[ox].mean()}')
 
+def evaluate_trained_gnp(logger, train_fname, val_fname, exp_path):
+    # Load GNP.
+    gnp = logger.get_neural_process(tx=0)
+    if torch.cuda.is_available():
+        gnp.cuda()
+
+    # Load datasets.
+    with open(train_fname, 'rb') as handle:
+        train_data = pickle.load(handle)
+    with open(val_fname, 'rb') as handle:
+        val_data = pickle.load(handle)
+
+    # Setup saving directory.
+    fig_path = os.path.join(exp_path, 'figures', 'train_eval')
+    if not os.path.exists(fig_path):
+        os.makedirs(fig_path)
+
+    # Get validation set predictions at different context levels (cache in experiment directory).
+    context_sizes = [1, 2, 5, 10, 15, 20, 25, 50]
+    results = {}
+    for c_size in context_sizes:
+        preds_path = os.path.join(fig_path, f'train_preds_context{c_size}.pkl')
+        if os.path.exists(preds_path):
+            with open(preds_path, 'rb') as handle:
+                results[c_size] = pickle.load(handle)
+            continue
+
+        context_data = select_gnp_dataset_firstk(train_data, c_size)
+        probs, labels, _, _, entropy = get_gnp_contextualized_gnp_predictions(
+            gnp=gnp,
+            context_data=context_data,
+            val_data=val_data
+        )
+        res = {
+            'preds': probs.numpy(),
+            'labels': labels.numpy(),
+            'entropy': entropy.numpy()
+        }
+        with open(preds_path, 'wb') as handle:
+            pickle.dump(res, handle)
+        results[c_size] = res
+
+    # ----- Create plots/logs of useful metrics. -----
+
+    # Get overall accuracies.
+    all_object_acc = {}
+    for c_size in context_sizes:
+        preds = results[c_size]['preds']
+        labels = results[c_size]['labels']
+        acc = ((preds > 0.5) == labels).mean()
+        acc_std = ((preds > 0.5) == labels).std()
+        print(c_size, acc, acc_std)
+        all_object_acc[c_size] = acc
+
+    res_fname = os.path.join(fig_path, 'all_object_accs.json')
+    with open(res_fname, 'w') as handle:
+        json.dump(all_object_acc, handle)
+
+    # Histograms of object-wise accuracy.
+    object_wise_accuracies = {}
+    for c_size in context_sizes:
+        object_wise_accuracies[c_size] = []
+        preds = results[c_size]['preds']
+        labels = results[c_size]['labels']
+        for ix in range(0, preds.shape[0]):
+            obj_preds = preds[ix, :]
+            obj_labels = labels[ix, :]
+            acc = ((obj_preds > 0.5) == obj_labels).mean()
+            object_wise_accuracies[c_size].append(acc)
+        print('Mean:', np.mean(object_wise_accuracies[c_size]))
+        print('Std:', np.std(object_wise_accuracies[c_size]))
+
+        print(c_size, np.histogram(
+            object_wise_accuracies[c_size],
+            bins=[0. , 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1. ],
+            range=(0.0, 1.0)
+        ))
+
+    # Accuracy by object geometry.
+    object_names = train_data['object_data']['object_names']
+
+    geom_accs = {}
+    for name, acc in zip(object_names, object_wise_accuracies[50]):
+        if name not in geom_accs:
+            geom_accs[name] = []
+        geom_accs[name].append(acc)
+
+    for name, acc_list in geom_accs.items():
+        if np.mean(acc_list) < 0.7:
+            print(name, acc_list)
+
+    # Accuracy grouped by antipodal angle.
+    points = val_data['grasp_data']['grasp_points']
+    normals = val_data['grasp_data']['grasp_normal']
+    ap_angles, correct = [], []
+    for ox in range(0, len(points)):
+        for gx in range(0, 10):
+            point1 = points[ox][gx][0:1]
+            point2 = points[ox][gx][1:2]
+            normal1 = normals[ox][gx][0:1]
+            normal2 = normals[ox][gx][1:2]
+            direction = point2 - point1
+            distance = np.linalg.norm(direction)
+            error1 = pb_robot.geometry.batch_angle_between(normal1, -direction)
+            error2 = pb_robot.geometry.batch_angle_between(normal2, direction)
+            ap_angles.append(np.max([error1, error2]))
+            ap_angles[-1] = distance
+            correct.append((preds > 0.5)[ox, gx] == labels[ox, gx])
+
+    from scipy.stats import binned_statistic
+    stats = binned_statistic(ap_angles, correct, statistic='mean', bins=10, range=None)
+    print(stats)
+
+    # (Rejection rate vs. accuracy)@N plot.
+    SN_ROOT = os.environ['SHAPENET_ROOT']
+    metadata_fname = os.path.join(SN_ROOT, 'object_infos.pkl')
+    with open(metadata_fname, 'rb') as handle:
+        metadata = pickle.load(handle)
+
+    plt.clf()
+    for c_size in context_sizes:
+        rrates, accs = [], []
+        for ox, name in enumerate(object_names):
+            rrates.append(metadata[name]['rejection_rate'])
+            accs.append(object_wise_accuracies[c_size][ox])
+        stats = binned_statistic(rrates, accs, statistic='mean', bins=50, range=(0.7, 0.9))
+
+        plt.plot(stats.bin_edges[:-1], stats.statistic, label=f'N={c_size}')
+
+    fname = os.path.join(fig_path, f'accs_by_rrate.png')
+    plt.legend()
+    plt.savefig(fname)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp-path', type=str, required=True)
+    parser.add_argument('--train-dataset-fname', type=str, required=True)
     parser.add_argument('--val-dataset-fname', type=str, required=True)
     args = parser.parse_args()
 

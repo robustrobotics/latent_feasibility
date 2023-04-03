@@ -59,7 +59,7 @@ def get_loss(y_probs, target_ys, q_z, q_z_n, alpha=1, use_informed_prior=True, b
     bce_loss = bce_loss * bce_scale_factor
     # kld_loss = 0
     # weight = (1 + alpha)
-    return bce_loss + kld_loss, bce_loss, kld_loss
+    return bce_loss + alpha*kld_loss, bce_loss, kld_loss
 
 
 def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_informed_prior=True):
@@ -74,10 +74,15 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
     val_loss_bce_scale_factor = float(len(train_dataloader.dataset.hp_grasp_geometries[5])) / \
                                  len(val_dataloader.dataset.hp_grasp_geometries[5])
     print('Scale Factor:', val_loss_bce_scale_factor)
-    alpha = 0.
+    alpha = 0.01
     for ep in range(n_epochs):
         print(f'----- Epoch {ep} -----')
-        alpha *= 0.75
+        if ep > 10:
+            alpha += 0.1
+        if alpha > 1.0:
+            alpha = 1.0
+
+
         epoch_loss, epoch_bce, epoch_kld, train_probs, train_targets = 0, 0, 0, [], []
         model.train()
         for bx, (context_data, target_data, object_data) in enumerate(train_dataloader):
@@ -88,11 +93,16 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
 
             c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
             t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
+            c_sizes = torch.ones_like(c_forces)*c_forces.shape[1]/50
+            
             meshes, object_properties = check_to_cuda(object_data)
 
             # sample a sub collection of the target set to better represent model adaptation phase in training
             max_n_grasps = c_grasp_geoms.shape[1]
+            # max_n_grasps = 25
             n_grasps = torch.randint(low=1, high=max_n_grasps, size=(1,))
+            if torch.cuda.is_available():
+                n_grasps = n_grasps.cuda()
 
             # select random indices used for this evaluation and then select data from arrays
             n_indices = torch.randperm(max_n_grasps)[:n_grasps]
@@ -103,12 +113,13 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
             n_c_midpoints = c_midpoints[:, n_indices, :]
             n_c_forces = c_forces[:, n_indices]
             n_c_labels = c_labels[:, n_indices]
-
+            n_c_sizes = torch.ones_like(n_c_forces)*n_grasps/50
+            
             optimizer.zero_grad()
 
             # pass forward for max_n_grasps
             y_probs, q_z = model.forward(
-                (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels),
+                (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels, c_sizes),
                 (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
                 (meshes, object_properties)
             )
@@ -116,13 +127,13 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
 
             # pass forward for n_grasps (but the encoder ONLY)
             q_z_n, _, _ = model.forward_until_latents(
-                (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_normals, n_c_midpoints, n_c_forces, n_c_labels),
+                (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_normals, n_c_midpoints, n_c_forces, n_c_labels, n_c_sizes),
                 meshes)
 
             if np.random.rand() > 0.02: ep_use_informed_prior = use_informed_prior
             else: ep_use_informed_prior = False
             loss, bce_loss, kld_loss = get_loss(y_probs, t_labels, q_z, q_z_n,
-                                                alpha=ep, use_informed_prior=ep_use_informed_prior)
+                                                alpha=alpha, use_informed_prior=ep_use_informed_prior)
             loss.backward()
             optimizer.step()
 
@@ -131,7 +142,7 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
             epoch_kld += kld_loss.item()
             train_probs.append(y_probs.flatten())
             train_targets.append(t_labels.flatten())
-
+        
         epoch_loss /= len(train_dataloader.dataset)
         epoch_bce /= len(train_dataloader.dataset)
         epoch_kld /= len(train_dataloader.dataset)
@@ -149,13 +160,17 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
                 
                 c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels = \
                     check_to_cuda(context_data)
+                c_sizes = torch.ones_like(c_forces)*c_forces.shape[1]/50
                 t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, t_labels = \
                     check_to_cuda(target_data)
                 meshes, object_properties = check_to_cuda(object_data)
 
                 # sample a sub collection of the target set to better represent model adaptation phase in training
                 max_n_grasps = c_grasp_geoms.shape[1]
+                # max_n_grasps = 25
                 n_grasps = torch.randint(low=1, high=max_n_grasps, size=(1,))
+                if torch.cuda.is_available():
+                    n_grasps = n_grasps.cuda()
                 # select random indices used for this evaluation and then select data from arrays
                 n_indices = torch.randperm(max_n_grasps)[:n_grasps]
                 n_c_grasp_geoms = c_grasp_geoms[:, n_indices, :, :]
@@ -165,9 +180,10 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
                 n_c_midpoints = c_midpoints[:, n_indices, :]
                 n_c_forces = c_forces[:, n_indices]
                 n_c_labels = c_labels[:, n_indices]
+                n_c_sizes = torch.ones_like(n_c_forces)*n_grasps/50
 
                 y_probs, q_z = model.forward(
-                    (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels),
+                    (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels, c_sizes),
                     (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
                     (meshes, object_properties)
                 )
@@ -175,12 +191,13 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
                 y_probs = y_probs.squeeze()
 
                 q_z_n, _, _ = model.forward_until_latents(
-                    (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_normals, n_c_midpoints, n_c_forces, n_c_labels),
+                    (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_normals, n_c_midpoints, n_c_forces, n_c_labels, n_c_sizes),
                     meshes)
 
                 batch_loss, batch_bce, batch_kld = get_loss(y_probs, t_labels, q_z, q_z_n,
                                      use_informed_prior=use_informed_prior,
-                                     bce_scale_factor=val_loss_bce_scale_factor)
+                                     bce_scale_factor=val_loss_bce_scale_factor,
+                                     alpha=alpha)
                 val_loss += batch_loss.item()
                 val_bce += batch_bce.item()
                 val_kld += batch_kld.item()
@@ -198,7 +215,7 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
             )
             print(f'Val Loss: {val_loss}\tBCE: {val_bce}\tKLD: {val_kld}\tVal Acc: {val_acc}')
 
-            if val_loss < best_loss:
+            if ep > 20 and val_loss < best_loss:
                 best_loss = val_loss
                 best_weights = copy.deepcopy(model.state_dict())
                 logger.save_neural_process(gnp=model, tx=0, symlink_tx0=False)
@@ -228,13 +245,13 @@ def run(args):
         input_features={
             'mesh_normals': args.add_mesh_normals,  # For both object and grasp meshes.
             'mesh_curvatures': args.add_mesh_curvatures,
-            'grasp_normals': False,  # Including in the grasp feature vector post-mesh processing.
-            'grasp_curvatures': False,
+            'grasp_normals': True,  # Including in the grasp feature vector post-mesh processing.
+            'grasp_curvatures': True,
             'grasp_mesh': True,  # Whether to process local grasp point clouds.
             'object_properties': False  # Latent (False) or ground truth (True)
         },
-        d_grasp_mesh_enc=8,
-        d_object_mesh_enc=8
+        d_grasp_mesh_enc=16,
+        d_object_mesh_enc=16
     )
 
     # load datasets

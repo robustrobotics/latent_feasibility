@@ -10,7 +10,7 @@ from pb_robot.planners.antipodalGraspPlanner import GraspSimulationClient
 from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector
 
 from learning.active.utils import ActiveExperimentLogger
-from learning.evaluate.evaluate_grasping import get_pf_validation_accuracy, get_pf_task_performance
+from learning.evaluate.evaluate_grasping import get_pf_validation_accuracy, get_pf_task_performance, evaluate_trained_gnp
 from learning.evaluate.plot_compare_grasping_runs import plot_val_loss, plot_from_dataframe
 from learning.experiments.train_grasping_single import run as training_phase_variational
 from learning.domains.grasping.generate_datasets_for_experiment import parse_ignore_file
@@ -209,6 +209,28 @@ def run_fitting_phase(args):
                 vis=False
             )
 
+def run_train_eval_phase(args):
+    exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
+    if not os.path.exists(exp_path):
+        print(f'[ERROR] Experiment does not exist: {args.exp_name}')
+        sys.exit()
+
+    logs_path = os.path.join(exp_path, 'logs_lookup.json')
+    with open(logs_path, 'r') as handle:
+        logs_lookup = json.load(handle)
+
+    train_model_path = logs_lookup['training_phase']
+    train_logger = ActiveExperimentLogger(train_model_path, use_latents=True)
+    
+    args_path = os.path.join(exp_path, 'args.pkl')
+    with open(args_path, 'rb') as handle:
+        exp_args = pickle.load(handle)
+
+    train_fname, val_fname, n_objs = \
+        get_training_phase_dataset_args(exp_args.dataset_name)
+
+    evaluate_trained_gnp(train_logger, train_fname, val_fname, exp_path)
+
 
 def run_fitting_phase_visualization(args):
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
@@ -383,7 +405,7 @@ def run_training_phase(args):
         training_args.exp_name = f'grasp_{exp_args.exp_name}_train'
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
-        training_args.n_epochs = 100
+        training_args.n_epochs = 50
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 16
         training_args.use_latents = False  # NOTE: this is a workaround for pointnet + latents,
@@ -852,7 +874,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--phase', required=True, choices=['create', 'training', 'fitting',
-                                                           'fitting-vis', 'testing', 'task-eval'])
+                                                           'fitting-vis', 'testing', 'task-eval', 'train-eval'])
     parser.add_argument('--dataset-name', type=str, default='')
     parser.add_argument('--exp-name', required=True, type=str)
     parser.add_argument('--strategy', type=str, choices=['bald', 'random'], default='random')
@@ -879,3 +901,5 @@ if __name__ == '__main__':
         run_testing_phase(args)
     elif args.phase == 'task-eval':
         run_task_eval_phase(args)
+    elif args.phase == 'train-eval':
+        run_train_eval_phase(args)

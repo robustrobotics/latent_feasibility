@@ -27,7 +27,7 @@ class CustomGraspNeuralProcess(nn.Module):
         # Compute number of features being used.
         n_mesh_features = 3
         n_in_decoder = 6 + 1 + d_object_mesh_enc  # grasp_points, force, object_mesh
-        n_in_encoder = 6 + 1 + 1 + d_object_mesh_enc  # grasp_point, force, label, object_mesh
+        n_in_encoder = 6 + 1 + 1 + 1 + d_object_mesh_enc  # grasp_point, force, label, c_size, object_mesh
         if input_features['mesh_normals']:
             n_mesh_features += 3
         if input_features['grasp_normals']:
@@ -117,7 +117,7 @@ class CustomGraspNeuralProcess(nn.Module):
         context_geoms, context_grasp_points, \
             context_curvatures, context_normals, \
             context_midpoints, context_forces, \
-            context_labels = contexts
+            context_labels, context_sizes = contexts
         # print(context_geoms.shape, context_grasp_points.shape, context_curvatures.shape, context_normals.shape, context_forces.shape)
 
         n_batch, n_grasp, n_feat, n_geom_pts = context_geoms.shape
@@ -131,7 +131,7 @@ class CustomGraspNeuralProcess(nn.Module):
 
         mu, sigma = self.encoder(
             geoms_enc,
-            context_grasp_points, context_curvatures, context_normals, context_midpoints, context_forces, context_labels,
+            context_grasp_points, context_curvatures, context_normals, context_midpoints, context_forces, context_labels, context_sizes,
             mesh_enc,
             override_transform=global_transform
         )
@@ -143,7 +143,7 @@ class CustomGraspNeuralProcess(nn.Module):
     def conditional_forward(self, target_xs, meshes, zs):
         """ Forward function that specifies the latents (i.e., no encoder is used). """
         mesh_enc, global_transform = self.mesh_encoder(meshes)
-        mesh_enc = torch.zeros_like(mesh_enc)
+        # mesh_enc = torch.zeros_like(mesh_enc)
 
         target_geoms, target_grasp_points, target_curvatures, target_normals, target_mids, target_forces = target_xs
         n_batch, n_grasp, n_feat, n_pts = target_geoms.shape
@@ -239,7 +239,7 @@ class CustomGNPEncoder(nn.Module):
         self.input_features = input_features
 
     def forward(self, geoms_enc, context_grasp_points, context_curvatures, context_normals, context_midpoints, context_forces,
-                context_labels, meshes, override_transform=None):
+                context_labels, context_sizes, meshes, override_transform=None):
         """
         :param context_geoms: (batch_size, n_grasps, 3, n_points)
         :param context_midpoints: (batch_size, n_grasps, 3)
@@ -263,6 +263,7 @@ class CustomGNPEncoder(nn.Module):
         grasp_input += [
             context_forces[:, :, None],
             context_labels[:, :, None],
+            context_sizes[:, :, None],
             meshes]
         grasp_input = torch.cat(grasp_input, dim=2).swapaxes(1, 2)
 

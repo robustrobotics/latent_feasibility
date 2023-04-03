@@ -38,6 +38,25 @@ def get_fit_object(object_set):
     return name, props, ix
 
 
+def select_gnp_dataset_firstk(dataset, k):
+    new_dataset = {
+        'grasp_data': {},
+        'object_data': dataset['object_data'],
+        'metadata': dataset['metadata']
+    }
+
+    for field_name in dataset['grasp_data']:
+        new_dataset['grasp_data'][field_name] = {}
+        for ox, val_list in dataset['grasp_data'][field_name].items():
+            if field_name in ['object_meshes', 'object_properties']:
+                # These properties only have one per object.
+                new_dataset['grasp_data'][field_name][ox] = val_list
+            else:
+                new_dataset['grasp_data'][field_name][ox] = val_list[:k]
+
+
+    return new_dataset
+
 def select_gnp_dataset_ix(dataset, ix):
     new_dataset = {
         'grasp_data': {},

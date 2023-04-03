@@ -10,7 +10,7 @@ import matplotlib
 from matplotlib import pyplot as plt
 
 import seaborn as sns
-matplotlib.rc('font', family='normal', size=28)
+matplotlib.rc('font', family='normal', size=12)
 
 
 NAMES = {
@@ -124,7 +124,7 @@ def plot_val_loss(loggers, output_path):
     plt.close()
 
 def plot_from_dataframe(d, output_path):
-    maxp, minp, ratio, maxdim, avgmindist = 0.25, 0.05, 5, 0.5, 0.0
+    maxp, minp, ratio, maxdim, avgmindist = 1.0, 0.05, 5, 0.5, 0.0
     plt.figure(figsize=(12, 9))
     sns.set_theme(style='darkgrid')
     d_train = d.loc['train']
@@ -134,15 +134,18 @@ def plot_from_dataframe(d, output_path):
     ].drop_duplicates()
     print(d.loc['train']['pstable'].mean())
     good_idxs = (d_stable['time metric'] == 'average precision') & \
-                (d_stable['time metric value'] > 0.8) & \
+                (d_stable['time metric value'] > 0.9) & \
                  (d_stable['acquisition'] == 24)
     good_log_paths = d_stable[good_idxs].log_paths
-    d_stable = d_stable[d_stable['log_paths'].isin(good_log_paths)]
+    good_idxs = d_stable['log_paths'].isin(good_log_paths)
 
     bad_idxs = (d_stable['time metric'] == 'average precision') & \
-                (d_stable['time metric value'] < 0.8) & \
+                (d_stable['time metric value'] < 0.6) & \
                  (d_stable['acquisition'] == 24)
-    import IPython; IPython.embed()
+    bad_log_paths = d_stable[bad_idxs].log_paths
+    bad_idxs = d_stable['log_paths'].isin(bad_log_paths)
+    # d_stable = d_stable[bad_idxs]
+    # import IPython; IPython.embed()
     sns.relplot(data=d_stable, x='acquisition', y='time metric value', estimator='median',
                 col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar=('pi', 50))
     plt.savefig(os.path.join(output_path, 'all_metrics_train_plot.png'))
@@ -151,19 +154,19 @@ def plot_from_dataframe(d, output_path):
     d_test = d.loc['test']
     d_stable = d_test[
         (minp < d_test.pstable) & (d_test.pstable < maxp) & \
-        (d_test.ratio < ratio) & (d_test.maxdim < maxdim) & (d_test.avg_min_dist > avgmindist)
+        (d_test.ratio < ratio) & (d_test.maxdim < maxdim) & (d_test.avg_min_dist > avgmindist) & \
+        (d_test.rrate < 0.85) & (d_test.rrate > 0.5)
     ].drop_duplicates()
     print(d.loc['test']['pstable'].mean())
     good_idxs = (d_stable['time metric'] == 'average precision') & \
                 (d_stable['time metric value'] > 0.8) & \
                  (d_stable['acquisition'] == 24)
     good_log_paths = d_stable[good_idxs].log_paths
-    d_stable = d_stable[d_stable['log_paths'].isin(good_log_paths)]
+    # import IPython; IPython.embed()
+    #d_stable = d_stable[d_stable['log_paths'].isin(good_log_paths)]
     sns.relplot(data=d_stable, x='acquisition', y='time metric value', estimator='median',
                 col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar=('pi', 50))
     plt.savefig(os.path.join(output_path, 'all_metrics_test_plot.png'))
-
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
