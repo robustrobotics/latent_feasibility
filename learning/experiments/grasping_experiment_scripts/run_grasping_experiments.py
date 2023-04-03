@@ -294,8 +294,14 @@ def playback_fitting_phase(args):
         for obj_ix, object_name in enumerate(train_objects['object_data']['object_names']):
             # work out correct log file, prop sample #, and proper log path for logger
             no_prop_sample = obj_ix % n_property_samples_train
-            log_path = logs_lookup_by_object['train_geo'][args.strategy][object_name][no_prop_sample]
-            logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
+
+            try:
+                print('replaying: ' + object_name)
+                log_path = logs_lookup_by_object['train_geo'][args.strategy][object_name][no_prop_sample]
+                logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
+            except KeyError:
+                print('no log found for: ' + object_name)
+                continue
 
             # get args for experiment playback
             with open(os.path.join(log_path, 'args.pkl'), 'rb') as handle:
@@ -314,8 +320,13 @@ def playback_fitting_phase(args):
         for obj_ix, object_name in enumerate(test_objects['object_data']['object_names']):
             # work out correct log file, prop sample #, and proper log path for logger
             no_prop_sample = obj_ix % n_property_samples_test
-            log_path = logs_lookup_by_object['test_geo'][args.strategy][object_name][no_prop_sample]
-            logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
+
+            try:
+                log_path = logs_lookup_by_object['test_geo'][args.strategy][object_name][no_prop_sample]
+                logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
+            except KeyError:
+                print('no log found for: ' + object_name)
+                continue
 
             # get args for experiment playback
             with open(os.path.join(log_path, 'args.pkl'), 'rb') as handle:
