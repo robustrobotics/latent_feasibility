@@ -210,7 +210,7 @@ def run_fitting_phase(args):
             )
 
 
-def run_fitting_phase_visualization(args):
+def playback_fitting_phase(args):
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
     if not os.path.exists(exp_path):
         print(f'[ERROR] Experiment does not exist: {args.exp_name}')
@@ -245,7 +245,7 @@ def run_fitting_phase_visualization(args):
         training_args = pickle.load(handle)
     n_latents = training_args.d_latents
 
-    logs_lookup_by_object, _, _, _, _, _, _, _, _ = gather_experiment_logs_file_paths(
+    logs_lookup_by_object, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = gather_experiment_logs_file_paths(
         TEST_IGNORE, TRAIN_IGNORE, args, exp_args, logs_lookup, test_objects, train_objects)
 
     for obj_ix in args.vis_train_objects:
@@ -289,6 +289,47 @@ def run_fitting_phase_visualization(args):
             use_progressive_priors=fitting_args.use_progressive_priors,
             vis=True
         )
+
+    if args.playback_train_fitting:
+        for obj_ix, object_name in enumerate(train_objects['object_data']['object_names']):
+            # work out correct log file, prop sample #, and proper log path for logger
+            no_prop_sample = obj_ix % n_property_samples_train
+            log_path = logs_lookup_by_object['train_geo'][args.strategy][object_name][no_prop_sample]
+            logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
+
+            # get args for experiment playback
+            with open(os.path.join(log_path, 'args.pkl'), 'rb') as handle:
+                fitting_args = pickle.load(handle)
+
+            object_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase',
+                                               f'fit_grasps_train_geo_object{obj_ix}.pkl')
+            get_pf_validation_accuracy(
+                logger,
+                object_dataset_path,
+                fitting_args.likelihood == 'gnp',
+                use_progressive_priors=fitting_args.use_progressive_priors,
+                vis=False
+            )
+    if args.playback_test_fitting:
+        for obj_ix, object_name in enumerate(test_objects['object_data']['object_names']):
+            # work out correct log file, prop sample #, and proper log path for logger
+            no_prop_sample = obj_ix % n_property_samples_test
+            log_path = logs_lookup_by_object['test_geo'][args.strategy][object_name][no_prop_sample]
+            logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
+
+            # get args for experiment playback
+            with open(os.path.join(log_path, 'args.pkl'), 'rb') as handle:
+                fitting_args = pickle.load(handle)
+
+            object_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase',
+                                               f'fit_grasps_test_geo_object{obj_ix}.pkl')
+            get_pf_validation_accuracy(
+                logger,
+                object_dataset_path,
+                fitting_args.likelihood == 'gnp',
+                use_progressive_priors=fitting_args.use_progressive_priors,
+                vis=False
+            )
 
 
 def run_task_eval_phase(args):
@@ -385,7 +426,7 @@ def run_training_phase(args):
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
         training_args.n_epochs = 100
-        training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
+        training_args.d_latents = 2  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 16
         training_args.use_latents = False  # NOTE: this is a workaround for pointnet + latents,
         # GNPs DO USE LATENTS, but they are handled more
@@ -473,7 +514,7 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
             sample_covar += np.outer(prop_sample, prop_sample)
         sample_covar /= len(name_ixs)
         # TODO: note that this is a hack right now since we're dealing with 2d mean and covariance
-        eigval_prod = np.real(np.prod(np.linalg.eigvals(sample_covar)[0:2])) # we know sample covar PSD so eigval real
+        eigval_prod = np.real(np.prod(np.linalg.eigvals(sample_covar)[0:2]))  # we know sample covar PSD so eigval real
 
         volume = metadata[name]['volume']
         bb_volume = metadata[name]['bb_volume']
@@ -880,7 +921,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--phase', required=True, choices=['create', 'training', 'fitting',
-                                                           'fitting-vis', 'testing', 'task-eval'])
+                                                           'playback', 'testing', 'task-eval'])
     parser.add_argument('--dataset-name', type=str, default='')
     parser.add_argument('--exp-name', required=True, type=str)
     parser.add_argument('--strategy', type=str, choices=['bald', 'random'], default='random')
@@ -890,6 +931,11 @@ if __name__ == '__main__':
                         help='train objects (by ID) to visualize data collection')
     parser.add_argument('--vis-test-objects', nargs='*', type=int, default=[],
                         help='test objects (by ID) to visualize data collection')
+    parser.add_argument('--playback-train-fitting', action='store_true', default=False,
+                        help='this is really to add an new metrics to fitting we did not have before')
+    parser.add_argument('--playback-test-fitting', action='store_true', default=False,
+                        help='this is really to add an new metrics to fitting we did not have before')
+
     args = parser.parse_args()
 
     if args.phase == 'create':
@@ -898,11 +944,14 @@ if __name__ == '__main__':
         run_training_phase(args)
     elif args.phase == 'fitting':
         run_fitting_phase(args)
-    elif args.phase == 'fitting-vis':
-        if len(args.vis_train_objects) == 0 or len(args.vis_test_objects) == 0:
+    elif args.phase == 'playback':
+        if len(args.vis_train_objects) == 0 \
+                or len(args.vis_test_objects) == 0 \
+                or args.playback_train_fitting \
+                or args.playback_test_fitting:
             print('No objects given to visualize. Specify objects to visualize using '
                   '--vis-train-objects or --vis-test-objects')
-        run_fitting_phase_visualization(args)
+        playback_fitting_phase(args)
     elif args.phase == 'testing':
         run_testing_phase(args)
     elif args.phase == 'task-eval':
