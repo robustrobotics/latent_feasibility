@@ -99,7 +99,7 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
 
             # sample a sub collection of the target set to better represent model adaptation phase in training
             max_n_grasps = c_grasp_geoms.shape[1]
-            # max_n_grasps = 25
+            max_n_grasps = 25
             n_grasps = torch.randint(low=1, high=max_n_grasps, size=(1,))
             if torch.cuda.is_available():
                 n_grasps = n_grasps.cuda()
@@ -167,7 +167,7 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
 
                 # sample a sub collection of the target set to better represent model adaptation phase in training
                 max_n_grasps = c_grasp_geoms.shape[1]
-                # max_n_grasps = 25
+                max_n_grasps = 25
                 n_grasps = torch.randint(low=1, high=max_n_grasps, size=(1,))
                 if torch.cuda.is_available():
                     n_grasps = n_grasps.cuda()

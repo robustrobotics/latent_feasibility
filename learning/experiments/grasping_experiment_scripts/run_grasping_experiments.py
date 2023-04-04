@@ -128,7 +128,7 @@ def run_fitting_phase(args):
             fit_objects = pickle.load(handle)
 
         min_pstable, max_pstable, min_dist = 0.0, 1.0, 0.0
-        valid_fit_objects, _, _, _, _, _ = filter_objects(
+        valid_fit_objects, _, _, _, _, _, _ = filter_objects(
             object_names=fit_objects['object_data']['object_names'],
             ignore_list=ignore,
             phase=geo_type.split('_')[0],
@@ -267,7 +267,7 @@ def run_fitting_phase_visualization(args):
         training_args = pickle.load(handle)
     n_latents = training_args.d_latents
 
-    logs_lookup_by_object, _, _, _, _, _, _ = gather_experiment_logs_file_paths(
+    logs_lookup_by_object, _, _, _, _, _, _, _, _ = gather_experiment_logs_file_paths(
         TEST_IGNORE, TRAIN_IGNORE, args, exp_args, logs_lookup, test_objects, train_objects)
 
     for obj_ix in args.vis_train_objects:
@@ -311,6 +311,7 @@ def run_fitting_phase_visualization(args):
             use_progressive_priors=fitting_args.use_progressive_priors,
             vis=True
         )
+
 
 def run_task_eval_phase(args):
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
@@ -454,6 +455,7 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
     valid_ratios = []
     valid_maxdims = []
     valid_rrates = []
+    valid_eigeval_prod = []
 
     with open(f'{os.environ["SHAPENET_ROOT"]}/object_infos.pkl', 'rb') as handle:
         metadata = pickle.load(handle)
@@ -471,7 +473,7 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
             continue
         with open(val_dataset_path, 'rb') as handle:
             data = pickle.load(handle)
-        
+
         name = data['object_data']['object_names'][ox]
         props = data['object_data']['object_properties'][ox]
         prop_str = ''
@@ -483,13 +485,36 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         #     show_pybullet=False,
         #     recompute_inertia=True)
         # mesh = sim_client.mesh
-        volume = metadata[name]['volume']
-        bb_volume = metadata[name]['bb_volume']
-        # max_dim = np.max(mesh.bounds[1]*2)
-        ratio = bb_volume / volume
-        # sim_client.disconnect()
-        max_dim = 0.2
-        rejection_rate = metadata[name]['rejection_rate']
+
+        # compute the sample covariance
+        # leverage the fact that these are in a continuous block:
+        sample_covar = np.zeros((props.size, props.size))
+        name_ixs = np.where(np.array(data['object_data']['object_names']) == name)[0]
+        for name_ix in name_ixs:
+            prop_sample = data['object_data']['object_properties'][name_ix]
+            sample_covar += np.outer(prop_sample, prop_sample)
+        sample_covar /= len(name_ixs)
+        # TODO: note that this is a hack right now since we're dealing with 2d mean and covariance
+        eigval_prod = np.real(np.prod(np.linalg.eigvals(sample_covar)[0:2])) # we know sample covar PSD so eigval real
+        
+        if name in metadata:
+            volume = metadata[name]['volume']
+            bb_volume = metadata[name]['bb_volume']
+            # max_dim = np.max(mesh.bounds[1]*2)
+            ratio = bb_volume / volume
+            # sim_client.disconnect()
+            max_dim = 0.2
+            rejection_rate = metadata[name]['rejection_rate']
+            avg_min_dist = metadata[name]['avg_min_dist50']
+        else:
+            volume = 0.0
+            bb_volume = 0.0
+            # max_dim = np.max(mesh.bounds[1]*2)
+            ratio = 1.0
+            # sim_client.disconnect()
+            max_dim = 0.25
+            rejection_rate = 0.8
+            avg_min_dist = 0.01
 
         # all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
         # dists_to_closest = []
@@ -502,7 +527,7 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         #     dists_to_closest.append(np.min(dists))
 
         # avg_min_dist = np.mean(dists_to_closest)
-        avg_min_dist = metadata[name]['avg_min_dist50']
+        
         p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
         if avg_min_dist < min_dist_threshold:
             continue
@@ -515,9 +540,16 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         valid_ratios.append(ratio)
         valid_maxdims.append(max_dim)
         valid_rrates.append(rejection_rate)
+        valid_eigeval_prod.append(eigval_prod)
         print(f'{object_name} in range ({min_pstable}, {max_pstable}) ({p_stable})')
 
-    return valid_objects[:max_objects], valid_pstables[:max_objects], valid_min_dists[:max_objects], valid_ratios[:max_objects], valid_maxdims[:max_objects], valid_rrates[:max_objects]
+    return valid_objects[:max_objects], \
+        valid_pstables[:max_objects], \
+        valid_min_dists[:max_objects], \
+        valid_ratios[:max_objects], \
+        valid_maxdims[:max_objects], \
+        valid_rrates[:max_objects], \
+        valid_eigeval_prod[:max_objects]
 
 
 def run_testing_phase(args):
@@ -557,18 +589,20 @@ def run_testing_phase(args):
     n_latents = training_args.d_latents
 
     logs_lookup_by_object, \
-    valid_test_min_dists, \
-    valid_test_objects, \
-    valid_test_pstables, \
-    valid_test_ratios, \
-    valid_test_maxdims, \
-    valid_test_rrates, \
-    valid_train_min_dists, \
-    valid_train_objects, \
-    valid_train_pstables, \
-    valid_train_ratios, \
-    valid_train_maxdims, \
-    valid_train_rrates = gather_experiment_logs_file_paths(
+        valid_test_min_dists, \
+        valid_test_objects, \
+        valid_test_pstables, \
+        valid_test_ratios, \
+        valid_test_maxdims, \
+        valid_test_rrates, \
+        valid_test_eigval_prod, \
+        valid_train_min_dists, \
+        valid_train_objects, \
+        valid_train_pstables, \
+        valid_train_ratios, \
+        valid_train_maxdims, \
+        valid_train_rrates, \
+        valid_train_eigval_prod = gather_experiment_logs_file_paths(
         TEST_IGNORE, TRAIN_IGNORE, args, exp_args, logs_lookup, test_objects, train_objects)
 
     # collect all of the stored metric data over the course of training
@@ -607,12 +641,12 @@ def run_testing_phase(args):
             n_acquisitions = fit_args.max_acquisitions
             acc, prec, avg_prec, recalls, f1s, bal_acc, etrpy = \
                 np.zeros((n_objs, n_acquisitions)), \
-                np.zeros((n_objs, n_acquisitions)), \
-                np.zeros((n_objs, n_acquisitions)), \
-                np.zeros((n_objs, n_acquisitions)), \
-                np.zeros((n_objs, n_acquisitions)), \
-                np.zeros((n_objs, n_acquisitions)), \
-                np.zeros((n_objs, n_acquisitions))
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions))
 
             if args.amortize:
                 metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, etrpy]
@@ -639,7 +673,7 @@ def run_testing_phase(args):
             if args.amortize:
                 means[obj_set][strategy] = mn
                 covars[obj_set][strategy] = cvr
-    
+
     # we now have all the data we need to construct the full dataframe
     # we first construct are two dataframes: one for the time-dependent metrics
     # one to store p_stability, p_size, and also the fitting directory so we can associate grasp selection later
@@ -670,6 +704,7 @@ def run_testing_phase(args):
 
     # construct non-time series data
     d_const_train = pd.DataFrame(data=zip(
+        valid_train_eigval_prod * len(strategies_used_for_train),
         valid_train_pstables * len(strategies_used_for_train),
         valid_train_min_dists * len(strategies_used_for_train),
         valid_train_ratios * len(strategies_used_for_train),
@@ -678,9 +713,11 @@ def run_testing_phase(args):
         [obj[1] for obj in valid_train_objects] * len(strategies_used_for_train),
         [obj[2] for obj in valid_train_objects] * len(strategies_used_for_train),
         log_paths_set['train_geo']
-    ), index=mi_train, columns=['pstable', 'avg_min_dist', 'ratio', 'maxdim', 'rrate', 'name', 'props', 'log_paths'])
+    ), index=mi_train,
+        columns=['eigval_prod', 'pstable', 'avg_min_dist', 'ratio', 'maxdim', 'rrate', 'name', 'props', 'log_paths'])
 
     d_const_test = pd.DataFrame(data=zip(
+        valid_test_eigval_prod * len(strategies_used_for_test),
         valid_test_pstables * len(strategies_used_for_test),
         valid_test_min_dists * len(strategies_used_for_test),
         valid_test_ratios * len(strategies_used_for_test),
@@ -689,7 +726,8 @@ def run_testing_phase(args):
         [obj[1] for obj in valid_test_objects] * len(strategies_used_for_test),
         [obj[2] for obj in valid_test_objects] * len(strategies_used_for_test),
         log_paths_set['test_geo']
-    ), index=mi_test, columns=['pstable', 'avg_min_dist', 'ratio', 'maxdim', 'rrate', 'name', 'props', 'log_paths'])
+    ), index=mi_test,
+        columns=['eigval_prod', 'pstable', 'avg_min_dist', 'ratio', 'maxdim', 'rrate', 'name', 'props', 'log_paths'])
     # d_const_train = d_const_test
 
     # construct multi-index for columns in time-series data
@@ -719,7 +757,7 @@ def run_testing_phase(args):
     d_time = pd.concat([d_time_train, d_time_test], keys=['train', 'test']).melt(
         value_name='time metric value', ignore_index=False)
     d_all = pd.merge(d_const, d_time, left_index=True, right_index=True)
-    
+
     # if we are amortizing, then we're tracking covariances + means, include in computation
     if args.amortize:
         # construct multi-index for columns in time-series data per latent property
@@ -746,7 +784,8 @@ def run_testing_phase(args):
             for latent_metric in [means, covars]
         ])
         d_latent_time_test = pd.DataFrame(data=formatted_latent_metrics_test, index=mi_test, columns=mc_ltime)
-        d_ltime = pd.concat([d_latent_time_train, d_latent_time_test], keys=['train', 'test']).melt(ignore_index=False)
+        d_ltime = pd.concat([d_latent_time_train, d_latent_time_test], keys=['train', 'test']).melt(
+            value_name='latent time value', ignore_index=False)
 
         # merge latents into d_all
         d_all = pd.merge(d_all, d_ltime, left_index=True, right_index=True, suffixes=(None, '_temp'))
@@ -786,7 +825,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
             }
         }
     }
-    valid_train_objects, valid_train_pstables, valid_train_min_dists, valid_train_ratios, valid_train_maxdims, valid_train_rrates = filter_objects(
+    valid_train_objects, valid_train_pstables, valid_train_min_dists, valid_train_ratios, valid_train_maxdims, valid_train_rrates, valid_train_eigval_prod = filter_objects(
         object_names=train_objects['object_data']['object_names'],
         ignore_list=TRAIN_IGNORE,
         phase='train',
@@ -827,7 +866,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
             logs_lookup_by_object['train_geo']['bald']['all'].append(bald_log_fname)
             logs_lookup_by_object['train_geo']['bald'][object_name].append(bald_log_fname)
     print(f'{len(valid_train_objects)} train geo objects included.')
-    valid_test_objects, valid_test_pstables, valid_test_min_dists, valid_test_ratios, valid_test_maxdims, valid_test_rrates = filter_objects(
+    valid_test_objects, valid_test_pstables, valid_test_min_dists, valid_test_ratios, valid_test_maxdims, valid_test_rrates, valid_test_eigval_prod = filter_objects(
         object_names=test_objects['object_data']['object_names'],
         ignore_list=TEST_IGNORE,
         phase='test',
@@ -867,8 +906,8 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
             logs_lookup_by_object['test_geo']['bald'][object_name].append(bald_log_fname)
     print(f'{len(valid_test_objects)} test geo objects included.')
     return logs_lookup_by_object, \
-        valid_test_min_dists, valid_test_objects, valid_test_pstables, valid_test_ratios, valid_test_maxdims, valid_test_rrates, \
-        valid_train_min_dists, valid_train_objects, valid_train_pstables, valid_train_ratios, valid_train_maxdims, valid_train_rrates
+        valid_test_min_dists, valid_test_objects, valid_test_pstables, valid_test_ratios, valid_test_maxdims, valid_test_rrates, valid_test_eigval_prod, \
+        valid_train_min_dists, valid_train_objects, valid_train_pstables, valid_train_ratios, valid_train_maxdims, valid_train_rrates, valid_train_eigval_prod
 
 
 if __name__ == '__main__':
