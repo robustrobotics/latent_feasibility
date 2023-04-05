@@ -456,16 +456,16 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
             )
             # we have to drop the last grasp in the context set to see what the ig comp looked like
 
+            pre_selection_context_data = drop_last_grasp_in_dataset(context_data)
+            info_gain = compute_ig(gnp, pre_selection_context_data, sampled_unlabeled_data)
+            info_gains.append(info_gain)
             if vis:
-                pre_selection_context_data = drop_last_grasp_in_dataset(context_data)
-                info_gain = compute_ig(gnp, pre_selection_context_data, sampled_unlabeled_data)
                 max_entropy = torch.distributions.Independent(
                     torch.distributions.Normal(torch.zeros((1, gnp.d_latents)), torch.ones((1, gnp.d_latents))),
                     1).entropy()
                 visualize_fitting_acquisition(pre_selection_context_data, sampled_unlabeled_data, info_gain,
                                               max_entropy,
                                               figpath='')
-                info_gains.append(info_gain)
 
             means_agg.append(means.numpy())
             covars_agg.append(covars.numpy())
@@ -480,7 +480,6 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                 thresholded_recalls[str_t] = []
             thresholded_recalls[str_t].append(rec)
 
-        # TODO: store mean and covars here too
         preds = (probs > 0.5).float()
         av_prec = average_precision_score(labels, probs)
         acc = accuracy_score(labels, preds)
