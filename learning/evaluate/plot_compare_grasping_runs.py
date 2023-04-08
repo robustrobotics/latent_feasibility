@@ -126,8 +126,8 @@ def plot_val_loss(loggers, output_path):
     plt.close()
 
 
-def plot_from_dataframe(d, output_path):
-    # maxp, minp, ratio, maxdim, avgmindist = 1.0, 0.05, 5, 0.5, 0.0
+def plot_from_dataframe(d, d_latents, d_igs, output_path):
+    maxp, minp, ratio, maxdim, avgmindist = 1.0, 0.05, 5, 0.5, 0.0
     # plt.figure(figsize=(12, 9))
     # sns.set_theme(style='darkgrid')
     # d_train = d.loc['train']
@@ -172,8 +172,7 @@ def plot_from_dataframe(d, output_path):
     # plt.savefig(os.path.join(output_path, 'all_metrics_test_plot.png'))
 
     # drop all entries that are not relevant otherwise seaborn will hang from too much data
-    d_time_only = d.drop(columns=['latent parameter', 'latent', 'latent time value']).drop_duplicates()
-    d_time_only_no_entropy = d_time_only[d_time_only['time metric'] != 'entropy']
+    d_time_only_no_entropy = d[d['time metric'] != 'entropy']
 
     # d_train = d_time_only_no_entropy.loc['train']
     # plt.figure(figsize=(12, 9))
@@ -183,9 +182,12 @@ def plot_from_dataframe(d, output_path):
     # plt.savefig(os.path.join(output_path, 'all_metrics_train_plot.png'))
 
     d_test = d_time_only_no_entropy.loc['test']
+    d_stable = d_test[
+        (minp < d_test.pstable) & (d_test.pstable < maxp)
+    ].drop_duplicates()
     plt.figure(figsize=(12, 9))
     sns.set_theme(style='darkgrid')
-    sns.relplot(data=d_test, x='acquisition', y='time metric value', estimator='median',
+    sns.relplot(data=d_stable, x='acquisition', y='time metric value', estimator='median',
                 col='time metric', hue='strategy', kind='line', col_wrap=3, errorbar=('pi', 50))
     plt.savefig(os.path.join(output_path, 'all_metrics_test_plot.png'))
 
@@ -252,6 +254,25 @@ def plot_from_dataframe(d, output_path):
     sns.lineplot(x='acquisition', y='time metric value', hue='strategy', estimator='median', errorbar=('pi', 50),
                  data=d_entropy_only_test)
     plt.savefig(os.path.join(output_path, 'entropy_test.png'))
+
+    d_igs_train = d_igs.loc['train'].reset_index()
+    plt.figure(figsize=(6, 6))
+    sns.set_theme(style='darkgrid')
+    sns.lineplot(x='acquisition', y='grasp ig value', estimator='mean',
+                 errorbar='sd',
+                 hue=d_igs_train[['strategy', 'pre or post']].apply(tuple, axis=1),
+                 data=d_igs_train)
+    plt.savefig(os.path.join(output_path, 'igs_train.png'))
+
+    d_igs_test = d_igs.loc['test'].reset_index()
+    plt.figure(figsize=(6, 6))
+    sns.set_theme(style='darkgrid')
+    sns.lineplot(x='acquisition', y='grasp ig value', estimator='mean',
+                 errorbar='sd',
+                 hue=d_igs_test[['strategy', 'pre or post']].apply(tuple, axis=1),
+                 data=d_igs_test)
+    plt.savefig(os.path.join(output_path, 'igs_test.png'))
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

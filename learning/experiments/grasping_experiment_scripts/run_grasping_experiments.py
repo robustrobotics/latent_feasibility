@@ -2,6 +2,7 @@ import argparse
 import json
 import pandas as pd
 import numpy as np
+import torch
 import os
 import pickle
 import sys
@@ -669,6 +670,7 @@ def run_testing_phase(args):
     entropies = {'train_geo': {}, 'test_geo': {}}
     means = {'train_geo': {}, 'test_geo': {}}
     covars = {'train_geo': {}, 'test_geo': {}}
+    info_gains = {'train_geo': {}, 'test_geo': {}}
     if args.amortize:
         metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies]
         metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
@@ -691,6 +693,7 @@ def run_testing_phase(args):
             with open(os.path.join(log_paths[0], 'args.pkl'), 'rb') as handle:
                 fit_args = pickle.load(handle)
             n_acquisitions = fit_args.max_acquisitions
+            n_grasps = fit_args.n_samples
             acc, prec, avg_prec, recalls, f1s, bal_acc, etrpy = \
                 np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
@@ -706,6 +709,7 @@ def run_testing_phase(args):
                 metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc]
 
             mn, cvr = np.zeros((n_objs, n_latents, n_acquisitions)), np.zeros((n_objs, n_latents, n_acquisitions))
+            igs = np.zeros((n_objs, 25 * n_acquisitions))
 
             for i_obj, log_path in enumerate(log_paths):
                 logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
@@ -717,7 +721,37 @@ def run_testing_phase(args):
                 if args.amortize:
                     for data_arr, fname in zip([mn, cvr], ['val_means.pkl', 'val_covars.pkl']):
                         with open(logger.get_figure_path(fname), 'rb') as handle:
-                            data_arr[i_obj, :, :] = np.array(pickle.load(handle)).squeeze().T
+                            unpickled_arr = pickle.load(handle)
+                            data_arr[i_obj, :, :] = np.array(unpickled_arr).squeeze().T
+
+                    # TODO: currently, this is a hack because we have inconsistent # of grasps. talk to mike about this.
+                    with open(logger.get_figure_path('val_info_gains.pkl'), 'rb') as handle:
+                        unpickled_arr = pickle.load(handle)
+                        if unpickled_arr[0].size < unpickled_arr[1].size:
+                            unpickled_arr[0] = np.concatenate(
+                                [unpickled_arr[0], np.nan * np.zeros(unpickled_arr[1].size - unpickled_arr[0].size)])
+                        arrayed_arr = np.array(unpickled_arr)
+                        temp_ig = np.zeros((n_acquisitions, 25)) * np.nan
+                        temp_ig[:, :arrayed_arr.shape[1]] = arrayed_arr
+
+                        # Only plot IG of the chosen sample.
+                        # if strategy == 'random':
+                        #     for tx in range(0, 25):
+                        #         temp_ig[tx, :] = temp_ig[tx, tx]
+                        # else:
+                        #     for tx in range(0, 25):
+                        #         temp_ig[tx, :] = np.max(temp_ig[tx, :20])
+
+                        if strategy == 'random':
+                            for tx in range(0, 25):
+                                temp_ig[tx, :] = np.var(temp_ig[tx, :])
+                        else:
+                            for tx in range(0, 25):
+                                temp_ig[tx, :] = np.var(temp_ig[tx, :20])
+
+                        igs[i_obj, :] = temp_ig.flatten(order='C')  # flatten to format for dataframe loading
+                        # if strategy == 'bald':
+                        #     import IPython; IPython.embed()
 
             for metric, metric_per_strategy in zip(metric_list, metric_per_strategy_list):
                 metric[obj_set][strategy] = metric_per_strategy
@@ -725,6 +759,7 @@ def run_testing_phase(args):
             if args.amortize:
                 means[obj_set][strategy] = mn
                 covars[obj_set][strategy] = cvr
+                info_gains[obj_set][strategy] = igs
 
     # we now have all the data we need to construct the full dataframe
     # we first construct are two dataframes: one for the time-dependent metrics
@@ -810,7 +845,7 @@ def run_testing_phase(args):
         value_name='time metric value', ignore_index=False)
     d_all = pd.merge(d_const, d_time, left_index=True, right_index=True)
 
-    # if we are amortizing, then we're tracking covariances + means, include in computation
+    # if we are amortizing, then we're tracking covariances + means and info gains, so we include in dataframe
     if args.amortize:
         # construct multi-index for columns in time-series data per latent property
         mc_ltime = pd.MultiIndex.from_product([['mean', 'covar'], range(n_latents), range(n_acquisitions)],
@@ -839,15 +874,73 @@ def run_testing_phase(args):
         d_ltime = pd.concat([d_latent_time_train, d_latent_time_test], keys=['train', 'test']).melt(
             value_name='latent time value', ignore_index=False)
 
-        # merge latents into d_all
-        d_all = pd.merge(d_all, d_ltime, left_index=True, right_index=True, suffixes=(None, '_temp'))
-        # clear away redundant acquisition entries
-        d_all = d_all.loc[d_all.acquisition == d_all.acquisition_temp].drop(columns=['acquisition_temp'])
+        # TODO: again, another hack for inconcistent grasp set sizing
+        mc_time_grasp_ig = pd.MultiIndex.from_product([range(n_acquisitions), range(25)],
+                                                      names=['acquisition', 'grasp'])
+
+        # load in expected IG
+        formatted_ig_grasps_train = np.vstack(info_gains['train_geo'].values())
+        d_expected_ig_train = pd.DataFrame(data=formatted_ig_grasps_train, index=mi_train, columns=mc_time_grasp_ig)
+        # import IPython; IPython.embed()
+
+        formatted_ig_grasps_test = np.vstack(info_gains['test_geo'].values())
+        d_expected_ig_test = pd.DataFrame(data=formatted_ig_grasps_test, index=mi_test, columns=mc_time_grasp_ig)
+
+        # load in actual IG too
+        # compute N(0, 1) entropy as initial
+        zeros = torch.zeros((1, training_args.d_latents))
+        ones = torch.ones((1, training_args.d_latents))
+        q_z = torch.distributions.Normal(zeros, ones)
+        starting_entropy = torch.distributions.Independent(q_z, 1).entropy().detach().item()
+
+        # then shift labels so that everything matches.`
+        d_train_entropy = d_time_train['entropy']
+        d_train_entropy.insert(0, -1, [starting_entropy] * d_train_entropy.shape[0])
+        d_train_entropy = d_train_entropy.diff(periods=-1, axis=1)
+        d_train_entropy.columns = range(26)
+        d_train_actual_ig = d_train_entropy.drop(columns=[25])
+
+        d_test_entropy = d_time_test['entropy']
+        d_test_entropy.insert(0, -1, [starting_entropy] * d_test_entropy.shape[0])
+        d_test_entropy = d_test_entropy.diff(periods=-1, axis=1)
+        d_test_entropy.columns = range(26)
+        d_test_actual_ig = d_test_entropy.drop(columns=[25])
+
+        # now concat expected and actual together
+        # first, restablish 'acquisition, grasp' column multiindex structure
+        d_train_actual_ig.columns = pd.MultiIndex.from_product([d_train_actual_ig.columns, [0]],
+                                                               names=['acquisition', 'grasp'])
+        d_test_actual_ig.columns = pd.MultiIndex.from_product([d_test_actual_ig.columns, [0]],
+                                                              names=['acquisition', 'grasp'])
+
+        # d_full_ig_train = pd.concat([d_expected_ig_train, d_train_actual_ig], axis=1, keys=['expected', 'actual'],
+        #                             names=['pre or post'])
+        # d_full_ig_test = pd.concat([d_expected_ig_test, d_test_actual_ig], axis=1, keys=['expected', 'actual'],
+        #                            names=['pre or post'])
+
+        d_full_ig_train = pd.concat([d_expected_ig_train], axis=1, keys=['expected'],
+                                    names=['pre or post'])
+        d_full_ig_test = pd.concat([d_expected_ig_test], axis=1, keys=['expected'],
+                                   names=['pre or post'])
+
+        d_ig = pd.concat([d_full_ig_train, d_full_ig_test], keys=['train', 'test']).melt(
+            value_name='grasp ig value', ignore_index=False
+        )
+
+        # # merge latents into d_all
+        # d_all = pd.merge(d_all, d_ltime, left_index=True, right_index=True, suffixes=(None, '_temp'))
+        # # clear away redundant acquisition entries
+        # d_all = d_all.loc[d_all.acquisition == d_all.acquisition_temp].drop(columns=['acquisition_temp'])
+
+        # # merge igs into d_all
+        # d_all = pd.merge(d_all, d_ig, left_index=True, right_index = True, suffixes=(None, '_temp'))
+        # # clear away redundant acquisition entries
+        # d_all = d_all.loc[d_all.acquisition == d_all.acquisition_temp].drop(columns=['acquisition_temp'])
 
     # next, seaborn can only plot certain values against others in column format, so we need to
     # move some of the row indicators to columns (unpivot?)
     fig_path = os.path.join(exp_path, 'figures')
-    plot_from_dataframe(d_all, fig_path)
+    plot_from_dataframe(d_all, d_ltime, d_ig, fig_path)
 
 
 def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args, logs_lookup, test_objects,

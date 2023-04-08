@@ -144,6 +144,8 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
                     context_forces,
                     context_labels
                 ])
+            
+            context_sizes = torch.ones_like(context_forces)*context_forces.shape[1]/50
 
             # compute H(z)
             q_z, mesh_enc, _ = gnp.forward_until_latents(
@@ -153,7 +155,8 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
                  context_normals,
                  context_midpoints,
                  context_forces,
-                 context_labels),
+                 context_labels,
+                 context_sizes),
                 context_mesh
             )
             # need to reinterpret as a multivariate Gaussian and then compute entropy
@@ -281,6 +284,7 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
             start = batch_i * batching_size
             end = (batch_i + 1) * batching_size
 
+            candidate_sizes = torch.ones_like(candidate_forces[start:end])*candidate_forces.shape[1]/50
             q_z_zero = gnp.forward_until_latents(
                 (
                     candidate_geoms[start:end],
@@ -289,7 +293,8 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
                     candidate_normals[start:end],
                     candidate_midpoints[start:end],
                     candidate_forces[start:end],
-                    candidate_labels_zero[start:end]
+                    candidate_labels_zero[start:end],
+                    candidate_sizes
                 ),
                 unlabeled_mesh[start:end]
             )[0]
@@ -303,7 +308,8 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
                     candidate_normals[start:end],
                     candidate_midpoints[start:end],
                     candidate_forces[start:end],
-                    candidate_labels_one[start:end]
+                    candidate_labels_one[start:end],
+                    candidate_sizes
                 ),
                 unlabeled_mesh[start:end]
             )[0]

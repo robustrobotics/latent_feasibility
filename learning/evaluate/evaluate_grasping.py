@@ -129,8 +129,8 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
     dataset = CustomGNPGraspDataset(
         data=val_data,
         context_data=context_data,
-        add_mesh_curvatures=True,
-        add_mesh_normals=True
+        add_mesh_curvatures=False,
+        add_mesh_normals=False
     )
     dataloader = DataLoader(
         dataset=dataset,
@@ -471,6 +471,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
             covars_agg.append(covars.numpy())
             entropies.append(entropy.numpy())
 
+        probs, labels = probs.squeeze(), labels.squeeze()
         thresholds = np.arange(0.05, 1.0, 0.05)
         for threshold in thresholds:
             preds = (probs > threshold).float()
