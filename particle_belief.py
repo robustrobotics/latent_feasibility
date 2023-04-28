@@ -649,8 +649,8 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
             latent_samples = latent_samples.cuda()
             self.likelihood.cuda()
 
-        for (_, target_data, meshes) in dataloader:
-            t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, _ = check_to_cuda(target_data)
+        for (_, target_data, (meshes, _)) in dataloader:
+            t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, _ = check_to_cuda(target_data)
 
             if torch.cuda.is_available():
                 meshes = meshes.cuda()
@@ -663,7 +663,7 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
 
             for ix in range(0, latent_samples.shape[0] // batch_size):
                 preds = self.likelihood.conditional_forward(
-                    target_xs=(t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
+                    target_xs=(t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
                     meshes=meshes,
                     zs=latent_samples[ix * batch_size:(ix + 1) * batch_size]
                 ).squeeze()
