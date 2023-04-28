@@ -154,7 +154,7 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
                 # if we are working with bald and the user wants to reslect grasps, then
                 # we need to rerun the full fitting phase (but use the cached acquired grasps)
                 # so we don't need to sample them again
-                if fitting_args.strategy == 'bald':
+                if fitting_args.strategy == 'bald' and args.reselect_grasps:
                     pf = AmortizedGraspingDiscreteLikelihoodParticleBelief(
                         object_set=object_set,
                         d_latents=training_args.d_latents,
