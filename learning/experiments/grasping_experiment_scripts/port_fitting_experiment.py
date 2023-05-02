@@ -70,16 +70,16 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
     # look up all the data in existing_log_json, copy files over, and store their paths in ported_logs_json
     # (for each strategy)
     if mode == 'train':
-        objs_to_port = args.train_objs_to_port
+        objs_to_port = args.num_train_objs_to_port
         geo_type = 'train_geo'
     elif mode == 'test':
-        objs_to_port = args.test_objs_to_port
+        objs_to_port = args.num_test_objs_to_port
         geo_type = 'test_geo'
     else:
         print('[Info:] %s is not a valid mode. Skipping...' % mode)
         return
 
-    for obj_ix in objs_to_port:
+    for obj_ix in range(objs_to_port):
         for strategy in existing_logs_lookup['fitting_phase'].keys():
             existing_fit_name = f'grasp_{args.existing_exp_name}_fit_{strategy}_{geo_type}_object{obj_ix}'
 
@@ -99,7 +99,7 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
             with open(fitting_args_path, 'rb') as handle:
                 fitting_args = pickle.load(handle)
 
-            # keep note for post-processing if so
+            # keep note for post-processing if did prog prior before
             existing_used_progressive_priors = fitting_args.use_progressive_priors
 
             fitting_args.exp_name = ported_fit_name
@@ -118,6 +118,8 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
             # store in ported_logs_lookup
             ported_logs_lookup['fitting_phase'][strategy][ported_fit_name] = ported_fit_dir
 
+            # this is if we created an experiment and wanted to re-select data with a different selection criterion.
+            # TODO: merge this in with elif branch below if they are doing super similar things
             if args.override_with is not None:
 
                 # choose the override fun
@@ -146,27 +148,43 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
             # if this is a simple port of a progressive posterior -> particles, then regenerate the particles
             elif args.belief == 'particle' and existing_used_progressive_priors:
                 # now we need to regenerate the particles.
-                # since context sets are ordered, let's pull the last one and just step through it
-                context_set, _ = ported_logger.load_acquisition_data(fitting_args.max_acquisitions - 1)
-                context_set_individual_grasps = explode_dataset_into_list_of_datasets(context_set)
-
                 with open(os.path.join(ported_logs_lookup['training_phase'], 'args.pkl'), 'rb') as handle:
                     training_args = pickle.load(handle)
 
-                # think critically about what object_set looksl like
-                pf = AmortizedGraspingDiscreteLikelihoodParticleBelief(
-                    object_set=object_set,
-                    d_latents=training_args.d_latents,
-                    n_particles=fitting_args.n_particles,
-                    likelihood=ported_logger.get_neural_process(0),
-                    resample=False,
-                    plot=False,
-                    data_is_in_gnp_format=True
-                )
+                # if we are working with bald and the user wants to reslect grasps, then
+                # we need to rerun the full fitting phase (but use the cached acquired grasps)
+                # so we don't need to sample them again
+                if fitting_args.strategy == 'bald' and args.reselect_grasps:
+                    pf = AmortizedGraspingDiscreteLikelihoodParticleBelief(
+                        object_set=object_set,
+                        d_latents=training_args.d_latents,
+                        n_particles=fitting_args.n_particles,
+                        likelihood=ported_logger.get_neural_process(0),
+                        resample=False,
+                        plot=False,
+                        data_is_in_gnp_format=True
+                    )
+                    particle_filter_loop(pf, object_set, ported_logger, 'bald', fitting_args, used_cached_samples=True)
+                else:
+                    # if not, then just go through the context set in order of acquisition
+                    # and update the particle each time with the label
 
-                for tx, grasp in enumerate(context_set_individual_grasps):
-                    particles, _ = pf.update(grasp)
-                    ported_logger.save_particles(particles, tx)
+                    # since context sets are ordered, let's pull the last one and just step through it
+                    context_set, _ = ported_logger.load_acquisition_data(fitting_args.max_acquisitions - 1)
+                    context_set_individual_grasps = explode_dataset_into_list_of_datasets(context_set)
+                    pf = AmortizedGraspingDiscreteLikelihoodParticleBelief(
+                        object_set=object_set,
+                        d_latents=training_args.d_latents,
+                        n_particles=fitting_args.n_particles,
+                        likelihood=ported_logger.get_neural_process(0),
+                        resample=False,
+                        plot=False,
+                        data_is_in_gnp_format=True
+                    )
+
+                    for tx, grasp in enumerate(context_set_individual_grasps):
+                        particles, _ = pf.update(grasp)
+                        ported_logger.save_particles(particles, tx)
 
 
 if __name__ == '__main__':
@@ -174,13 +192,15 @@ if __name__ == '__main__':
     parser.add_argument('--existing-exp-name', type=str, required=True, help='name of existing experiment to port')
     parser.add_argument('--ported-exp-name', type=str, required=True, help='name of ported experiment')
     parser.add_argument('--belief', type=str, choices=['particle', 'progressive'], required=True)
-    parser.add_argument('--train-objs-to-port', type=int, nargs='*', default=[])
-    parser.add_argument('--test-objs-to-port', type=int, nargs='*', default=[])
+    parser.add_argument('--num-train-objs-to-port', type=int, default=0)
+    parser.add_argument('--num-test-objs-to-port', type=int, default=0)
     parser.add_argument('--override-with', type=str, choices=['example'], help='override with selected fun')
+    parser.add_argument('--reselect-grasps', action='store_true', default=False,
+                        help='Re-select grasps for bald experiments')
 
     args = parser.parse_args()
 
-    if not args.train_objs_to_port and not args.test_objs_to_port:
+    if not args.num_train_objs_to_port and not args.num_test_objs_to_port:
         print('Must specify at least one train or test object to port over with experiment.')
     else:
         main(args)

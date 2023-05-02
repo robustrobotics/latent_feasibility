@@ -1,4 +1,5 @@
 import argparse
+import copy
 import math
 
 import numpy as np
@@ -6,7 +7,7 @@ import torch
 
 from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.active_utils import (
-    get_fit_object, 
+    get_fit_object,
     sample_unlabeled_data,
     sample_unlabeled_gnp_data,
     get_labels,
@@ -16,7 +17,7 @@ from learning.domains.grasping.active_utils import (
     get_fit_object,
     select_gnp_dataset_ix,
     merge_gnp_datasets,
-    gnp_dataset_from_raw_grasps
+    gnp_dataset_from_raw_grasps, explode_dataset_into_list_of_datasets
 )
 from learning.domains.grasping.pybullet_likelihood import PBLikelihood
 from learning.domains.grasping.tamp_grasping import GraspingAgent
@@ -127,13 +128,13 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
             context_labels = torch.unsqueeze(torch.tensor(context_data['grasp_labels']), 0)
 
             context_mesh, \
-            context_geoms, \
-            context_grasp_points, \
-            context_curvatures, \
-            context_normals, \
-            context_midpoints, \
-            context_forces, \
-            context_labels = \
+                context_geoms, \
+                context_grasp_points, \
+                context_curvatures, \
+                context_normals, \
+                context_midpoints, \
+                context_forces, \
+                context_labels = \
                 check_to_cuda([
                     context_mesh,
                     context_geoms,
@@ -196,12 +197,12 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
             torch.tensor(unlabeled_data['grasp_forces']), 1)
 
         unlabeled_mesh, \
-        unlabeled_geoms, \
-        unlabeled_grasp_points, \
-        unlabeled_curvatures, \
-        unlabeled_normals, \
-        unlabeled_midpoints, \
-        unlabeled_forces = \
+            unlabeled_geoms, \
+            unlabeled_grasp_points, \
+            unlabeled_curvatures, \
+            unlabeled_normals, \
+            unlabeled_midpoints, \
+            unlabeled_forces = \
             check_to_cuda([
                 unlabeled_mesh,
                 unlabeled_geoms,
@@ -215,7 +216,7 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
         # compute p(y|D,x)
         q_z_batched = q_z.expand((n_unlabeled_sampled, q_z.batch_shape[1]))
         zs = q_z_batched.sample((n_samples_from_latent_dist,))
-        
+
         p_y_equals_one_cond_d_x = torch.zeros(n_unlabeled_sampled)
         p_y_equals_one_cond_d_x, = check_to_cuda([p_y_equals_one_cond_d_x])
 
@@ -248,8 +249,10 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
                     u_set
                 ], dim=1)
                     for c_set, u_set in zip(
-                    [context_geoms, context_grasp_points, context_curvatures, context_normals, context_midpoints, context_forces],
-                    [unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_normals, unlabeled_midpoints,
+                    [context_geoms, context_grasp_points, context_curvatures, context_normals, context_midpoints,
+                     context_forces],
+                    [unlabeled_geoms, unlabeled_grasp_points, unlabeled_curvatures, unlabeled_normals,
+                     unlabeled_midpoints,
                      unlabeled_forces])
                 ]
         else:
@@ -413,7 +416,14 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
     if args.constrained:
         agent.disconnect()
 
-def particle_filter_loop(pf, object_set, logger, strategy, args, override_selection_fun=None):
+
+def particle_filter_loop(pf, object_set, logger, strategy, args,
+                         override_selection_fun=None, used_cached_samples=False):
+    # NOTE: used_cached_samples is ONLY for when we are cloning experiments,
+    # where samples are in the GNP format.
+    if used_cached_samples:
+        grasp_labeler = None
+
     if args.likelihood == 'nn':
         logger.save_ensemble(pf.likelihood, 0, symlink_tx0=False)
     elif args.likelihood == 'gnp':
@@ -432,13 +442,24 @@ def particle_filter_loop(pf, object_set, logger, strategy, args, override_select
 
             data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
 
-            all_grasps = []
-            all_preds = []
-            for ix in range(0, args.n_samples):
-                grasp_data = data_sampler_fn(1)
-                preds = pf.get_particle_likelihoods(pf.particles.particles, grasp_data)
-                all_preds.append(preds)
-                all_grasps.append(grasp_data)
+            # TODO: make option replace with acquired grasps
+            # TODO: check if GNP data form is compatible with the non-GNP data form
+
+            if not used_cached_samples:
+                all_grasps = []
+                all_preds = []
+                for ix in range(0, args.n_samples):
+                    grasp_data = data_sampler_fn(1)
+                    preds = pf.get_particle_likelihoods(pf.particles.particles, grasp_data)
+                    all_preds.append(preds)
+                    all_grasps.append(grasp_data)
+            else:
+                _, all_grasps_in_one_dataset = logger.load_acquisition_data(tx)
+                all_grasps = explode_dataset_into_list_of_datasets(all_grasps_in_one_dataset)
+                all_preds = []
+                for grasp_data in all_grasps:
+                    preds = pf.get_particle_likelihoods(pf.particles.particles, grasp_data)
+                    all_preds.append(preds)
 
             # NOTE: this is the computation we need for IG for visualization for particle filtering
             pred_vec = torch.Tensor(np.stack(all_preds))
@@ -454,17 +475,23 @@ def particle_filter_loop(pf, object_set, logger, strategy, args, override_select
 
             # merge all grasps to save them for visualization
             # convert into gnp form since we are now using the gnp model for the paper
-            acquired_sampled_grasps = process_geometry(all_grasps[0], radius=0.3, verbose=False)
+            acquired_sampled_grasps = process_geometry(all_grasps[0], radius=0.3,
+                                                       verbose=False) if not used_cached_samples else copy.deepcopy(
+                                                                                                        all_grasps[0])
             for grasp in all_grasps[1:]:
                 # convert into gnp form since we are now using the gnp model for the paper
-                grasp = process_geometry(grasp_dataset, radius=0.3, verbose=False)
-                acquired_sampled_grasps = merge_gnp_datasets(acquired_sampled_grasps, grasp)
-
+                processed_grasp = process_geometry(grasp, radius=0.3,
+                                                   verbose=False) if not used_cached_samples else grasp
+                acquired_sampled_grasps = merge_gnp_datasets(acquired_sampled_grasps, processed_grasp)
         else:
             raise NotImplementedError()
 
-        # Get the observation for the chosen tower.
-        grasp_dataset = get_labels(grasp_dataset)
+        # Get the observation
+        if not used_cached_samples:
+            grasp_dataset = get_labels(grasp_dataset)
+        else:
+            # if we are using cached, they are in gnp format - so label them the gnp way
+            grasp_dataset, grasp_labeler = get_label_gnp(grasp_dataset, labeler=grasp_labeler)
         # Update the particle belief.
         particles, means = pf.update(grasp_dataset)
         print('[ParticleFilter] Particle Statistics')
@@ -472,12 +499,12 @@ def particle_filter_loop(pf, object_set, logger, strategy, args, override_select
         print(f'Max Weight: {np.max(pf.particles.weights)}')
         print(f'Sum Weights: {np.sum(pf.particles.weights)}')
 
-        grasp_dataset = process_geometry(grasp_dataset, radius=0.3, verbose=False)
+        grasp_dataset = process_geometry(grasp_dataset, radius=0.3,
+                                         verbose=False) if not used_cached_samples else grasp_dataset
         if tx == 0:
             context_data = grasp_dataset
         else:
             context_data = merge_gnp_datasets(context_data, grasp_dataset)
-
 
         # Save the model and particle distribution at each step.
         if args.likelihood == 'nn':
