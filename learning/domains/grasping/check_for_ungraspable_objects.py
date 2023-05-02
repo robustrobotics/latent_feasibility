@@ -33,11 +33,13 @@ def check_grasp_gen(objects_fname, object_ix, phase):
     # print(f'Grasping {phase} object {object_ix}: {object_name}...')
     # Sample random grasps with labels.
     try:
-        with time_limit(2):
-            sample_grasps_and_Xs(graspable_body, property_vector, 50, 100, ())
+        with time_limit(10):
+            # print('Attempting:', object_ix)
+            sample_grasps_and_Xs(graspable_body, 50, 512, (0.005, 0.01, 0.02))
     except TimeoutException:
         print(f'{phase},{object_ix}')
-
+        return False
+    return True
 
 
 if __name__ == '__main__':
@@ -60,14 +62,13 @@ if __name__ == '__main__':
     test_objects = get_object_list(args.test_objects_fname)
     TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(os.path.join(data_root_path, 'ignore.txt'))
 
-    for ox in range(max(0, new_args.start_train), len(train_objects)*args.n_property_samples_train):
+    for ox in range(max(0, new_args.start_train), len(train_objects)*args.n_property_samples_train, 5):
         if new_args.start_test > -1:
             break
         if ox in TRAIN_IGNORE:
             continue
-        check_grasp_gen(train_objects_path, ox, 'train')
-
-    for ox in range(max(0, new_args.start_test), len(test_objects)*args.n_property_samples_test):
+        stable = check_grasp_gen(train_objects_path, ox, 'train')
+    for ox in range(max(0, new_args.start_test), len(test_objects)*args.n_property_samples_test, 5):
         if ox in TEST_IGNORE:
             continue
         check_grasp_gen(test_objects_path, ox, 'test')

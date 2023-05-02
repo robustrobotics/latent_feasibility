@@ -5,7 +5,7 @@ import os
 
 from pb_robot.planners.antipodalGraspPlanner import GraspStabilityChecker, GraspableBody, GraspSampler
     
-URDFS_PATH = '/home/mnosew/workspace/object_models/shapenet-sem/urdfs'
+URDFS_PATH = '/home/mnosew/workspace/object_models/shapenet-sem-large/urdfs'
 if __name__ == '__main__':
     # with open('learning/data/grasping/object_lists/non-watertight.txt', 'r') as handle:
     #     non_watertight = handle.read().split('\n')
