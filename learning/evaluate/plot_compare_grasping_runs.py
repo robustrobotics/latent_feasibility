@@ -126,7 +126,7 @@ def plot_val_loss(loggers, output_path):
     plt.close()
 
 
-def plot_from_dataframe(d, d_latents, d_igs, output_path):
+def plot_debug_from_dataframe(d, d_latents, d_igs, output_path):
     # maxp, minp, ratio, maxdim, avgmindist = 0.25, 0.05, 5, 0.5, 0.0
     # d_stable = d_train[
     #     (maxp > d_train.pstable) & (d_train.pstable > minp) & \
@@ -208,19 +208,19 @@ def plot_from_dataframe(d, d_latents, d_igs, output_path):
     sns.scatterplot(x='rrate', y='pstable', data=d_pstable_test_08_and_up, hue='eigval_prod', palette='viridis')
     plt.savefig(os.path.join(output_path, 'pstable_fun_of_rrate_eigval_prod_test_08_and_up.png'))
 
-    d_pstable_eigprod_rrate_only = d[['pstable']].drop_duplicates()
-    d_pstable_train = d_pstable_eigprod_rrate_only.loc['train']
-    plt.figure(figsize=(6, 6))
-    sns.set_theme(style='whitegrid')
-    sns.histplot(x='pstable', data=d_pstable_train)
-    plt.savefig(os.path.join(output_path, 'pstable_histogram_train.png'))
-
-    d_pstable_eigprod_rrate_only = d[['pstable']].drop_duplicates()
-    d_pstable_train = d_pstable_eigprod_rrate_only.loc['train']
-    plt.figure(figsize=(6, 6))
-    sns.set_theme(style='whitegrid')
-    sns.histplot(x='pstable', data=d_pstable_train)
-    plt.savefig(os.path.join(output_path, 'pstable_histogram_test.png'))
+    # d_pstable_eigprod_rrate_only = d[['pstable']].drop_duplicates()
+    # d_pstable_train = d_pstable_eigprod_rrate_only.loc['train']
+    # plt.figure(figsize=(6, 6))
+    # sns.set_theme(style='whitegrid')
+    # sns.histplot(x='pstable', data=d_pstable_train)
+    # plt.savefig(os.path.join(output_path, 'pstable_histogram_train.png'))
+    #
+    # d_pstable_eigprod_rrate_only = d[['pstable']].drop_duplicates()
+    # d_pstable_train = d_pstable_eigprod_rrate_only.loc['train']
+    # plt.figure(figsize=(6, 6))
+    # sns.set_theme(style='whitegrid')
+    # sns.histplot(x='pstable', data=d_pstable_train)
+    # plt.savefig(os.path.join(output_path, 'pstable_histogram_test.png'))
 
     d_entropy_only = d[d['time metric'] == 'entropy'].drop_duplicates()
     d_entropy_only_train = d_entropy_only.loc['train']
@@ -255,6 +255,9 @@ def plot_from_dataframe(d, d_latents, d_igs, output_path):
                  hue=d_igs_test[['strategy', 'pre or post']].apply(tuple, axis=1),
                  data=d_igs_test)
     plt.savefig(os.path.join(output_path, 'igs_test.png'))
+
+def plot_figures_from_dataframe():
+    pass
 
 
 if __name__ == '__main__':
