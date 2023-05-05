@@ -10,6 +10,7 @@ import matplotlib
 from matplotlib import pyplot as plt
 
 import seaborn as sns
+import pandas as pd
 
 matplotlib.rc('font', family='normal', size=28)
 
@@ -256,9 +257,24 @@ def plot_debug_from_dataframe(d, d_latents, d_igs, output_path):
                  data=d_igs_test)
     plt.savefig(os.path.join(output_path, 'igs_test.png'))
 
-def plot_figures_from_dataframe():
-    pass
 
+def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2, name1, name2, output_path):
+    d_exp_1_avg_prec = d_exp1[d_exp1['time metric'] == 'average precision'].drop_duplicates()
+    d_exp_2_avg_prec = d_exp2[d_exp2['time metric'] == 'average precision'].drop_duplicates()
+
+    d_combo = pd.concat([d_exp_1_avg_prec, d_exp_2_avg_prec], axis=1, keys=[name1, name2], names=['experiment'])
+
+    plt.figure(figsize=(12, 9))
+    sns.set_theme(style='darkgrid')
+    sns.relplot(data=d_combo.loc['train'], x='acquisition', y='time metric value', estimator='median',
+                col='experiment', hue='strategy', kind='line', col_wrap=2, errorbar=('pi', 50))
+    plt.savefig(os.path.join(output_path, 'train_name1_vs_name2_average_precision.png'))
+
+    plt.figure(figsize=(12, 9))
+    sns.set_theme(style='darkgrid')
+    sns.relplot(data=d_combo.loc['test'], x='acquisition', y='time metric value', estimator='median',
+                col='experiment', hue='strategy', kind='line', col_wrap=2, errorbar=('pi', 50))
+    plt.savefig(os.path.join(output_path, 'test_name1_vs_name2_average_precision.png'))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
