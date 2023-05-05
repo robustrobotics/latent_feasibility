@@ -1,0 +1,3 @@
+python learning/experiments/grasping_experiment_scripts/port_fitting_experiment.py --existing-exp-name [METADATA FOLDER NAME] --ported-exp-name [NEW EXP NAME] --belief particle --num-train-objs-to-port 1000 --num-test-objs-to-port 1000 --n-particles 10
+python learning/experiments/grasping_experiment_scripts/port_fitting_experiment.py --existing-exp-name [METADATA FOLDER NAME] --ported-exp-name [NEW EXP NAME] --belief particle --num-train-objs-to-port 1000 --num-test-objs-to-port 1000 --n-particles 100
+python learning/experiments/grasping_experiment_scripts/port_fitting_experiment.py --existing-exp-name [METADATA FOLDER NAME] --ported-exp-name [NEW EXP NAME] --belief particle --num-train-objs-to-port 1000 --num-test-objs-to-port 1000 --n-particles 1000

@@ -198,7 +198,7 @@ if __name__ == '__main__':
     parser.add_argument('--override-with', type=str, choices=['example'], help='override with selected fun')
     parser.add_argument('--reselect-grasps', action='store_true', default=False,
                         help='Re-select grasps for bald experiments')
-    parser.add_argument('--n_particles', type=int, default=1000,
+    parser.add_argument('--n-particles', type=int, default=1000,
                         help='if porting TO particle representation: # of particles used to represent distribution')
 
     args = parser.parse_args()
