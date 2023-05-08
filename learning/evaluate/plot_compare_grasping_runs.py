@@ -262,7 +262,13 @@ def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2,
     d_exp_1_avg_prec = d_exp1[d_exp1['time metric'] == 'average precision'].drop_duplicates()
     d_exp_2_avg_prec = d_exp2[d_exp2['time metric'] == 'average precision'].drop_duplicates()
 
-    d_combo = pd.concat([d_exp_1_avg_prec, d_exp_2_avg_prec], axis=1, keys=[name1, name2], names=['experiment'])
+    d_combo = pd.concat(
+        [d_exp_1_avg_prec, d_exp_2_avg_prec],
+        axis=1,
+        keys=[name1, name2],
+        names=['experiment'])\
+        .stack(level=0)\
+        .reset_index(level=['experiment'])
 
     plt.figure(figsize=(12, 9))
     sns.set_theme(style='darkgrid')
@@ -275,6 +281,7 @@ def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2,
     sns.relplot(data=d_combo.loc['test'], x='acquisition', y='time metric value', estimator='median',
                 col='experiment', hue='strategy', kind='line', col_wrap=2, errorbar=('pi', 50))
     plt.savefig(os.path.join(output_path, 'test_name1_vs_name2_average_precision.png'))
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
