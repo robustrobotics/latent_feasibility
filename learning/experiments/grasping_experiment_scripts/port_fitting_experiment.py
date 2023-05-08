@@ -184,6 +184,7 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
 
                     for tx, grasp in enumerate(context_set_individual_grasps):
                         particles, _ = pf.update(grasp)
+                        ported_logger.save_neural_process(pf.likelihood, tx+1, symlink_tx0=True)
                         ported_logger.save_particles(particles, tx)
 
 

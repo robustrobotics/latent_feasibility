@@ -657,6 +657,7 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
 
             t_grasp_geoms = t_grasp_geoms.expand(batch_size, -1, -1, -1)
             t_grasp_points = t_grasp_points.expand(batch_size, -1, -1, -1)
+            t_normals = t_normals.expand(batch_size, -1, -1, -1)
             t_curvatures = t_curvatures.expand(batch_size, -1, -1, -1)
             t_midpoints = t_midpoints.expand(batch_size, -1, -1)
             t_forces = t_forces.expand(batch_size, -1)
