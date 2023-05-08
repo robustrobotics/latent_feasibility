@@ -104,6 +104,7 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
 
             fitting_args.exp_name = ported_fit_name
             fitting_args.use_progressive_priors = args.belief == 'progressive'
+            fitting_args.n_particles = args.n_particles
 
             with open(fitting_args_path, 'wb') as handle:
                 pickle.dump(fitting_args, handle)
@@ -197,6 +198,8 @@ if __name__ == '__main__':
     parser.add_argument('--override-with', type=str, choices=['example'], help='override with selected fun')
     parser.add_argument('--reselect-grasps', action='store_true', default=False,
                         help='Re-select grasps for bald experiments')
+    parser.add_argument('--n-particles', type=int, default=1000,
+                        help='if porting TO particle representation: # of particles used to represent distribution')
 
     args = parser.parse_args()
 

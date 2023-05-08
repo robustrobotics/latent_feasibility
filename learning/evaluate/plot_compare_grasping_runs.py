@@ -10,6 +10,7 @@ import matplotlib
 from matplotlib import pyplot as plt
 
 import seaborn as sns
+import pandas as pd
 
 matplotlib.rc('font', family='normal', size=28)
 
@@ -126,7 +127,7 @@ def plot_val_loss(loggers, output_path):
     plt.close()
 
 
-def plot_from_dataframe(d, d_latents, d_igs, output_path):
+def plot_debug_from_dataframe(d, d_latents, d_igs, output_path):
     # maxp, minp, ratio, maxdim, avgmindist = 0.25, 0.05, 5, 0.5, 0.0
     # d_stable = d_train[
     #     (maxp > d_train.pstable) & (d_train.pstable > minp) & \
@@ -208,19 +209,19 @@ def plot_from_dataframe(d, d_latents, d_igs, output_path):
     sns.scatterplot(x='rrate', y='pstable', data=d_pstable_test_08_and_up, hue='eigval_prod', palette='viridis')
     plt.savefig(os.path.join(output_path, 'pstable_fun_of_rrate_eigval_prod_test_08_and_up.png'))
 
-    d_pstable_eigprod_rrate_only = d[['pstable']].drop_duplicates()
-    d_pstable_train = d_pstable_eigprod_rrate_only.loc['train']
-    plt.figure(figsize=(6, 6))
-    sns.set_theme(style='whitegrid')
-    sns.histplot(x='pstable', data=d_pstable_train)
-    plt.savefig(os.path.join(output_path, 'pstable_histogram_train.png'))
-
-    d_pstable_eigprod_rrate_only = d[['pstable']].drop_duplicates()
-    d_pstable_train = d_pstable_eigprod_rrate_only.loc['train']
-    plt.figure(figsize=(6, 6))
-    sns.set_theme(style='whitegrid')
-    sns.histplot(x='pstable', data=d_pstable_train)
-    plt.savefig(os.path.join(output_path, 'pstable_histogram_test.png'))
+    # d_pstable_eigprod_rrate_only = d[['pstable']].drop_duplicates()
+    # d_pstable_train = d_pstable_eigprod_rrate_only.loc['train']
+    # plt.figure(figsize=(6, 6))
+    # sns.set_theme(style='whitegrid')
+    # sns.histplot(x='pstable', data=d_pstable_train)
+    # plt.savefig(os.path.join(output_path, 'pstable_histogram_train.png'))
+    #
+    # d_pstable_eigprod_rrate_only = d[['pstable']].drop_duplicates()
+    # d_pstable_train = d_pstable_eigprod_rrate_only.loc['train']
+    # plt.figure(figsize=(6, 6))
+    # sns.set_theme(style='whitegrid')
+    # sns.histplot(x='pstable', data=d_pstable_train)
+    # plt.savefig(os.path.join(output_path, 'pstable_histogram_test.png'))
 
     d_entropy_only = d[d['time metric'] == 'entropy'].drop_duplicates()
     d_entropy_only_train = d_entropy_only.loc['train']
@@ -255,6 +256,31 @@ def plot_from_dataframe(d, d_latents, d_igs, output_path):
                  hue=d_igs_test[['strategy', 'pre or post']].apply(tuple, axis=1),
                  data=d_igs_test)
     plt.savefig(os.path.join(output_path, 'igs_test.png'))
+
+
+def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2, name1, name2, output_path):
+    d_exp_1_avg_prec = d_exp1[d_exp1['time metric'] == 'average precision'].drop_duplicates()
+    d_exp_2_avg_prec = d_exp2[d_exp2['time metric'] == 'average precision'].drop_duplicates()
+
+    d_combo = pd.concat(
+        [d_exp_1_avg_prec, d_exp_2_avg_prec],
+        axis=1,
+        keys=[name1, name2],
+        names=['experiment'])\
+        .stack(level=0)\
+        .reset_index(level=['experiment'])
+
+    plt.figure(figsize=(12, 9))
+    sns.set_theme(style='darkgrid')
+    sns.relplot(data=d_combo.loc['train'], x='acquisition', y='time metric value', estimator='median',
+                col='experiment', hue='strategy', kind='line', col_wrap=2, errorbar=('pi', 50))
+    plt.savefig(os.path.join(output_path, 'train_name1_vs_name2_average_precision.png'))
+
+    plt.figure(figsize=(12, 9))
+    sns.set_theme(style='darkgrid')
+    sns.relplot(data=d_combo.loc['test'], x='acquisition', y='time metric value', estimator='median',
+                col='experiment', hue='strategy', kind='line', col_wrap=2, errorbar=('pi', 50))
+    plt.savefig(os.path.join(output_path, 'test_name1_vs_name2_average_precision.png'))
 
 
 if __name__ == '__main__':
