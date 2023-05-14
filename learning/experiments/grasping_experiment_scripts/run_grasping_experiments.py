@@ -682,6 +682,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     accuracies = {'train_geo': {}, 'test_geo': {}}
     precisions = {'train_geo': {}, 'test_geo': {}}
     average_precisions = {'train_geo': {}, 'test_geo': {}}
+    average_precisions_normed = {'train_geo': {}, 'test_geo': {}}
     recalls = {'train_geo': {}, 'test_geo': {}}
     f1s = {'train_geo': {}, 'test_geo': {}}
     balanced_accuracy_scores = {'train_geo': {}, 'test_geo': {}}
@@ -690,7 +691,8 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     covars = {'train_geo': {}, 'test_geo': {}}
     info_gains = {'train_geo': {}, 'test_geo': {}}
     if amortize:
-        metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies]
+        metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies,
+                       average_precisions_normed]
         metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
                             'val_f1s.pkl', 'val_balanced_accs.pkl', 'val_entropies.pkl']
         metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy', 'entropy']
@@ -773,6 +775,13 @@ def compile_dataframes_and_save_path(exp_name, amortize):
 
             for metric, metric_per_strategy in zip(metric_list, metric_per_strategy_list):
                 metric[obj_set][strategy] = metric_per_strategy
+
+            # HACK: add in the normalized average precisions per acquisitions
+            avg_prec_ix = metric_names.index("average precision")
+            avg_prec = metric_per_strategy_list[avg_prec_ix]
+            avg_prec_last_acquistion = avg_prec[:, -1].reshape(-1, 1)
+            metric_list[-1][obj_set][strategy] = avg_prec / avg_prec_last_acquistion
+            metric_names.append("normalized average precision")
 
             if amortize:
                 means[obj_set][strategy] = mn
