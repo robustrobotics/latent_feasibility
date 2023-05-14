@@ -80,7 +80,7 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
         return
 
     for obj_ix in range(objs_to_port):
-        for strategy in existing_logs_lookup['fitting_phase'].keys():
+        for strategy in args.strategies:
             existing_fit_name = f'grasp_{args.existing_exp_name}_fit_{strategy}_{geo_type}_object{obj_ix}'
 
             # if we have not fit that object yet, just pass over to the next one
@@ -104,6 +104,7 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
 
             fitting_args.exp_name = ported_fit_name
             fitting_args.use_progressive_priors = args.belief == 'progressive'
+            fitting_args.n_particles = args.n_particles
 
             with open(fitting_args_path, 'wb') as handle:
                 pickle.dump(fitting_args, handle)
@@ -187,6 +188,8 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
                         ported_logger.save_neural_process(pf.likelihood, tx+1, symlink_tx0=True)
                         ported_logger.save_particles(particles, tx)
 
+    
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -198,7 +201,9 @@ if __name__ == '__main__':
     parser.add_argument('--override-with', type=str, choices=['example'], help='override with selected fun')
     parser.add_argument('--reselect-grasps', action='store_true', default=False,
                         help='Re-select grasps for bald experiments')
-
+    parser.add_argument('--n-particles', type=int, default=1000,
+                        help='if porting TO particle representation: # of particles used to represent distribution')
+    parser.add_argument('--strategies', nargs='+', default=['bald', 'random'])
     args = parser.parse_args()
 
     if not args.num_train_objs_to_port and not args.num_test_objs_to_port:

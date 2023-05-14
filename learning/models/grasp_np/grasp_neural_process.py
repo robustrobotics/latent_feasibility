@@ -147,7 +147,7 @@ class CustomGraspNeuralProcess(nn.Module):
 
         target_geoms, target_grasp_points, target_curvatures, target_normals, target_mids, target_forces = target_xs
         n_batch, n_grasp, n_feat, n_pts = target_geoms.shape
-        geoms = target_geoms.view(-1, n_feat, n_pts)
+        geoms = target_geoms.reshape(-1, n_feat, n_pts)
 
         if self.input_features['grasp_mesh']:
             geoms_enc = self.grasp_geom_encoder(

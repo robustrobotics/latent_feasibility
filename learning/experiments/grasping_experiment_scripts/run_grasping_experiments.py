@@ -430,8 +430,22 @@ def run_task_eval_phase(args):
 
             with open(os.path.join(fit_log_path, 'args.pkl'), 'rb') as handle:
                 fitting_args = pickle.load(handle)
-            get_pf_task_performance(fit_logger, val_dataset_path,
-                                    use_progressive_priors=fitting_args.use_progressive_priors)
+
+            if args.task == 'average-precision':
+                get_pf_validation_accuracy(
+                    fit_logger,
+                    val_dataset_path,
+                    args.amortize,
+                    use_progressive_priors=fitting_args.use_progressive_priors
+                )
+            elif args.task == 'min-grasp-force':
+                get_pf_task_performance(
+                    fit_logger,
+                    val_dataset_path,
+                    use_progressive_priors=fitting_args.use_progressive_priors
+                )
+            else:
+                raise NotImplementedError()
 
 
 def run_training_phase(args):
@@ -607,23 +621,31 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
 
 def run_testing_phase(args):
     # Create log_group files.
-    exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
-    if not os.path.exists(exp_path):
-        print(f'[ERROR] Experiment does not exist: {args.exp_name}')
-        sys.exit()
+    exp_name = args.exp_name
+    amortize = args.amortize
 
+    d_all, d_ig, d_ltime, exp_path = compile_dataframes_and_save_path(exp_name, amortize)
+
+    # next, seaborn can only plot certain values against others in column format, so we need to
+    # move some of the row indicators to columns (unpivot?)
+    fig_path = os.path.join(exp_path, 'figures')
+    plot_from_dataframe(d_all, d_ltime, d_ig, fig_path)
+
+
+def compile_dataframes_and_save_path(exp_name, amortize):
+    exp_path = os.path.join(EXPERIMENT_ROOT, exp_name)
+    if not os.path.exists(exp_path):
+        print(f'[ERROR] Experiment does not exist: {exp_name}')
+        sys.exit()
     logs_path = os.path.join(exp_path, 'logs_lookup.json')
     with open(logs_path, 'r') as handle:
         logs_lookup = json.load(handle)
-
     # Get train_geo_test_props.pkl and test_geo_test_props.pkl
     args_path = os.path.join(exp_path, 'args.pkl')
     with open(args_path, 'rb') as handle:
         exp_args = pickle.load(handle)
-
     ignore_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'ignore.txt')
     TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(ignore_fname)
-
     # Get object data.
     train_objects_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'objects', 'train_geo_test_props.pkl')
     with open(train_objects_fname, 'rb') as handle:
@@ -633,14 +655,11 @@ def run_testing_phase(args):
         dataset_args = pickle.load(handle)
     n_property_samples_train = dataset_args.n_property_samples_train
     n_property_samples_test = dataset_args.n_property_samples_test
-
     with open(test_objects_fname, 'rb') as handle:
         test_objects = pickle.load(handle)
-
     with open(os.path.join(logs_lookup['training_phase'], 'args.pkl'), 'rb') as handle:
         training_args = pickle.load(handle)
     n_latents = training_args.d_latents
-
     logs_lookup_by_object, \
         valid_test_min_dists, \
         valid_test_objects, \
@@ -656,8 +675,7 @@ def run_testing_phase(args):
         valid_train_maxdims, \
         valid_train_rrates, \
         valid_train_eigval_prod = gather_experiment_logs_file_paths(
-        TEST_IGNORE, TRAIN_IGNORE, args, exp_args, logs_lookup, test_objects, train_objects)
-
+        TEST_IGNORE, TRAIN_IGNORE, exp_name, exp_args, logs_lookup, test_objects, train_objects)
     # collect all of the stored metric data over the course of training
     # note; we don't do confusions since they are hard to store... and that data can come from the other
     # metrics below
@@ -671,7 +689,7 @@ def run_testing_phase(args):
     means = {'train_geo': {}, 'test_geo': {}}
     covars = {'train_geo': {}, 'test_geo': {}}
     info_gains = {'train_geo': {}, 'test_geo': {}}
-    if args.amortize:
+    if amortize:
         metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies]
         metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
                             'val_f1s.pkl', 'val_balanced_accs.pkl', 'val_entropies.pkl']
@@ -703,7 +721,7 @@ def run_testing_phase(args):
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions))
 
-            if args.amortize:
+            if amortize:
                 metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, etrpy]
             else:
                 metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc]
@@ -718,7 +736,7 @@ def run_testing_phase(args):
                     with open(logger.get_figure_path(fname), 'rb') as handle:
                         data_arr[i_obj, :] = np.array(pickle.load(handle)).squeeze()
 
-                if args.amortize:
+                if amortize:
                     for data_arr, fname in zip([mn, cvr], ['val_means.pkl', 'val_covars.pkl']):
                         with open(logger.get_figure_path(fname), 'rb') as handle:
                             unpickled_arr = pickle.load(handle)
@@ -756,39 +774,33 @@ def run_testing_phase(args):
             for metric, metric_per_strategy in zip(metric_list, metric_per_strategy_list):
                 metric[obj_set][strategy] = metric_per_strategy
 
-            if args.amortize:
+            if amortize:
                 means[obj_set][strategy] = mn
                 covars[obj_set][strategy] = cvr
                 info_gains[obj_set][strategy] = igs
-
     # we now have all the data we need to construct the full dataframe
     # we first construct are two dataframes: one for the time-dependent metrics
     # one to store p_stability, p_size, and also the fitting directory so we can associate grasp selection later
-
     # construct hierarchical indices (we'll reuse them for both dataframes, and construct one for train and test
     # separately since they may not share the same strategies used)
     unique_object_names_train = list(dict.fromkeys(
         [name for _, name, _ in valid_train_objects]
     ))
     strategies_used_for_train = metric_list[0]['train_geo'].keys()
-
     mi_train = pd.MultiIndex.from_product([
         strategies_used_for_train,
         unique_object_names_train,
         range(n_property_samples_train)
     ], names=['strategy', 'name', 'no_property_sample'])
-
     unique_object_names_test = list(dict.fromkeys(
         [name for _, name, _ in valid_test_objects]
     ))
     strategies_used_for_test = metric_list[0]['test_geo'].keys()
-
     mi_test = pd.MultiIndex.from_product([
         strategies_used_for_test,
         unique_object_names_test,
         range(n_property_samples_test)
     ], names=['strategy', 'name', 'no_property_sample'])
-
     # construct non-time series data
     d_const_train = pd.DataFrame(data=zip(
         valid_train_eigval_prod * len(strategies_used_for_train),
@@ -802,7 +814,6 @@ def run_testing_phase(args):
         log_paths_set['train_geo']
     ), index=mi_train,
         columns=['eigval_prod', 'pstable', 'avg_min_dist', 'ratio', 'maxdim', 'rrate', 'name', 'props', 'log_paths'])
-
     d_const_test = pd.DataFrame(data=zip(
         valid_test_eigval_prod * len(strategies_used_for_test),
         valid_test_pstables * len(strategies_used_for_test),
@@ -816,7 +827,6 @@ def run_testing_phase(args):
     ), index=mi_test,
         columns=['eigval_prod', 'pstable', 'avg_min_dist', 'ratio', 'maxdim', 'rrate', 'name', 'props', 'log_paths'])
     # d_const_train = d_const_test
-
     # construct multi-index for columns in time-series data
     mc_time = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)], names=['time metric', 'acquisition'])
     # formatted_metrics_train = np.hstack([
@@ -828,7 +838,6 @@ def run_testing_phase(args):
         ]) for metric in metric_list
     ])
     d_time_train = pd.DataFrame(data=formatted_metrics_train, index=mi_train, columns=mc_time)
-
     # formatted_metrics_test = np.hstack([
     #     np.vstack(list(metric['test_geo'].values())) for metric in metric_list
     # ])
@@ -838,15 +847,13 @@ def run_testing_phase(args):
         ]) for metric in metric_list
     ])
     d_time_test = pd.DataFrame(data=formatted_metrics_test, index=mi_test, columns=mc_time)
-
     # concat const frames and time frames together and melt into long form so we can merge the tables
     d_const = pd.concat([d_const_train, d_const_test], keys=['train', 'test'])
     d_time = pd.concat([d_time_train, d_time_test], keys=['train', 'test']).melt(
         value_name='time metric value', ignore_index=False)
     d_all = pd.merge(d_const, d_time, left_index=True, right_index=True)
-
     # if we are amortizing, then we're tracking covariances + means and info gains, so we include in dataframe
-    if args.amortize:
+    if amortize:
         # construct multi-index for columns in time-series data per latent property
         mc_ltime = pd.MultiIndex.from_product([['mean', 'covar'], range(n_latents), range(n_acquisitions)],
                                               names=['latent parameter', 'latent', 'acquisition'])
@@ -936,14 +943,10 @@ def run_testing_phase(args):
         # d_all = pd.merge(d_all, d_ig, left_index=True, right_index = True, suffixes=(None, '_temp'))
         # # clear away redundant acquisition entries
         # d_all = d_all.loc[d_all.acquisition == d_all.acquisition_temp].drop(columns=['acquisition_temp'])
-
-    # next, seaborn can only plot certain values against others in column format, so we need to
-    # move some of the row indicators to columns (unpivot?)
-    fig_path = os.path.join(exp_path, 'figures')
-    plot_from_dataframe(d_all, d_ltime, d_ig, fig_path)
+    return d_all, d_ig, d_ltime, exp_path
 
 
-def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args, logs_lookup, test_objects,
+def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, exp_name, exp_args, logs_lookup, test_objects,
                                       train_objects):
     # Nested dictionary: [train_geo/test_geo][random/bald][all/object_name]
     logs_lookup_by_object = {
@@ -1004,7 +1007,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
             logs_lookup_by_object['train_geo']['constrained_random']['all'].append(constrained_random_log_fname)
             logs_lookup_by_object['train_geo']['constrained_random'][object_name].append(constrained_random_log_fname)
 
-        bald_log_key = f'grasp_{args.exp_name}_fit_bald_train_geo_object{ox}'
+        bald_log_key = f'grasp_{exp_name}_fit_bald_train_geo_object{ox}'
         if 'bald' in logs_lookup['fitting_phase'] and bald_log_key in logs_lookup['fitting_phase']['bald']:
             bald_log_fname = logs_lookup['fitting_phase']['bald'][bald_log_key]
 
@@ -1044,7 +1047,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, args, exp_args,
             logs_lookup_by_object['test_geo']['constrained_random']['all'].append(constrained_random_log_fname)
             logs_lookup_by_object['test_geo']['constrained_random'][object_name].append(constrained_random_log_fname)
 
-        bald_log_key = f'grasp_{args.exp_name}_fit_bald_test_geo_object{ox}'
+        bald_log_key = f'grasp_{exp_name}_fit_bald_test_geo_object{ox}'
         if 'bald' in logs_lookup['fitting_phase'] and bald_log_key in logs_lookup['fitting_phase']['bald']:
             bald_log_fname = logs_lookup['fitting_phase']['bald'][bald_log_key]
             logs_lookup_by_object['test_geo']['bald']['all'].append(bald_log_fname)
@@ -1072,7 +1075,7 @@ if __name__ == '__main__':
                         help='this is really to add an new metrics to fitting we did not have before')
     parser.add_argument('--playback-test-fitting', action='store_true', default=False,
                         help='this is really to add an new metrics to fitting we did not have before')
-
+    parser.add_argument('--task', required=False, default='average-precision', choices=['average-precision', 'min-grasp-force'])
     args = parser.parse_args()
 
     if args.phase == 'create':

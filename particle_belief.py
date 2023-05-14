@@ -620,6 +620,7 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
             { 'grasp_data': {} , 'object_data: {} , 'metadata': {} }
         """
         self.likelihood.eval()
+        batch_size = np.min([batch_size, particles.shape[0]])
 
         if self.data_is_in_gnp_format:
             gnp_observation = observation

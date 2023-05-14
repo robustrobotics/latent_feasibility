@@ -225,28 +225,15 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
 
     latent_samples = torch.Tensor(particles)
     gnp.eval()
-    for (_, target_data, meshes) in dataloader:
-        t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces, t_labels = target_data
+    for (_, target_data, object_data) in dataloader:
+        t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, t_labels = \
+            check_to_cuda(truncate_grasps(target_data, 100))
+        meshes, object_properties = check_to_cuda(object_data)
 
-        # TODO: Currently there are too many grasps (500 requires too much memory).
-        # TODO: Implement better way to batch a lot of evaluation grasps.
-        t_grasp_geoms = t_grasp_geoms[:, :100, :, :]
-        t_grasp_points = t_grasp_points[:, :100, :, :]
-        t_curvatures = t_curvatures[:, :100, :, :]
-        t_midpoints = t_midpoints[:, :100, :]
-        t_forces = t_forces[:, :100]
-        t_labels = t_labels[:, :100].squeeze()
-
-        if torch.cuda.is_available():
-            meshes = meshes.cuda()
-            t_grasp_geoms = t_grasp_geoms.cuda()
-            t_grasp_points = t_grasp_points.cuda()
-            t_curvatures = t_curvatures.cuda()
-            t_midpoints = t_midpoints.cuda()
-            t_forces = t_forces.cuda()
         t_grasp_geoms = t_grasp_geoms.expand(n_particle_samples, -1, -1, -1)
         t_grasp_points = t_grasp_points.expand(n_particle_samples, -1, -1, -1)
         t_curvatures = t_curvatures.expand(n_particle_samples, -1, -1, -1)
+        t_normals = t_normals.expand(n_particle_samples, -1, -1, -1)
         t_midpoints = t_midpoints.expand(n_particle_samples, -1, -1)
         t_forces = t_forces.expand(n_particle_samples, -1)
 
@@ -254,12 +241,12 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         latents_ix = np.arange(latent_samples.shape[0])
         np.random.shuffle(latents_ix)
         latents_ix = latents_ix[:n_particle_samples]
-
+        # import IPython; IPython.embed()
         latents = latent_samples[latents_ix, :]
         if torch.cuda.is_available():
             latents = latents.cuda()
         pred = gnp.conditional_forward(
-            target_xs=(t_grasp_geoms, t_grasp_points, t_curvatures, t_midpoints, t_forces),
+            target_xs=(t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
             meshes=meshes,
             zs=latents
         ).squeeze().cpu().detach()
@@ -307,8 +294,8 @@ def get_pf_task_performance(logger, fname, use_progressive_priors):
                 gnp,
                 n_particle_samples=32
             )
-            probs = probs.cpu().numpy()
-            labels = labels.cpu().numpy()
+            probs = probs.squeeze().cpu().numpy()
+            labels = labels.squeeze().cpu().numpy()
         else:
             context_data, sampled_unlabeled_data = logger.load_acquisition_data(tx)
             gnp = logger.get_neural_process(tx)
@@ -320,11 +307,11 @@ def get_pf_task_performance(logger, fname, use_progressive_priors):
                 context_data,
                 val_grasp_data
             )
-            probs = probs.numpy()
-            labels = labels.numpy()
-
+            probs = probs.squeeze().cpu().numpy()
+            labels = labels.squeeze().cpu().numpy()
+        
         max_force = 20
-        neg_reward = 0#-max_force
+        neg_reward = 0  # -max_force
 
         max_reward = neg_reward
         max_exp_reward = neg_reward
