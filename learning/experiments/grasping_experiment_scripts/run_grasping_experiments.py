@@ -395,12 +395,12 @@ def run_task_eval_phase(args):
     # Run fitting phase for all objects that have not yet been fitted
     # (each has a standard name in the experiment logs).
     for geo_type, objects_fname, n_objects, ignore in zip(
-            ['test_geo', 'train_geo'],
-            [test_geo_fname, train_geo_fname],
-            [n_test_geo, n_train_geo],
-            [TEST_IGNORE, TRAIN_IGNORE]
+        ['test_geo', 'train_geo'],
+        [test_geo_fname, train_geo_fname],
+        [n_test_geo, n_train_geo],
+        [TEST_IGNORE, TRAIN_IGNORE]
     ):
-        for ox in range(min(n_objects, 100)):
+        for ox in range(0, min(n_objects, 500)):
             if ox in ignore: continue
 
             if args.constrained:
@@ -680,6 +680,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     # note; we don't do confusions since they are hard to store... and that data can come from the other
     # metrics below
     accuracies = {'train_geo': {}, 'test_geo': {}}
+    regrets = {'train_geo': {}, 'test_geo': {}}
     precisions = {'train_geo': {}, 'test_geo': {}}
     average_precisions = {'train_geo': {}, 'test_geo': {}}
     average_precisions_normed = {'train_geo': {}, 'test_geo': {}}
@@ -691,16 +692,35 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     covars = {'train_geo': {}, 'test_geo': {}}
     info_gains = {'train_geo': {}, 'test_geo': {}}
     if amortize:
-        metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies,
-                       average_precisions_normed]
-        metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
-                            'val_f1s.pkl', 'val_balanced_accs.pkl', 'val_entropies.pkl']
-        metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy', 'entropy']
+        metric_list = [
+            accuracies, precisions, average_precisions,
+            recalls, f1s, balanced_accuracy_scores,
+            regrets, entropies, average_precisions_normed
+        ]
+        metric_file_list = [
+            'val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl',
+            'val_recalls.pkl', 'val_f1s.pkl', 'val_balanced_accs.pkl',
+            'regrets_0.pkl', 'val_entropies.pkl'
+        ]
+        metric_names = [
+            'accuracy', 'precision', 'average precision',
+            'recall', 'f1', 'balanced accuracy',
+            'regret', 'entropy', 'normalized average precision'
+        ]
     else:
-        metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores]
-        metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
-                            'val_f1s.pkl', 'val_balanced_accs.pkl']
-        metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy']
+        metric_list = [
+            accuracies, precisions, average_precisions, recalls,
+            f1s, balanced_accuracy_scores
+        ]
+        metric_file_list = [
+            'val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl',
+            'val_recalls.pkl', 'val_f1s.pkl', 'val_balanced_accs.pkl'
+        ]
+        metric_names = [
+            'accuracy', 'precision', 'average precision',
+            'recall', 'f1', 'balanced accuracy'
+        ]
+
     log_paths_set = {'train_geo': [], 'test_geo': []}
     n_acquisitions = None
     for obj_set in ['train_geo', 'test_geo']:
@@ -714,8 +734,9 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                 fit_args = pickle.load(handle)
             n_acquisitions = fit_args.max_acquisitions
             n_grasps = fit_args.n_samples
-            acc, prec, avg_prec, recalls, f1s, bal_acc, etrpy = \
+            acc, prec, avg_prec, recalls, f1s, bal_acc, rgts, etrpy = \
                 np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
@@ -724,7 +745,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                     np.zeros((n_objs, n_acquisitions))
 
             if amortize:
-                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, etrpy]
+                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc,  rgts, etrpy]
             else:
                 metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc]
 
@@ -781,7 +802,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
             avg_prec = metric_per_strategy_list[avg_prec_ix]
             avg_prec_last_acquistion = avg_prec[:, -1].reshape(-1, 1)
             metric_list[-1][obj_set][strategy] = avg_prec / avg_prec_last_acquistion
-            metric_names.append("normalized average precision")
+            # metric_names.append("normalized average precision")
 
             if amortize:
                 means[obj_set][strategy] = mn
@@ -990,7 +1011,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, exp_name, exp_a
         min_pstable=0.0,
         max_pstable=1.0,
         min_dist_threshold=0.0,
-        max_objects=5
+        max_objects=500
     )
     for ox, object_name, _ in valid_train_objects:
 
