@@ -290,12 +290,19 @@ def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2,
     sns.set_theme(style='darkgrid')
     sns.relplot(data=d_combo.loc['train'], x='acquisition', y='time metric value', estimator='median',
                 col='experiment', hue='strategy', kind='line', col_wrap=2, errorbar=('pi', 50))
+    plt.ylabel(metric_name)
     plt.savefig(os.path.join(output_path, f'train_{name1}_vs_{name2}_{metric_name}.png'))
 
     plt.figure(figsize=(12, 9))
     sns.set_theme(style='darkgrid')
-    sns.relplot(data=d_combo.loc['test'], x='acquisition', y='time metric value', estimator='median',
+    res = sns.relplot(data=d_combo.loc['test'], x='acquisition', y='time metric value', estimator='median',
                 col='experiment', hue='strategy', kind='line', col_wrap=2, errorbar=('pi', 50))
+    labels = ['Random', 'Info Gain']
+    res._legend.set_title('Strategy')
+    for t, l in zip(res._legend.texts, labels):
+        t.set_text(l)
+    res.set_ylabels(metric_name.capitalize())
+    res.set_xlabels('# Acquisition Grasps')
     plt.savefig(os.path.join(output_path, f'test_{name1}_vs_{name2}_{metric_name}.png'))
 
 
