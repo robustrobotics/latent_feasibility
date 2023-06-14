@@ -1,4 +1,5 @@
-from learning.evaluate.plot_compare_grasping_runs import plot_comparison_between_average_precision_of_two_experiments
+from learning.evaluate.plot_compare_grasping_runs import plot_comparison_between_average_precision_of_two_experiments, \
+    plot_comparison_between_average_precision_of_n_experiments
 from learning.experiments.grasping_experiment_scripts.run_grasping_experiments import compile_dataframes_and_save_path
 
 
@@ -30,6 +31,25 @@ def main():
         'figures/',
         'average precision'
     )
+
+    # particle performance shapenet
+    sn_10_exp = 'pf10-snv2scaledim-run10'
+    sn_100_exp = 'pf100-snv2scaledim-run10'
+    sn_1000_exp = 'pf-snv2scaleddim-run10'
+    sn_list = [sn_10_exp, sn_100_exp, sn_1000_exp]
+    sn_dfs = [compile_dataframes_and_save_path(sn_exp, True)[0] for sn_exp in sn_list]
+    sn_names = ['sn_10_parts', 'sn_100_parts', 'sn_1000_parts']
+    plot_comparison_between_average_precision_of_n_experiments(sn_dfs, sn_names, 'figures/', 'average precision')
+
+    # boxes performance shapenet
+    bx_10_exp = 'pf10-boxv2-run1'
+    bx_100_exp = 'pf100-boxv2-run1'
+    bx_1000_exp = 'pf-boxv2-run1'
+    bx_list = [bx_10_exp, bx_100_exp, bx_1000_exp]
+    bx_dfs = [compile_dataframes_and_save_path(bx_exp, True)[0] for bx_exp in bx_list]
+    bx_names = ['bx_10_parts', 'bx_100_parts', 'bx_1000_parts']
+    plot_comparison_between_average_precision_of_n_experiments(bx_dfs, bx_names, 'figures/', 'average precision')
+
 
 
 if __name__ == '__main__':

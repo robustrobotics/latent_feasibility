@@ -185,7 +185,7 @@ def plot_from_dataframe(d, d_latents, d_igs, output_path):
     d_test = d_time_only_no_entropy.loc['test']
     d_stable = d_test[
         (minp < d_test.pstable) & (d_test.pstable < maxp)
-    ].drop_duplicates()
+        ].drop_duplicates()
     plt.figure(figsize=(12, 9))
     sns.set_theme(style='darkgrid')
     sns.relplot(data=d_stable, x='acquisition', y='time metric value', estimator='median',
@@ -274,7 +274,8 @@ def plot_from_dataframe(d, d_latents, d_igs, output_path):
     plt.savefig(os.path.join(output_path, 'igs_test.png'))
 
 
-def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2, name1, name2, output_path, metric_name):
+def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2, name1, name2, output_path,
+                                                                 metric_name):
     d_exp_1_avg_prec = d_exp1[d_exp1['time metric'] == metric_name].drop_duplicates()
     d_exp_2_avg_prec = d_exp2[d_exp2['time metric'] == metric_name].drop_duplicates()
 
@@ -282,8 +283,8 @@ def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2,
         [d_exp_1_avg_prec, d_exp_2_avg_prec],
         axis=1,
         keys=[name1, name2],
-        names=['experiment'])\
-        .stack(level=0)\
+        names=['experiment']) \
+        .stack(level=0) \
         .reset_index(level=['experiment'])
 
     plt.figure(figsize=(12, 9))
@@ -304,6 +305,32 @@ def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2,
     res.set_ylabels(metric_name.capitalize())
     res.set_xlabels('# Acquisition Grasps')
     plt.savefig(os.path.join(output_path, f'test_{name1}_vs_{name2}_{metric_name}.png'))
+
+
+def plot_comparison_between_average_precision_of_n_experiments(d_exps, names, output_path, metric_name):
+    d_exps_avg_prec = []
+    for d_exp in d_exps:
+        d_exps_avg_prec.append(d_exp[d_exp['time metric'] == metric_name].drop_duplicates())
+
+    d_combo = pd.concat(
+        d_exps_avg_prec,
+        axis=1,
+        keys=names,
+        names=['experiment']) \
+        .stack(level=0) \
+        .reset_index(level=['experiment'])
+
+    plt.figure(figsize=(12, 9))
+    sns.set_theme(style='darkgrid')
+    sns.relplot(data=d_combo.loc['train'], x='acquisition', y='time metric value', estimator='median',
+                col='experiment', hue='strategy', kind='line', col_wrap=2, errorbar=('pi', 50))
+    plt.savefig(os.path.join(output_path, f'train_{"vs".join(names)}_{metric_name}.png'))
+
+    plt.figure(figsize=(12, 9))
+    sns.set_theme(style='darkgrid')
+    sns.relplot(data=d_combo.loc['test'], x='acquisition', y='time metric value', estimator='median',
+                col='experiment', hue='strategy', kind='line', col_wrap=2, errorbar=('pi', 50))
+    plt.savefig(os.path.join(output_path, f'test_{"vs".join(names)}_{metric_name}.png'))
 
 
 if __name__ == '__main__':
