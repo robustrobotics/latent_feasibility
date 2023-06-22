@@ -1,6 +1,8 @@
 import argparse
 import copy
 import math
+import pickle
+import time
 
 import numpy as np
 import torch
@@ -102,6 +104,7 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
     if torch.cuda.is_available():
         gnp.cuda()
 
+    latent_pred_st = time.process_time()
     with torch.no_grad():
         if context_data is not None:
             context_mesh = torch.unsqueeze(
@@ -170,6 +173,11 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
             q_z = torch.distributions.Normal(zeros, ones)
             h_z = torch.distributions.Independent(q_z, 1).entropy()
 
+        # ======> INFERENCE TIMING END
+        latent_pred_et = time.process_time()
+
+        # ======> INFO GAIN COMPUTATION TIME START
+        ig_st = time.process_time()
         # prepare unlabeled points as batched singletons
         unlabeled_mesh = torch.unsqueeze(
             torch.swapaxes(
@@ -321,7 +329,12 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
         expected_h_z_cond_x_y = p_y_equals_one_cond_d_x * h_z_cond_x_y_equals_one + (
                 1 - p_y_equals_one_cond_d_x) * h_z_cond_x_y_equals_zero
         info_gain = h_z - expected_h_z_cond_x_y
-        return info_gain.cpu().numpy()
+        # ======> INFO GAIN TIMING COMPUTATION END
+        ig_et = time.process_time()
+
+        latent_pred_time = latent_pred_et - latent_pred_st
+        ig_time = ig_et - ig_st
+        return info_gain.cpu().numpy(), latent_pred_time, ig_time
 
 
 def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_selection_fun=None):
@@ -362,6 +375,9 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
         )
 
     grasp_labeler = None
+
+    amortized_pred_times = []
+    ig_compute_times = []
     for tx in range(0, args.max_acquisitions):
         print('[AmortizedFilter] Interaction Number', tx)
 
@@ -370,6 +386,9 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
             context_data = merge_gnp_datasets(context_data, grasp_dataset)
             logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
             logger.save_acquisition_data(context_data, random_pool, tx + 1)
+
+            amortized_pred_times.append(np.NaN)
+            ig_compute_times.append(np.NaN)
         elif strategy == 'random' and args.constrained:
             # Sample a plan of horizon 1. Pick/place.
             (grasp, place) = agent.sample_plan(horizon=1)
@@ -381,14 +400,17 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
             context_data = merge_gnp_datasets(context_data, grasp_dataset)
             logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
             logger.save_acquisition_data(context_data, random_pool, tx + 1)
+
+            amortized_pred_times.append(np.NaN)
+            ig_compute_times.append(np.NaN)
         elif strategy == 'bald':
-            # TODO: Sample target unlabeled dataset in parallel fashion.
             print('[BALD] Sampling...')
             unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set, object_ix=args.eval_object_ix)
 
             print('[BALD] Selecting...')
-            info_gain = compute_ig(gnp, context_data, unlabeled_dataset,
-                                   n_samples_from_latent_dist=32, batching_size=32)
+            info_gain, amortized_pred_time, ig_compute_time = compute_ig(gnp, context_data, unlabeled_dataset,
+                                                                         n_samples_from_latent_dist=32,
+                                                                         batching_size=32)
 
             # gives an opportunity to hijack the selection computation if needed for comparison experiments
             if override_selection_fun is None:
@@ -403,9 +425,11 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
             grasp_dataset, grasp_labeler = get_label_gnp(grasp_dataset, labeler=grasp_labeler)
 
             context_data = merge_gnp_datasets(context_data, grasp_dataset)
-            # TODO: why do we save this? we haven't changed anything
             logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
             logger.save_acquisition_data(context_data, unlabeled_dataset, tx + 1)
+
+            amortized_pred_times.append(amortized_pred_time)
+            ig_compute_times.append(ig_compute_time)
         else:
             raise NotImplementedError()
 
@@ -415,6 +439,12 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
 
     if args.constrained:
         agent.disconnect()
+
+    # save time data from run
+    with open(logger.get_figure_path('belief_update_times.pkl'), 'wb') as handle:
+        pickle.dump(amortized_pred_times, handle)
+    with open(logger.get_figure_path('ig_compute_times.pkl'), 'wb') as handle:
+        pickle.dump(ig_compute_times, handle)
 
 
 def particle_filter_loop(pf, object_set, logger, strategy, args,
@@ -430,6 +460,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
         logger.save_neural_process(pf.likelihood, 0, symlink_tx0=False)
     logger.save_particles(pf.particles, 0)
 
+    particle_update_times, ig_compute_times = [], []
     for tx in range(0, args.max_acquisitions):
         print('[ParticleFilter] Interaction Number', tx)
 
@@ -438,13 +469,13 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
             data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
             grasp_dataset = data_sampler_fn(1)
             acquired_sampled_grasps = None
+            ig_compute_time = np.NaN
         elif strategy == 'bald':
 
             data_sampler_fn = lambda n: sample_unlabeled_data(n_samples=n, object_set=object_set)
 
-            # TODO: make option replace with acquired grasps
-            # TODO: check if GNP data form is compatible with the non-GNP data form
-
+            # BEGIN TIMING FOR PARTICLE IG STEP ================>
+            ig_compute_st = time.process_time()
             if not used_cached_samples:
                 all_grasps = []
                 all_preds = []
@@ -471,6 +502,9 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
             else:
                 best_ix = override_selection_fun(scores, tx)
 
+            # ==============================> END TIMING FOR PARTICLE IG STEP
+            ig_compute_et = time.process_time()
+
             grasp_dataset = all_grasps[best_ix]
 
             # merge all grasps to save them for visualization
@@ -483,6 +517,8 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
                 processed_grasp = process_geometry(grasp, radius=0.3,
                                                    verbose=False) if not used_cached_samples else grasp
                 acquired_sampled_grasps = merge_gnp_datasets(acquired_sampled_grasps, processed_grasp)
+
+            ig_compute_time = ig_compute_et - ig_compute_st
         else:
             raise NotImplementedError()
 
@@ -493,7 +529,13 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
             # if we are using cached, they are in gnp format - so label them the gnp way
             grasp_dataset, grasp_labeler = get_label_gnp(grasp_dataset, labeler=grasp_labeler)
         # Update the particle belief.
+
+        particle_update_st = time.process_time()
         particles, means = pf.update(grasp_dataset)
+        particle_update_et = time.process_time()
+
+        particle_update_time = particle_update_et - particle_update_st
+
         print('[ParticleFilter] Particle Statistics')
         print(f'Min Weight: {np.min(pf.particles.weights)}')
         print(f'Max Weight: {np.max(pf.particles.weights)}')
@@ -515,6 +557,15 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
         logger.save_particles(particles, tx + 1)
     if not grasp_labeler is None:
         grasp_labeler.disconnect()
+
+        particle_update_times.append(particle_update_time)
+        ig_compute_times.append(ig_compute_time)
+
+    # save time data from run
+    with open(logger.get_figure_path('belief_update_times.pkl'), 'wb') as handle:
+        pickle.dump(particle_update_times, handle)
+    with open(logger.get_figure_path('ig_compute_times.pkl'), 'wb') as handle:
+        pickle.dump(ig_compute_times, handle)
 
 
 def run_particle_filter_fitting(args):
