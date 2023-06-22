@@ -688,6 +688,8 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     f1s = {'train_geo': {}, 'test_geo': {}}
     balanced_accuracy_scores = {'train_geo': {}, 'test_geo': {}}
     entropies = {'train_geo': {}, 'test_geo': {}}
+    belief_update_times = {'train_geo': {}, 'test_geo': {}}
+    ig_compute_times = {'train_geo': {}, 'test_geo': {}}
     means = {'train_geo': {}, 'test_geo': {}}
     covars = {'train_geo': {}, 'test_geo': {}}
     info_gains = {'train_geo': {}, 'test_geo': {}}
@@ -695,17 +697,17 @@ def compile_dataframes_and_save_path(exp_name, amortize):
         metric_list = [
             accuracies, precisions, average_precisions,
             recalls, f1s, balanced_accuracy_scores,
-            regrets, entropies, average_precisions_normed
+            regrets, average_precisions_normed, belief_update_times, ig_compute_times, entropies,
         ]
         metric_file_list = [
             'val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl',
             'val_recalls.pkl', 'val_f1s.pkl', 'val_balanced_accs.pkl',
-            'regrets_0.pkl', 'val_entropies.pkl'
+            'regrets_0.pkl', 'average_precisions_normed.pkl', 'belief_update_times.pkl', 'ig_compute_times.pkl', 'val_entropies.pkl'
         ]
         metric_names = [
             'accuracy', 'precision', 'average precision',
             'recall', 'f1', 'balanced accuracy',
-            'regret', 'entropy', 'normalized average precision'
+            'regret', 'normalized average precision', 'belief update time', 'ig compute time', 'entropy'
         ]
     else:
         metric_list = [
@@ -734,8 +736,11 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                 fit_args = pickle.load(handle)
             n_acquisitions = fit_args.max_acquisitions
             n_grasps = fit_args.n_samples
-            acc, prec, avg_prec, recalls, f1s, bal_acc, rgts, etrpy = \
+            acc, prec, avg_prec, recalls, f1s, bal_acc, rgts, norm_avg_prec, bel_tm, ig_tm, etrpy = \
                 np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
@@ -745,9 +750,11 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                     np.zeros((n_objs, n_acquisitions))
 
             if amortize:
-                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc,  rgts, etrpy]
+                metric_per_strategy_list = [
+                    acc, prec, avg_prec, recalls, f1s, bal_acc, rgts, norm_avg_prec, bel_tm, ig_tm, etrpy
+                ]
             else:
-                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc]
+                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm]
 
             mn, cvr = np.zeros((n_objs, n_latents, n_acquisitions)), np.zeros((n_objs, n_latents, n_acquisitions))
             igs = np.zeros((n_objs, 25 * n_acquisitions))
@@ -791,8 +798,6 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                                 temp_ig[tx, :] = np.var(temp_ig[tx, :20])
 
                         igs[i_obj, :] = temp_ig.flatten(order='C')  # flatten to format for dataframe loading
-                        # if strategy == 'bald':
-                        #     import IPython; IPython.embed()
 
             for metric, metric_per_strategy in zip(metric_list, metric_per_strategy_list):
                 metric[obj_set][strategy] = metric_per_strategy
@@ -918,7 +923,6 @@ def compile_dataframes_and_save_path(exp_name, amortize):
         # load in expected IG
         formatted_ig_grasps_train = np.vstack(info_gains['train_geo'].values())
         d_expected_ig_train = pd.DataFrame(data=formatted_ig_grasps_train, index=mi_train, columns=mc_time_grasp_ig)
-        # import IPython; IPython.embed()
 
         formatted_ig_grasps_test = np.vstack(info_gains['test_geo'].values())
         d_expected_ig_test = pd.DataFrame(data=formatted_ig_grasps_test, index=mi_test, columns=mc_time_grasp_ig)
@@ -1022,6 +1026,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, exp_name, exp_a
         if object_name not in logs_lookup_by_object['train_geo']['constrained_random']:
             logs_lookup_by_object['train_geo']['constrained_random'][object_name] = []
 
+        # TODO: can rebuild multi index with items that are only present in the log lookup found here
         random_log_key = f'grasp_{exp_args.exp_name}_fit_random_train_geo_object{ox}'
         if random_log_key in logs_lookup['fitting_phase']['random']:
             random_log_fname = logs_lookup['fitting_phase']['random'][random_log_key]
