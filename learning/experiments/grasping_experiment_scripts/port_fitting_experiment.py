@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 import pickle
 import os
+import time
+
 
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
 
@@ -183,9 +185,22 @@ def port_objects(args, existing_logs_lookup, ported_logs_lookup, mode):
                         data_is_in_gnp_format=True
                     )
 
+                    particle_update_times = []
                     for tx, grasp in enumerate(context_set_individual_grasps):
+                        particle_update_st = time.process_time()
                         particles, _ = pf.update(grasp)
+                        particle_update_et = time.process_time()
                         ported_logger.save_particles(particles, tx)
+                        particle_update_times.append(particle_update_et - particle_update_st)
+
+                    # store particle filter update computations.
+                    # there isn't any IG time data if random/did not recmput ig in this method, so
+                    # we store a bunch of NanS
+                    with open(ported_logger.get_figure_path('belief_update_times.pkl'), 'wb') as handle:
+                        pickle.dump(particle_update_times, handle)
+                    with open(ported_logger.get_figure_path('ig_compute_times.pkl'), 'wb') as handle:
+                        pickle.dump([np.NaN] * len(context_set_individual_grasps), handle)
+
 
 
 if __name__ == '__main__':
