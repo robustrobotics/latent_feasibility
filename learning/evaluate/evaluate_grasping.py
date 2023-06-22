@@ -454,7 +454,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
             # we have to drop the last grasp in the context set to see what the ig comp looked like
 
             pre_selection_context_data = drop_last_grasp_in_dataset(context_data)
-            info_gain = compute_ig(gnp, pre_selection_context_data, sampled_unlabeled_data)
+            info_gain, _, _ = compute_ig(gnp, pre_selection_context_data, sampled_unlabeled_data)
             info_gains.append(info_gain)
             if vis:
                 max_entropy = torch.distributions.Independent(
