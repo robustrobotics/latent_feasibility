@@ -509,12 +509,12 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
 
             # merge all grasps to save them for visualization
             # convert into gnp form since we are now using the gnp model for the paper
-            acquired_sampled_grasps = process_geometry(all_grasps[0], radius=0.3,
+            acquired_sampled_grasps = process_geometry(all_grasps[0], radius=0.03,
                                                        verbose=False) if not used_cached_samples else copy.deepcopy(
                                                                                                         all_grasps[0])
             for grasp in all_grasps[1:]:
                 # convert into gnp form since we are now using the gnp model for the paper
-                processed_grasp = process_geometry(grasp, radius=0.3,
+                processed_grasp = process_geometry(grasp, radius=0.03,
                                                    verbose=False) if not used_cached_samples else grasp
                 acquired_sampled_grasps = merge_gnp_datasets(acquired_sampled_grasps, processed_grasp)
 
