@@ -567,6 +567,15 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
     with open(logger.get_figure_path('ig_compute_times.pkl'), 'wb') as handle:
         pickle.dump(ig_compute_times, handle)
 
+        particle_update_times.append(particle_update_time)
+        ig_compute_times.append(ig_compute_time)
+
+    # save time data from run
+    with open(logger.get_figure_path('belief_update_times.pkl'), 'wb') as handle:
+        pickle.dump(particle_update_times, handle)
+    with open(logger.get_figure_path('ig_compute_times.pkl'), 'wb') as handle:
+        pickle.dump(ig_compute_times, handle)
+
 
 def run_particle_filter_fitting(args):
     print(args)

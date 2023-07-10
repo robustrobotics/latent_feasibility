@@ -11,8 +11,8 @@ from pb_robot.planners.antipodalGraspPlanner import GraspSimulationClient
 from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector
 
 from learning.active.utils import ActiveExperimentLogger
-from learning.evaluate.evaluate_grasping import get_pf_validation_accuracy, get_pf_task_performance, evaluate_trained_gnp
-from learning.evaluate.plot_compare_grasping_runs import plot_val_loss, plot_from_dataframe
+from learning.evaluate.evaluate_grasping import get_pf_validation_accuracy, get_pf_task_performance
+from learning.evaluate.plot_compare_grasping_runs import plot_val_loss, plot_debug_from_dataframe
 from learning.experiments.train_grasping_single import run as training_phase_variational
 from learning.domains.grasping.generate_datasets_for_experiment import parse_ignore_file
 from learning.models.grasp_np.train_grasp_np import run as training_phase_amortized
@@ -210,28 +210,6 @@ def run_fitting_phase(args):
                 vis=False
             )
 
-def run_train_eval_phase(args):
-    exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
-    if not os.path.exists(exp_path):
-        print(f'[ERROR] Experiment does not exist: {args.exp_name}')
-        sys.exit()
-
-    logs_path = os.path.join(exp_path, 'logs_lookup.json')
-    with open(logs_path, 'r') as handle:
-        logs_lookup = json.load(handle)
-
-    train_model_path = logs_lookup['training_phase']
-    train_logger = ActiveExperimentLogger(train_model_path, use_latents=True)
-    
-    args_path = os.path.join(exp_path, 'args.pkl')
-    with open(args_path, 'rb') as handle:
-        exp_args = pickle.load(handle)
-
-    train_fname, val_fname, n_objs = \
-        get_training_phase_dataset_args(exp_args.dataset_name)
-
-    evaluate_trained_gnp(train_logger, train_fname, val_fname, exp_path)
-
 
 def playback_fitting_phase(args):
     exp_path = os.path.join(EXPERIMENT_ROOT, args.exp_name)
@@ -395,12 +373,12 @@ def run_task_eval_phase(args):
     # Run fitting phase for all objects that have not yet been fitted
     # (each has a standard name in the experiment logs).
     for geo_type, objects_fname, n_objects, ignore in zip(
-        ['test_geo', 'train_geo'],
-        [test_geo_fname, train_geo_fname],
-        [n_test_geo, n_train_geo],
-        [TEST_IGNORE, TRAIN_IGNORE]
+            ['test_geo', 'train_geo'],
+            [test_geo_fname, train_geo_fname],
+            [n_test_geo, n_train_geo],
+            [TEST_IGNORE, TRAIN_IGNORE]
     ):
-        for ox in range(0, min(n_objects, 500)):
+        for ox in range(min(n_objects, 100)):
             if ox in ignore: continue
 
             if args.constrained:
@@ -430,22 +408,8 @@ def run_task_eval_phase(args):
 
             with open(os.path.join(fit_log_path, 'args.pkl'), 'rb') as handle:
                 fitting_args = pickle.load(handle)
-
-            if args.task == 'average-precision':
-                get_pf_validation_accuracy(
-                    fit_logger,
-                    val_dataset_path,
-                    args.amortize,
-                    use_progressive_priors=fitting_args.use_progressive_priors
-                )
-            elif args.task == 'min-grasp-force':
-                get_pf_task_performance(
-                    fit_logger,
-                    val_dataset_path,
-                    use_progressive_priors=fitting_args.use_progressive_priors
-                )
-            else:
-                raise NotImplementedError()
+            get_pf_task_performance(fit_logger, val_dataset_path,
+                                    use_progressive_priors=fitting_args.use_progressive_priors)
 
 
 def run_training_phase(args):
@@ -473,7 +437,7 @@ def run_training_phase(args):
         training_args.exp_name = f'grasp_{exp_args.exp_name}_train'
         training_args.train_dataset_fname = train_data_fname
         training_args.val_dataset_fname = val_data_fname
-        training_args.n_epochs = 50
+        training_args.n_epochs = 100
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 16
         training_args.use_latents = False  # NOTE: this is a workaround for pointnet + latents,
@@ -562,26 +526,15 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
             sample_covar += np.outer(prop_sample, prop_sample)
         sample_covar /= len(name_ixs)
         # TODO: note that this is a hack right now since we're dealing with 2d mean and covariance
-        eigval_prod = np.real(np.prod(np.linalg.eigvals(sample_covar)[0:2])) # we know sample covar PSD so eigval real
-        
-        if name in metadata:
-            volume = metadata[name]['volume']
-            bb_volume = metadata[name]['bb_volume']
-            # max_dim = np.max(mesh.bounds[1]*2)
-            ratio = bb_volume / volume
-            # sim_client.disconnect()
-            max_dim = 0.2
-            rejection_rate = metadata[name]['rejection_rate']
-            avg_min_dist = metadata[name]['avg_min_dist50']
-        else:
-            volume = 0.0
-            bb_volume = 0.0
-            # max_dim = np.max(mesh.bounds[1]*2)
-            ratio = 1.0
-            # sim_client.disconnect()
-            max_dim = 0.25
-            rejection_rate = 0.8
-            avg_min_dist = 0.01
+        eigval_prod = np.real(np.prod(np.linalg.eigvals(sample_covar)[0:2]))  # we know sample covar PSD so eigval real
+
+        volume = metadata[name]['volume']
+        bb_volume = metadata[name]['bb_volume']
+        # max_dim = np.max(mesh.bounds[1]*2)
+        ratio = bb_volume / volume
+        # sim_client.disconnect()
+        max_dim = 0.2
+        rejection_rate = metadata[name]['rejection_rate']
 
         # all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
         # dists_to_closest = []
@@ -594,7 +547,7 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         #     dists_to_closest.append(np.min(dists))
 
         # avg_min_dist = np.mean(dists_to_closest)
-        
+        avg_min_dist = metadata[name]['avg_min_dist50']
         p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
         if avg_min_dist < min_dist_threshold:
             continue
@@ -629,7 +582,7 @@ def run_testing_phase(args):
     # next, seaborn can only plot certain values against others in column format, so we need to
     # move some of the row indicators to columns (unpivot?)
     fig_path = os.path.join(exp_path, 'figures')
-    plot_from_dataframe(d_all, d_ltime, d_ig, fig_path)
+    plot_debug_from_dataframe(d_all, d_ltime, d_ig, fig_path)
 
 
 def compile_dataframes_and_save_path(exp_name, amortize):
@@ -680,7 +633,6 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     # note; we don't do confusions since they are hard to store... and that data can come from the other
     # metrics below
     accuracies = {'train_geo': {}, 'test_geo': {}}
-    regrets = {'train_geo': {}, 'test_geo': {}}
     precisions = {'train_geo': {}, 'test_geo': {}}
     average_precisions = {'train_geo': {}, 'test_geo': {}}
     average_precisions_normed = {'train_geo': {}, 'test_geo': {}}
@@ -694,35 +646,20 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     covars = {'train_geo': {}, 'test_geo': {}}
     info_gains = {'train_geo': {}, 'test_geo': {}}
     if amortize:
-        metric_list = [
-            accuracies, precisions, average_precisions,
-            recalls, f1s, balanced_accuracy_scores,
-            regrets, average_precisions_normed, belief_update_times, ig_compute_times, entropies,
-        ]
-        metric_file_list = [
-            'val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl',
-            'val_recalls.pkl', 'val_f1s.pkl', 'val_balanced_accs.pkl',
-            'regrets_0.pkl', 'average_precisions_normed.pkl', 'belief_update_times.pkl', 'ig_compute_times.pkl', 'val_entropies.pkl'
-        ]
-        metric_names = [
-            'accuracy', 'precision', 'average precision',
-            'recall', 'f1', 'balanced accuracy',
-            'regret', 'normalized average precision', 'belief update time', 'ig compute time', 'entropy'
-        ]
+        metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies,
+                       average_precisions_normed, belief_update_times, ig_compute_times]
+        metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
+                            'val_f1s.pkl', 'val_balanced_accs.pkl', 'belief_update_times.pkl',
+                            'ig_compute_times.pkl',  'val_entropies.pkl']
+        metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
+                        'belief update time', 'ig compute time', 'entropy']
     else:
-        metric_list = [
-            accuracies, precisions, average_precisions, recalls,
-            f1s, balanced_accuracy_scores
-        ]
-        metric_file_list = [
-            'val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl',
-            'val_recalls.pkl', 'val_f1s.pkl', 'val_balanced_accs.pkl'
-        ]
-        metric_names = [
-            'accuracy', 'precision', 'average precision',
-            'recall', 'f1', 'balanced accuracy'
-        ]
-
+        metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores,
+                       belief_update_times, ig_compute_times]
+        metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
+                            'val_f1s.pkl', 'val_balanced_accs.pkl', 'belief_update_times.pkl', 'ig_compute_times.pkl']
+        metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
+                        'belief update time', 'ig compute time']
     log_paths_set = {'train_geo': [], 'test_geo': []}
     n_acquisitions = None
     for obj_set in ['train_geo', 'test_geo']:
@@ -736,10 +673,8 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                 fit_args = pickle.load(handle)
             n_acquisitions = fit_args.max_acquisitions
             n_grasps = fit_args.n_samples
-            acc, prec, avg_prec, recalls, f1s, bal_acc, rgts, norm_avg_prec, bel_tm, ig_tm, etrpy = \
+            acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy = \
                 np.zeros((n_objs, n_acquisitions)), \
-                    np.zeros((n_objs, n_acquisitions)), \
-                    np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
@@ -750,9 +685,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                     np.zeros((n_objs, n_acquisitions))
 
             if amortize:
-                metric_per_strategy_list = [
-                    acc, prec, avg_prec, recalls, f1s, bal_acc, rgts, norm_avg_prec, bel_tm, ig_tm, etrpy
-                ]
+                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy]
             else:
                 metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm]
 
@@ -781,22 +714,6 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                         arrayed_arr = np.array(unpickled_arr)
                         temp_ig = np.zeros((n_acquisitions, 25)) * np.nan
                         temp_ig[:, :arrayed_arr.shape[1]] = arrayed_arr
-
-                        # Only plot IG of the chosen sample.
-                        # if strategy == 'random':
-                        #     for tx in range(0, 25):
-                        #         temp_ig[tx, :] = temp_ig[tx, tx]
-                        # else:
-                        #     for tx in range(0, 25):
-                        #         temp_ig[tx, :] = np.max(temp_ig[tx, :20])
-
-                        if strategy == 'random':
-                            for tx in range(0, 25):
-                                temp_ig[tx, :] = np.var(temp_ig[tx, :])
-                        else:
-                            for tx in range(0, 25):
-                                temp_ig[tx, :] = np.var(temp_ig[tx, :20])
-
                         igs[i_obj, :] = temp_ig.flatten(order='C')  # flatten to format for dataframe loading
 
             for metric, metric_per_strategy in zip(metric_list, metric_per_strategy_list):
@@ -807,7 +724,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
             avg_prec = metric_per_strategy_list[avg_prec_ix]
             avg_prec_last_acquistion = avg_prec[:, -1].reshape(-1, 1)
             metric_list[-1][obj_set][strategy] = avg_prec / avg_prec_last_acquistion
-            # metric_names.append("normalized average precision")
+            metric_names.append("normalized average precision")
 
             if amortize:
                 means[obj_set][strategy] = mn
@@ -941,7 +858,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
         d_train_entropy.columns = range(26)
         d_train_actual_ig = d_train_entropy.drop(columns=[25])
 
-        d_test_entropy = d_time_test['entropy']
+        d_test_entropy = d_time_train['entropy']
         d_test_entropy.insert(0, -1, [starting_entropy] * d_test_entropy.shape[0])
         d_test_entropy = d_test_entropy.diff(periods=-1, axis=1)
         d_test_entropy.columns = range(26)
@@ -954,14 +871,9 @@ def compile_dataframes_and_save_path(exp_name, amortize):
         d_test_actual_ig.columns = pd.MultiIndex.from_product([d_test_actual_ig.columns, [0]],
                                                               names=['acquisition', 'grasp'])
 
-        # d_full_ig_train = pd.concat([d_expected_ig_train, d_train_actual_ig], axis=1, keys=['expected', 'actual'],
-        #                             names=['pre or post'])
-        # d_full_ig_test = pd.concat([d_expected_ig_test, d_test_actual_ig], axis=1, keys=['expected', 'actual'],
-        #                            names=['pre or post'])
-
-        d_full_ig_train = pd.concat([d_expected_ig_train], axis=1, keys=['expected'],
+        d_full_ig_train = pd.concat([d_expected_ig_train, d_train_actual_ig], axis=1, keys=['expected', 'actual'],
                                     names=['pre or post'])
-        d_full_ig_test = pd.concat([d_expected_ig_test], axis=1, keys=['expected'],
+        d_full_ig_test = pd.concat([d_expected_ig_test, d_test_actual_ig], axis=1, keys=['expected', 'actual'],
                                    names=['pre or post'])
 
         d_ig = pd.concat([d_full_ig_train, d_full_ig_test], keys=['train', 'test']).melt(
@@ -1096,7 +1008,7 @@ def gather_experiment_logs_file_paths(TEST_IGNORE, TRAIN_IGNORE, exp_name, exp_a
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--phase', required=True, choices=['create', 'training', 'fitting',
-        'fitting-vis', 'testing', 'task-eval', 'train-eval', 'playback'])
+                                                           'playback', 'testing', 'task-eval'])
     parser.add_argument('--dataset-name', type=str, default='')
     parser.add_argument('--exp-name', required=True, type=str)
     parser.add_argument('--strategy', type=str, choices=['bald', 'random'], default='random')
@@ -1110,7 +1022,7 @@ if __name__ == '__main__':
                         help='this is really to add an new metrics to fitting we did not have before')
     parser.add_argument('--playback-test-fitting', action='store_true', default=False,
                         help='this is really to add an new metrics to fitting we did not have before')
-    parser.add_argument('--task', required=False, default='average-precision', choices=['average-precision', 'min-grasp-force'])
+
     args = parser.parse_args()
 
     if args.phase == 'create':
@@ -1131,5 +1043,3 @@ if __name__ == '__main__':
         run_testing_phase(args)
     elif args.phase == 'task-eval':
         run_task_eval_phase(args)
-    elif args.phase == 'train-eval':
-        run_train_eval_phase(args)
