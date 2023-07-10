@@ -368,8 +368,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
     thresholded_recalls = {}
     confusions = []
 
-    if use_progressive_priors:
-        means_agg, covars_agg, entropies, info_gains = [], [], [], []
+    means_agg, covars_agg, entropies, info_gains = [], [], [], []
 
     with open(fname, 'rb') as handle:
         val_grasp_data = pickle.load(handle)
@@ -428,6 +427,10 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                     visualize_fitting_acquisition(pre_selection_context_data, sampled_unlabeled_data, info_gain,
                                                   max_entropy,
                                                   figpath='')
+                means_agg.append(np.zeros(gnp.d_latents) * np.NaN)
+                covars_agg.append(np.zeros(gnp.d_latents) * np.NaN)
+                entropies.append(np.NaN)
+                info_gains.append(np.NaN)
 
             else:
                 # TODO: integrate pybullet for comparison to ground truth IG
@@ -440,6 +443,10 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                     ensemble,
                     n_particle_samples=50
                 )
+                means_agg.append(np.zeros(ensemble.models[0].d_latents) * np.NaN)
+                covars_agg.append(np.zeros(ensemble.models[0].d_latents) * np.NaN)
+                entropies.append(np.NaN)
+                info_gains.append(np.NaN)
         else:
             context_data, sampled_unlabeled_data = logger.load_acquisition_data(tx)
             gnp = logger.get_neural_process(tx)
