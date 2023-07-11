@@ -391,10 +391,13 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
             self.plot_particles(self.ax, self.particles.particles, self.particles.weights)
 
     def setup(self):
-        self.particles = create_gaussian_particles(N=self.N,
-                                                   D=self.D,
-                                                   means=[0.] * self.D,
-                                                   stds=[2.] * self.D)
+        print('Setting up particles')
+        self.particles = create_gaussian_particles(
+            N=self.N,
+            D=self.D,
+            means=[-0.01336855, -0.07791229, -0.10432979, 0.02341524, 0.2466585],  #[0.] * self.D,
+            stds=[0.05641393, 0.56605726, 1.804926, 1.276295, 1.7758392]  #[2.] * self.D
+        )
         if not self.resample:
             self.particles = ParticleDistribution(self.particles.particles, np.ones(self.N))
 
@@ -561,11 +564,13 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
             bernoulli_probs = self.likelihood.get_particle_likelihoods(self.particles.particles, observation)
 
         label = self.get_label_from_observation(observation)
-
         n_correct = ((bernoulli_probs > 0.5).astype('float32') == label).sum()
         print('Correct for CURRENT sample:', n_correct / len(bernoulli_probs), len(bernoulli_probs))
 
         new_weights = []
+        obs_models = bernoulli_probs*label + (1-bernoulli_probs)*(1-label)
+        print('Overconfident:', (obs_models < 0.01).sum())
+
         for pi, (bern_prob, old_weight) in enumerate(zip(bernoulli_probs, self.particles.weights)):
             # print(pi, bern_prob, old_weight)
             obs_model = bern_prob * label + (1 - bern_prob) * (1 - label)
