@@ -756,10 +756,15 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                 logger = ActiveExperimentLogger(exp_path=log_path, use_latents=True)
 
                 for data_arr, fname in zip(metric_per_strategy_list, metric_file_list):
-                    with open(logger.get_figure_path(fname), 'rb') as handle:
+                    path = logger.get_figure_path(fname)
+                    if not os.path.exists(path):
+                        print(f'[Warning]: {path} not found.')
+                        data_arr[i_obj, :] = 0.
+                        continue
+                    with open(path, 'rb') as handle:
                         data_arr[i_obj, :] = np.array(pickle.load(handle)).squeeze()
 
-                if amortize:
+                if amortize and os.path.exists(logger.get_figure_path('val_means.pkl')):
                     for data_arr, fname in zip([mn, cvr], ['val_means.pkl', 'val_covars.pkl']):
                         with open(logger.get_figure_path(fname), 'rb') as handle:
                             unpickled_arr = pickle.load(handle)
