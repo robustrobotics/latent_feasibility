@@ -358,8 +358,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
     thresholded_recalls = {}
     confusions = []
 
-    if use_progressive_priors:
-        means_agg, covars_agg, entropies, info_gains = [], [], [], []
+    means_agg, covars_agg, entropies, info_gains = [], [], [], []
 
     with open(fname, 'rb') as handle:
         val_grasp_data = pickle.load(handle)
@@ -418,6 +417,10 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                     visualize_fitting_acquisition(pre_selection_context_data, sampled_unlabeled_data, info_gain,
                                                   max_entropy,
                                                   figpath='')
+                means_agg.append(np.zeros(gnp.d_latents) * np.NaN)
+                covars_agg.append(np.zeros(gnp.d_latents) * np.NaN)
+                entropies.append(np.NaN)
+                info_gains.append(np.NaN)
 
             else:
                 # TODO: integrate pybullet for comparison to ground truth IG
@@ -430,6 +433,10 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                     ensemble,
                     n_particle_samples=50
                 )
+                means_agg.append(np.zeros(ensemble.models[0].d_latents) * np.NaN)
+                covars_agg.append(np.zeros(ensemble.models[0].d_latents) * np.NaN)
+                entropies.append(np.NaN)
+                info_gains.append(np.NaN)
         else:
             context_data, sampled_unlabeled_data = logger.load_acquisition_data(tx)
             gnp = logger.get_neural_process(tx)
@@ -444,7 +451,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
             # we have to drop the last grasp in the context set to see what the ig comp looked like
 
             pre_selection_context_data = drop_last_grasp_in_dataset(context_data)
-            info_gain = compute_ig(gnp, pre_selection_context_data, sampled_unlabeled_data)
+            info_gain, _, _ = compute_ig(gnp, pre_selection_context_data, sampled_unlabeled_data)
             info_gains.append(info_gain)
             if vis:
                 max_entropy = torch.distributions.Independent(
