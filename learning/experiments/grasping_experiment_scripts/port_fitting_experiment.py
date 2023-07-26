@@ -199,6 +199,8 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
                         ported_logger.save_particles(particles, tx)
                         particle_update_times.append(particle_update_et - particle_update_st)
 
+                    import ipdb; ipdb.set_trace()
+
                     # store particle filter update computations.
                     # there isn't any IG time data if random/did not recmput ig in this method, so
                     # we store a bunch of NanS
@@ -220,7 +222,7 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
                 ported_logger,
                 object_dataset_path,
                 amortize=True,
-                use_progressive_priors=False,
+                use_progressive_priors=script_args.belief == 'progressive',
                 vis=False
             )
 

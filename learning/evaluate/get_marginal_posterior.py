@@ -43,8 +43,12 @@ if __name__ == '__main__':
             means = pickle.load(handle)
         with open(stds_path, 'rb') as handle:
             stds = pickle.load(handle)
+        # import ipdb; ipdb.set_trace()
         all_means.append(means[-1])
         all_stds.append(stds[-1])
+        if 'test_geo_object384' in fit_log_path:
+            print('Test 384')
+            import ipdb; ipdb.set_trace()
 
     all_means = np.array(all_means).squeeze()
     all_stds = np.array(all_stds).squeeze()
@@ -57,4 +61,3 @@ if __name__ == '__main__':
     for dx, ax in enumerate(axes):
         ax.hist(all_means[:, dx], bins=50)
     plt.show()
-

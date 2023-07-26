@@ -12,7 +12,7 @@ from learning.domains.grasping.generate_grasp_datasets import graspablebody_from
 
 from learning.active.utils import ActiveExperimentLogger
 from learning.evaluate.evaluate_grasping import get_pf_validation_accuracy, get_pf_task_performance
-from learning.evaluate.plot_compare_grasping_runs import plot_val_loss, plot_debug_from_dataframe
+from learning.evaluate.plot_compare_grasping_runs import plot_val_loss, plot_from_dataframe
 from learning.experiments.train_grasping_single import run as training_phase_variational
 from learning.domains.grasping.generate_datasets_for_experiment import parse_ignore_file
 from learning.models.grasp_np.train_grasp_np import run as training_phase_amortized
@@ -582,7 +582,7 @@ def run_testing_phase(args):
     # next, seaborn can only plot certain values against others in column format, so we need to
     # move some of the row indicators to columns (unpivot?)
     fig_path = os.path.join(exp_path, 'figures')
-    plot_debug_from_dataframe(d_all, d_ltime, d_ig, fig_path)
+    plot_from_dataframe(d_all, d_ltime, d_ig, fig_path)
 
 
 def compile_dataframes_and_save_path(exp_name, amortize):

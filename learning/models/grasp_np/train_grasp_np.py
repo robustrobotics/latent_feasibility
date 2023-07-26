@@ -74,7 +74,9 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
     val_loss_bce_scale_factor = float(len(train_dataloader.dataset.hp_grasp_geometries[5])) / \
                                  len(val_dataloader.dataset.hp_grasp_geometries[5])
     print('Scale Factor:', val_loss_bce_scale_factor)
-    alpha = 0.01
+    alpha = 1.0  # 0.01
+    min_save_epoch = 1  # 20
+
     for ep in range(n_epochs):
         print(f'----- Epoch {ep} -----')
         if ep > 10:
@@ -91,10 +93,12 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
             # sampling we choose per object have the same indices
             # REMEMBER THEM!!!
 
-            c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
-            t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
+            c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, \
+                c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
+            t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, \
+                t_midpoints, t_forces, t_labels = check_to_cuda(target_data)
             c_sizes = torch.ones_like(c_forces)*c_forces.shape[1]/50
-            
+
             meshes, object_properties = check_to_cuda(object_data)
 
             # sample a sub collection of the target set to better represent model adaptation phase in training
@@ -114,7 +118,7 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
             n_c_forces = c_forces[:, n_indices]
             n_c_labels = c_labels[:, n_indices]
             n_c_sizes = torch.ones_like(n_c_forces)*n_grasps/50
-            
+
             optimizer.zero_grad()
 
             # pass forward for max_n_grasps
@@ -132,8 +136,9 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
 
             if np.random.rand() > 0.02: ep_use_informed_prior = use_informed_prior
             else: ep_use_informed_prior = False
-            loss, bce_loss, kld_loss = get_loss(y_probs, t_labels, q_z, q_z_n,
-                                                alpha=alpha, use_informed_prior=ep_use_informed_prior)
+            loss, bce_loss, kld_loss = get_loss(
+                y_probs, t_labels, q_z, q_z_n, alpha=alpha, use_informed_prior=ep_use_informed_prior
+            )
             loss.backward()
             optimizer.step()
 
@@ -215,7 +220,7 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
             )
             print(f'Val Loss: {val_loss}\tBCE: {val_bce}\tKLD: {val_kld}\tVal Acc: {val_acc}')
 
-            if ep > 20 and val_loss < best_loss:
+            if ep > min_save_epoch and val_loss < best_loss:
                 best_loss = val_loss
                 best_weights = copy.deepcopy(model.state_dict())
                 logger.save_neural_process(gnp=model, tx=0, symlink_tx0=False)

@@ -381,6 +381,9 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         self.D = d_latents  # dimensions of a single particle
         self.likelihood = likelihood  # LatentEnsemble object that outputs [0, 1]
 
+        self.n_correct = np.zeros((n_particles,))
+        self.n_total = 0.
+
         self.setup()
         if self.plot:
             plt.ion()
@@ -400,6 +403,8 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         )
         if not self.resample:
             self.particles = ParticleDistribution(self.particles.particles, np.ones(self.N))
+        # self.particles.particles[:, :] = np.array([[0.03388805, -1.3363955 ,  0.29140413, -0.34222755,  0.11926004]])
+
 
         self.experience = []
         self.estimated_coms = []
@@ -550,6 +555,8 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         """
         :param observation: tower_dict format for a single tower.
         """
+        self.n_total += 1
+
         # Resample the distribution
         if len(self.experience) > 0 and self.resample:
             self.particles = self.sample_and_wiggle(self.particles, self.experience)
@@ -574,7 +581,11 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         for pi, (bern_prob, old_weight) in enumerate(zip(bernoulli_probs, self.particles.weights)):
             # print(pi, bern_prob, old_weight)
             obs_model = bern_prob * label + (1 - bern_prob) * (1 - label)
+
+            self.n_correct[pi] += (bern_prob > 0.5) == label
+
             new_weight = old_weight * obs_model
+            # new_weight = (self.n_correct[pi]/self.n_total)**10
             new_weights.append(new_weight)
 
         # normalize particle weights
