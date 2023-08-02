@@ -446,6 +446,7 @@ def run_training_phase(args):
         training_args.use_local_grasp_geometry = True
         training_args.add_mesh_normals = False
         training_args.add_mesh_curvatures = False
+        training_args.use_known_object_properties = False
 
         train_log_path = training_phase_amortized(training_args)
 
