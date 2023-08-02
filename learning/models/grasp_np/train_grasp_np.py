@@ -248,7 +248,7 @@ def run(args):
             'grasp_normals': True,  # Including in the grasp feature vector post-mesh processing.
             'grasp_curvatures': True,
             'grasp_mesh': True,  # Whether to process local grasp point clouds.
-            'object_properties': False  # Latent (False) or ground truth (True)
+            'object_properties': args.use_known_object_properties  # Latent (False) or ground truth (True)
         },
         d_grasp_mesh_enc=16,
         d_object_mesh_enc=16
@@ -310,6 +310,7 @@ if __name__ == '__main__':
     parser.add_argument('--d-latents', type=int, required=True)
     parser.add_argument('--n-epochs', type=int, required=True)
     parser.add_argument('--batch-size', type=int, required=True)
+    parser.add_argument('--use-known-objects-properties', action='store_true', required=True, default=False)
     args = parser.parse_args()
     args.use_latents = False  # NOTE: this is for the specific workaround for block stacking that assumes
     # a different NN architecture
