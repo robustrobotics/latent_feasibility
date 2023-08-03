@@ -356,7 +356,8 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
     The prior distribution for this belief is N(0, 1). 
     """
 
-    def __init__(self, object_set, d_latents, n_particles, likelihood=None, resample=False, plot=False):
+    def __init__(self, object_set, d_latents, n_particles, likelihood=None, resample=False, plot=False,
+                 means=None, stds=None):
         """
         Maintain a particle distribution over the latent properties for an object.
 
@@ -367,6 +368,8 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         :param likelihood: Model that predicts Bernoulli likelihood of data.
         :param resample: If True, sample particles after each interaction.
         :param plot: If True, plot first 3 dimensions of latent space during interactions.
+        :param means: If None, set to standard normal 0 mean.
+        :param means: If None, set to standard nomral 1 stdev.
         """
         super().__init__()
         object_name, object_properties, object_ix = get_fit_object(object_set)
@@ -380,6 +383,8 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         self.N = n_particles  # number of particles
         self.D = d_latents  # dimensions of a single particle
         self.likelihood = likelihood  # LatentEnsemble object that outputs [0, 1]
+        self.proposal_means = [0.0] * self.D if means is None else means
+        self.proposal_stds = [1.0] * self.D if stds is None else stds
 
         self.setup()
         if self.plot:
@@ -395,8 +400,11 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         self.particles = create_gaussian_particles(
             N=self.N,
             D=self.D,
-            means=[-0.01336855, -0.07791229, -0.10432979, 0.02341524, 0.2466585],  #[0.] * self.D,
-            stds=[0.05641393, 0.56605726, 1.804926, 1.276295, 1.7758392]  #[2.] * self.D
+            means=self.proposal_means,
+            stds=self.proposal_stds
+            #[-0.01336855, -0.07791229, -0.10432979, 0.02341524, 0.2466585],
+            # [0.] * self.D, # TODO: need to be able to set this proposal distribution
+            #[0.05641393, 0.56605726, 1.804926, 1.276295, 1.7758392]  # [2.] * self.D
         )
         if not self.resample:
             self.particles = ParticleDistribution(self.particles.particles, np.ones(self.N))
@@ -568,7 +576,7 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         print('Correct for CURRENT sample:', n_correct / len(bernoulli_probs), len(bernoulli_probs))
 
         new_weights = []
-        obs_models = bernoulli_probs*label + (1-bernoulli_probs)*(1-label)
+        obs_models = bernoulli_probs * label + (1 - bernoulli_probs) * (1 - label)
         print('Overconfident:', (obs_models < 0.01).sum())
 
         for pi, (bern_prob, old_weight) in enumerate(zip(bernoulli_probs, self.particles.weights)):
@@ -607,8 +615,9 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
     """
 
     def __init__(self, object_set, d_latents, n_particles, likelihood=None, resample=False, plot=False,
-                 data_is_in_gnp_format=False):
-        super().__init__(object_set, d_latents, n_particles, likelihood=likelihood, resample=resample, plot=plot)
+                 data_is_in_gnp_format=False, means=None, stds=None):
+        super().__init__(object_set, d_latents, n_particles, likelihood=likelihood, resample=resample, plot=plot,
+                         means=means, stds=stds)
         self.data_is_in_gnp_format = data_is_in_gnp_format
 
     def get_label_from_observation(self, observation):
@@ -656,7 +665,8 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
             self.likelihood.cuda()
 
         for (_, target_data, (meshes, _)) in dataloader:
-            t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, _ = check_to_cuda(target_data)
+            t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, _ = check_to_cuda(
+                target_data)
 
             if torch.cuda.is_available():
                 meshes = meshes.cuda()

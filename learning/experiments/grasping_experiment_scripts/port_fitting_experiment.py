@@ -170,7 +170,9 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
                         likelihood=ported_logger.get_neural_process(0),
                         resample=False,
                         plot=False,
-                        data_is_in_gnp_format=True
+                        data_is_in_gnp_format=True,
+                        means=script_args.prop_means,
+                        stds=script_args.prop_stds
                     )
                     particle_filter_loop(pf, object_set, ported_logger, 'bald', fitting_args, used_cached_samples=True)
                 else:
@@ -187,7 +189,9 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
                         likelihood=ported_logger.get_neural_process(0),
                         resample=False,
                         plot=False,
-                        data_is_in_gnp_format=True
+                        data_is_in_gnp_format=True,
+                        means=script_args.prop_means,
+                        stds=script_args.prop_stds
                     )
 
                     particle_update_times = []
@@ -239,6 +243,8 @@ if __name__ == '__main__':
                         help='Re-select grasps for bald experiments')
     parser.add_argument('--n-particles', type=int, default=1000,
                         help='if porting TO particle representation: # of particles used to represent distribution')
+    parser.add_argument('--prop-means', nargs='+', help='means of ind. normal to sample particles from', default=None)
+    parser.add_argument('--prop-stds', nargs='+', help='stdevs of ind. normal to sample particles from', default=None)
     parser.add_argument('--strategies', nargs='+', default=['bald', 'random'])
     args = parser.parse_args()
 
