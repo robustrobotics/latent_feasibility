@@ -173,6 +173,8 @@ def run_fitting_phase(args):
             fitting_args.n_particles = 1000
             fitting_args.use_progressive_priors = True
             fitting_args.constrained = args.constrained
+            fitting_args.particle_prop_dist_mean = [0.0, 0.0, 0.0, -0.5, 0.0]
+            fitting_args.particle_prop_dist_stds = [1.0, 1.0, 1.0, 0.5, 1.0]
             if args.amortize:
                 fitting_args.likelihood = 'gnp'
             else:
@@ -446,7 +448,7 @@ def run_training_phase(args):
         training_args.use_local_grasp_geometry = True
         training_args.add_mesh_normals = False
         training_args.add_mesh_curvatures = False
-        training_args.use_known_object_properties = False
+        training_args.use_known_object_properties = True
 
         train_log_path = training_phase_amortized(training_args)
 
