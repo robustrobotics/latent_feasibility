@@ -274,10 +274,14 @@ def plot_from_dataframe(d, d_latents, d_igs, output_path):
     plt.savefig(os.path.join(output_path, 'igs_test.png'))
 
 
-def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2, name1, name2, output_path,
-                                                                 metric_name):
+def plot_comparison_between_two_experiments(d_exp1, d_exp2, name1, name2, output_path,
+                                            metric_name, metric_name_opt=None):
     d_exp_1_avg_prec = d_exp1[d_exp1['time metric'] == metric_name].drop_duplicates()
-    d_exp_2_avg_prec = d_exp2[d_exp2['time metric'] == metric_name].drop_duplicates()
+
+    if metric_name_opt is None:
+        d_exp_2_avg_prec = d_exp2[d_exp2['time metric'] == metric_name].drop_duplicates()
+    else:
+        d_exp_2_avg_prec = d_exp2[d_exp2['time metric'] == metric_name_opt].drop_duplicates()
 
     d_combo = pd.concat(
         [d_exp_1_avg_prec, d_exp_2_avg_prec],

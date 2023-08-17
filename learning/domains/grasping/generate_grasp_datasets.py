@@ -48,22 +48,30 @@ def sample_grasps_and_Xs(graspable_body, n_grasps, n_points_per_object, curvatur
         mesh_points = (sim_client.mesh_tform @ (mesh_points.T)).T[:, 0:3].reshape((n_grasps, n_points_per_object, 3))
         # TODO: Sample normals and curvatures.
         mesh_normals = np.array(sim_client.mesh.face_normals[indices, :], dtype='float32').reshape((n_grasps, n_points_per_object, 3))
-        mesh_gaussian_curvs = np.concatenate(tuple(map(
-            lambda rad: discrete_gaussian_curvature_measure(sim_client.mesh, mesh_points_all, rad)[:, None],
-            curvature_rads
-        )), axis=-1).reshape((n_grasps, n_points_per_object, 3))
-        mesh_mean_curvs = np.concatenate(tuple(map(
-            lambda rad: discrete_mean_curvature_measure(sim_client.mesh, mesh_points_all, rad)[:, None],
-            curvature_rads
-        )), axis=-1).reshape((n_grasps, n_points_per_object, 3))
+
+
+        if len(curvature_rads) > 0:
+            mesh_gaussian_curvs = np.concatenate(tuple(map(
+                lambda rad: discrete_gaussian_curvature_measure(sim_client.mesh, mesh_points_all, rad)[:, None],
+                curvature_rads
+            )), axis=-1).reshape((n_grasps, n_points_per_object, 3))
+            mesh_mean_curvs = np.concatenate(tuple(map(
+                lambda rad: discrete_mean_curvature_measure(sim_client.mesh, mesh_points_all, rad)[:, None],
+                curvature_rads
+            )), axis=-1).reshape((n_grasps, n_points_per_object, 3))
+
+        else:
+            mesh_gaussian_curvs = np.zeros((n_grasps, n_points_per_object, 3)) 
+            mesh_mean_curvs = np.zeros((n_grasps, n_points_per_object, 3))
+
         mesh_curvatures = np.concatenate(
             [mesh_gaussian_curvs, mesh_mean_curvs],
             axis=-1
-        )
+            )
         mesh_points_with_local_features = np.concatenate(
-            [mesh_points, mesh_normals, mesh_curvatures],
-            axis=-1
-        )  # (n_grasps x n_points_per_object x 12)
+                [mesh_points, mesh_normals, mesh_curvatures],
+                axis=-1
+            )  # (n_grasps x n_points_per_object x 12)
         print('Saving mesh features...')
         with open(mesh_name, 'wb') as handle:
             pickle.dump(mesh_points_with_local_features, handle)

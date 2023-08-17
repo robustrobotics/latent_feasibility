@@ -1,9 +1,22 @@
-from learning.evaluate.plot_compare_grasping_runs import plot_comparison_between_average_precision_of_two_experiments, \
+from learning.evaluate.plot_compare_grasping_runs import plot_comparison_between_two_experiments, \
     plot_comparison_between_average_precision_of_n_experiments
 from learning.experiments.grasping_experiment_scripts.run_grasping_experiments import compile_dataframes_and_save_path
 
 
 def main():
+    known_particle_sn_name = 'known_latents_sn'
+    known_particle_bx_name = 'box_particle_known_latent'
+
+    sn_known_df, _, _, _ = compile_dataframes_and_save_path(known_particle_sn_name, True)
+    bx_known_df, _, _, _ = compile_dataframes_and_save_path(known_particle_bx_name, True)
+    plot_comparison_between_two_experiments(sn_known_df, sn_known_df, known_particle_sn_name,
+                                            known_particle_sn_name + '_dup',
+                                            'figures/', 'precision', metric_name_opt='recall')
+    plot_comparison_between_two_experiments(bx_known_df, bx_known_df, known_particle_bx_name,
+                                            known_particle_bx_name + '_dup',
+                                            'figures/', 'precision', metric_name_opt='recall')
+
+
     amortized_exp_name = 'gnp-snv2scaleddim-run10'
     particle_exp_name = 'pf-snv2scaleddim-run10'
     amortized_name = 'sn-amortized'
@@ -16,7 +29,7 @@ def main():
     # ---- Main Experiments ----
     amortized_dataframe, _, _, _ = compile_dataframes_and_save_path(amortized_exp_name, True)
     particle_dataframe, _, _, _ = compile_dataframes_and_save_path(particle_exp_name, True)
-    plot_comparison_between_average_precision_of_two_experiments(
+    plot_comparison_between_two_experiments(
         amortized_dataframe,
         particle_dataframe,
         amortized_name,
@@ -24,7 +37,7 @@ def main():
         'figures/',
         'regret'
     )
-    plot_comparison_between_average_precision_of_two_experiments(
+    plot_comparison_between_two_experiments(
         amortized_dataframe,
         particle_dataframe,
         amortized_name,
@@ -51,7 +64,6 @@ def main():
     bx_dfs = [compile_dataframes_and_save_path(bx_exp, True)[0] for bx_exp in bx_list]
     bx_names = ['bx_10_parts', 'bx_100_parts', 'bx_1000_parts']
     plot_comparison_between_average_precision_of_n_experiments(bx_dfs, bx_names, 'figures/', 'average precision')
-
 
 
 if __name__ == '__main__':

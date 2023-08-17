@@ -555,11 +555,13 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
             logger.save_neural_process(pf.likelihood, tx + 1, symlink_tx0=True)
         logger.save_acquisition_data(context_data, acquired_sampled_grasps, tx)
         logger.save_particles(particles, tx + 1)
-    if not grasp_labeler is None:
-        grasp_labeler.disconnect()
 
         particle_update_times.append(particle_update_time)
         ig_compute_times.append(ig_compute_time)
+
+    if used_cached_samples and (not grasp_labeler is None):
+        grasp_labeler.disconnect()
+
 
     # save time data from run
     with open(logger.get_figure_path('belief_update_times.pkl'), 'wb') as handle:
