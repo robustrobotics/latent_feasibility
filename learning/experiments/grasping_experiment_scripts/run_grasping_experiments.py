@@ -529,14 +529,15 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         sample_covar /= len(name_ixs)
         # TODO: note that this is a hack right now since we're dealing with 2d mean and covariance
         eigval_prod = np.real(np.prod(np.linalg.eigvals(sample_covar)[0:2]))  # we know sample covar PSD so eigval real
-
-        volume = metadata[name]['volume']
-        bb_volume = metadata[name]['bb_volume']
+      
+        try:
+            volume = metadata[name]['volume']
+            bb_volume = metadata[name]['bb_volume']
         # max_dim = np.max(mesh.bounds[1]*2)
-        ratio = bb_volume / volume
+            ratio = bb_volume / volume
         # sim_client.disconnect()
-        max_dim = 0.2
-        rejection_rate = metadata[name]['rejection_rate']
+            max_dim = 0.2
+            rejection_rate = metadata[name]['rejection_rate']
 
         # all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
         # dists_to_closest = []
@@ -549,21 +550,32 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         #     dists_to_closest.append(np.min(dists))
 
         # avg_min_dist = np.mean(dists_to_closest)
-        avg_min_dist = metadata[name]['avg_min_dist50']
-        p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
-        if avg_min_dist < min_dist_threshold:
-            continue
-        if p_stable < min_pstable or p_stable > max_pstable:
-            continue
+            avg_min_dist = metadata[name]['avg_min_dist50']
+            p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
+            if avg_min_dist < min_dist_threshold:
+                continue
+            if p_stable < min_pstable or p_stable > max_pstable:
+                continue
 
-        valid_objects.append((ox, object_name, prop_str))
-        valid_pstables.append(p_stable)
-        valid_min_dists.append(avg_min_dist)
-        valid_ratios.append(ratio)
-        valid_maxdims.append(max_dim)
-        valid_rrates.append(rejection_rate)
-        valid_eigeval_prod.append(eigval_prod)
-        print(f'{object_name} in range ({min_pstable}, {max_pstable}) ({p_stable})')
+            valid_objects.append((ox, object_name, prop_str))
+            valid_pstables.append(p_stable)
+            valid_min_dists.append(avg_min_dist)
+            valid_ratios.append(ratio)
+            valid_maxdims.append(max_dim)
+            valid_rrates.append(rejection_rate)
+            valid_eigeval_prod.append(eigval_prod)
+            print(f'{object_name} in range ({min_pstable}, {max_pstable}) ({p_stable})')
+
+        except KeyError:
+            print('Could not find metadata for: %s, adding to fitting list anyway' % object_name)
+            valid_objects.append((ox, object_name, prop_str))
+            valid_pstables.append(np.NaN)
+            valid_min_dists.append(np.NaN)
+            valid_ratios.append(np.NaN)
+            valid_maxdims.append(np.NaN)
+            valid_rrates.append(np.NaN)
+            valid_eigeval_prod.append(np.NaN)
+          
 
     return valid_objects[:max_objects], \
         valid_pstables[:max_objects], \
@@ -704,7 +716,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                         data_arr[i_obj, :] = 0.
                         continue
                     with open(path, 'rb') as handle:
-                        data_arr[i_obj, :] = np.array(pickle.load(handle)).squeeze()
+                        data_arr[i_obj, :] = np.array(pickle.load(handle)).squeeze()[:data_arr.shape[1]]
 
                 if amortize and os.path.exists(logger.get_figure_path('val_means.pkl')):
                     for data_arr, fname in zip([mn, cvr], ['val_means.pkl', 'val_covars.pkl']):
@@ -726,17 +738,18 @@ def compile_dataframes_and_save_path(exp_name, amortize):
             for metric, metric_per_strategy in zip(metric_list, metric_per_strategy_list):
                 metric[obj_set][strategy] = metric_per_strategy
 
+            if amortize:
+                means[obj_set][strategy] = mn
+                covars[obj_set][strategy] = cvr
+                info_gains[obj_set][strategy] = igs
+
             # HACK: add in the normalized average precisions per acquisitions
             avg_prec_ix = metric_names.index("average precision")
             avg_prec = metric_per_strategy_list[avg_prec_ix]
             avg_prec_last_acquistion = avg_prec[:, -1].reshape(-1, 1)
             metric_list[-1][obj_set][strategy] = avg_prec / avg_prec_last_acquistion
-            metric_names.append("normalized average precision")
+    metric_names.append("normalized average precision") # these need to only be added in once
 
-            if amortize:
-                means[obj_set][strategy] = mn
-                covars[obj_set][strategy] = cvr
-                info_gains[obj_set][strategy] = igs
     # we now have all the data we need to construct the full dataframe
     # we first construct are two dataframes: one for the time-dependent metrics
     # one to store p_stability, p_size, and also the fitting directory so we can associate grasp selection later
