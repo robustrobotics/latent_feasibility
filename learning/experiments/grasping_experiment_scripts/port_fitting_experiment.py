@@ -63,8 +63,9 @@ def main(args):
     for strategy in ported_logs_lookup['fitting_phase'].keys():
         ported_logs_lookup['fitting_phase'][strategy] = {}
 
-    port_objects(args, ported_exp_args, existing_logs_lookup, ported_logs_lookup, mode='train')
-    port_objects(args, ported_exp_args, existing_logs_lookup, ported_logs_lookup, mode='test')
+    if not args.port_training_only:
+        port_objects(args, ported_exp_args, existing_logs_lookup, ported_logs_lookup, mode='train')
+        port_objects(args, ported_exp_args, existing_logs_lookup, ported_logs_lookup, mode='test')
 
     with open(os.path.join(ported_exp_dir, 'logs_lookup.json'), 'w') as handle:
         json.dump(ported_logs_lookup, handle, indent=4)
@@ -153,8 +154,11 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
                     )
                     particle_filter_loop(pf, object_set, ported_logger, 'bald', fitting_args,
                                          override_selection_fun=override_fun)
+
             # if this is a simple port of a progressive posterior -> particles, then regenerate the particles
-            elif script_args.belief == 'particle' and existing_used_progressive_priors:
+            # update: deleted past progressive posteriors, because there are situations where we want
+            # to re-run experiments with a different number of particles.
+            elif script_args.belief == 'particle':
                 # now we need to regenerate the particles.
                 with open(os.path.join(ported_logs_lookup['training_phase'], 'args.pkl'), 'rb') as handle:
                     training_args = pickle.load(handle)
@@ -196,10 +200,11 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
 
                     particle_update_times = []
                     for tx, grasp in enumerate(context_set_individual_grasps):
+                        print('Particle update for grasp %i' % tx)
                         particle_update_st = time.process_time()
                         particles, _ = pf.update(grasp)
                         particle_update_et = time.process_time()
-                        ported_logger.save_neural_process(pf.likelihood, tx+1, symlink_tx0=True)
+                        ported_logger.save_neural_process(pf.likelihood, tx + 1, symlink_tx0=True)
                         ported_logger.save_particles(particles, tx)
                         particle_update_times.append(particle_update_et - particle_update_st)
 
@@ -241,17 +246,22 @@ if __name__ == '__main__':
     parser.add_argument('--override-with', type=str, choices=['example'], help='override with selected fun')
     parser.add_argument('--reselect-grasps', action='store_true', default=False,
                         help='Re-select grasps for bald experiments')
+    parser.add_argument('--port-training-only', action='store_true', default=False,
+                        help='skip porting fitting phase')
     parser.add_argument('--n-particles', type=int, default=1000,
                         help='if porting TO particle representation: # of particles used to represent distribution')
-    parser.add_argument('--prop-means', nargs='+', help='means of ind. normal to sample particles from', default=None)
-    parser.add_argument('--prop-stds', nargs='+', help='stdevs of ind. normal to sample particles from', default=None)
+    parser.add_argument('--prop-means', nargs='+', help='means of ind. normal to sample particles from', type=float,
+                        default=[0.0, 0.0, 0.0, 0.0, 0.0])
+    parser.add_argument('--prop-stds', nargs='+', help='stdevs of ind. normal to sample particles from', type=float,
+                        default=[1.0, 1.0, 1.0, 1.0, 1.0])
     parser.add_argument('--strategies', nargs='+', default=['bald', 'random'])
     args = parser.parse_args()
 
     if not (args.num_train_objs_to_port
             or args.num_test_objs_to_port
             or args.cherry_pick_train_objs_to_port
-            or args.cherry_pick_test_objs_to_port):
+            or args.cherry_pick_test_objs_to_port
+            or args.port_training_only):
         print('Must specify at least one train or test object to port over with experiment.')
     else:
         main(args)

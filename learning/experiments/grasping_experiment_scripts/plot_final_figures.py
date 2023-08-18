@@ -4,17 +4,22 @@ from learning.experiments.grasping_experiment_scripts.run_grasping_experiments i
 
 
 def main():
-    known_particle_sn_name = 'known_latents_sn'
-    known_particle_bx_name = 'box_particle_known_latent'
+    known_particle_sn_name = 'sn_particle_known_latent_1000'
+    # known_particle_bx_name = 'box_particle_known_latent'
 
     sn_known_df, _, _, _ = compile_dataframes_and_save_path(known_particle_sn_name, True)
-    bx_known_df, _, _, _ = compile_dataframes_and_save_path(known_particle_bx_name, True)
+    # bx_known_df, _, _, _ = compile_dataframes_and_save_path(known_particle_bx_name, True)
+
+    plot_comparison_between_two_experiments(sn_known_df, sn_known_df, known_particle_sn_name,
+                                            known_particle_sn_name + '_dup',
+                                            'figures/', 'average precision')
+
     plot_comparison_between_two_experiments(sn_known_df, sn_known_df, known_particle_sn_name,
                                             known_particle_sn_name + '_dup',
                                             'figures/', 'precision', metric_name_opt='recall')
-    plot_comparison_between_two_experiments(bx_known_df, bx_known_df, known_particle_bx_name,
-                                            known_particle_bx_name + '_dup',
-                                            'figures/', 'precision', metric_name_opt='recall')
+    # plot_comparison_between_two_experiments(bx_known_df, bx_known_df, known_particle_bx_name,
+    #                                         known_particle_bx_name + '_dup',
+    #                                         'figures/', 'precision', metric_name_opt='recall')
 
 
     amortized_exp_name = 'gnp-snv2scaleddim-run10'
