@@ -478,10 +478,10 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
         preds = (probs > 0.5).float()
         av_prec = average_precision_score(labels, probs)
         acc = accuracy_score(labels, preds)
-        prec = precision_score(labels, preds)
-        rec = recall_score(labels, preds)
+        prec = precision_score(labels, preds, zero_division=np.nan)
+        rec = recall_score(labels, preds, zero_division=np.nan)
         confs = confusion_matrix(labels, preds)
-        f1 = f1_score(labels, preds)
+        f1 = f1_score(labels, preds, zero_division=np.nan)
         b_acc = balanced_accuracy_score(labels, preds)
 
         print(f'Acc: {acc}\tAverage Prec: {av_prec}\tPrecision: {prec}\tRecall: {rec}\tF1: {f1}')
