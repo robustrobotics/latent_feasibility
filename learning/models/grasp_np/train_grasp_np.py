@@ -74,14 +74,12 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
     val_loss_bce_scale_factor = float(len(train_dataloader.dataset.hp_grasp_geometries[5])) / \
                                  len(val_dataloader.dataset.hp_grasp_geometries[5])
     print('Scale Factor:', val_loss_bce_scale_factor)
-    alpha = 0.01
+
+    # turn off KLD if we are using known features
+    alpha = 0.0 if model.input_features['object_properties'] else 1.0
+
     for ep in range(n_epochs):
         print(f'----- Epoch {ep} -----')
-        if ep > 10:
-            alpha += 0.1
-        if alpha > 1.0:
-            alpha = 1.0
-
 
         epoch_loss, epoch_bce, epoch_kld, train_probs, train_targets = 0, 0, 0, [], []
         model.train()
@@ -132,8 +130,9 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
 
             if np.random.rand() > 0.02: ep_use_informed_prior = use_informed_prior
             else: ep_use_informed_prior = False
-            loss, bce_loss, kld_loss = get_loss(y_probs, t_labels, q_z, q_z_n,
-                                                alpha=alpha, use_informed_prior=ep_use_informed_prior)
+
+            loss, bce_loss, kld_loss = \
+                get_loss(y_probs, t_labels, q_z, q_z_n, alpha=alpha, use_informed_prior=ep_use_informed_prior)
             loss.backward()
             optimizer.step()
 
@@ -215,7 +214,7 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
             )
             print(f'Val Loss: {val_loss}\tBCE: {val_bce}\tKLD: {val_kld}\tVal Acc: {val_acc}')
 
-            if ep > 20 and val_loss < best_loss:
+            if val_loss < best_loss:
                 best_loss = val_loss
                 best_weights = copy.deepcopy(model.state_dict())
                 logger.save_neural_process(gnp=model, tx=0, symlink_tx0=False)
