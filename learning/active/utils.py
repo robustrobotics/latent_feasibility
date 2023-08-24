@@ -218,7 +218,8 @@ class ActiveExperimentLogger:
             d_latents=metadata['d_latents'],
             input_features=metadata['input_features'],
             d_grasp_mesh_enc=metadata['d_grasp_mesh_enc'],
-            d_object_mesh_enc=metadata['d_object_mesh_enc']
+            d_object_mesh_enc=metadata['d_object_mesh_enc'],
+            n_decoders=metadata['n_decoders']
         )
 
         # load in the encoder, mesh_encoder subroutine, and decoder weights
@@ -233,8 +234,8 @@ class ActiveExperimentLogger:
             path = os.path.join(self.exp_path, 'models', f'np_encoder_{tx}.pt')
             gnp.encoder.load_state_dict(torch.load(path, map_location='cpu'))
 
-            path = os.path.join(self.exp_path, 'models', f'np_decoder_{tx}.pt')
-            gnp.decoder.load_state_dict(torch.load(path, map_location='cpu'))
+            path = os.path.join(self.exp_path, 'models', f'np_decoders_{tx}.pt')
+            gnp.decoders.load_state_dict(torch.load(path, map_location='cpu'))
             return gnp
 
         except FileNotFoundError:
@@ -247,7 +248,8 @@ class ActiveExperimentLogger:
             'd_latents': gnp.d_latents,
             'input_features': gnp.input_features,
             'd_grasp_mesh_enc': gnp.d_grasp_mesh_enc,
-            'd_object_mesh_enc': gnp.d_object_mesh_enc
+            'd_object_mesh_enc': gnp.d_object_mesh_enc,
+            'n_decoders': gnp.n_decoders
         }
         path = os.path.join(self.exp_path, 'models', 'metadata.pkl')
         with open(path, 'wb') as handle:
@@ -257,12 +259,12 @@ class ActiveExperimentLogger:
         grasp_enc_path = os.path.join(self.exp_path, 'models', f'grasp_encoder_{tx}.pt')
         mesh_enc_path = os.path.join(self.exp_path, 'models', f'mesh_encoder_{tx}.pt')
         enc_path = os.path.join(self.exp_path, 'models', f'np_encoder_{tx}.pt')
-        dec_path = os.path.join(self.exp_path, 'models', f'np_decoder_{tx}.pt')
+        dec_path = os.path.join(self.exp_path, 'models', f'np_decoders_{tx}.pt')
         
         if tx > 0 and symlink_tx0:
             grasp_enc_src = 'grasp_encoder_0.pt'
             mesh_enc_src = 'mesh_encoder_0.pt'
-            enc_src, dec_src = 'np_encoder_0.pt', 'np_decoder_0.pt'
+            enc_src, dec_src = 'np_encoder_0.pt', 'np_decoders_0.pt'
             # overwrite if symlink exists (which is safe, since we are not changing any files)
             try:
                 os.symlink(grasp_enc_src, grasp_enc_path)
@@ -284,7 +286,7 @@ class ActiveExperimentLogger:
             torch.save(gnp.grasp_geom_encoder.state_dict(), os.path.join(grasp_enc_path))
             torch.save(gnp.mesh_encoder.state_dict(), os.path.join(mesh_enc_path))
             torch.save(gnp.encoder.state_dict(), os.path.join(enc_path))
-            torch.save(gnp.decoder.state_dict(), os.path.join(dec_path))
+            torch.save(gnp.decoders.state_dict(), os.path.join(dec_path))
 
     def save_latent_ensemble(self, latent_ensemble, tx, symlink_tx0):
         metadata = {'base_model': latent_ensemble.ensemble.base_model,

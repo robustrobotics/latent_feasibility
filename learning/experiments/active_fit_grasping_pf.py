@@ -451,7 +451,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
                          override_selection_fun=None, used_cached_samples=False):
     # NOTE: used_cached_samples is ONLY for when we are cloning experiments,
     # where samples are in the GNP format.
-    if used_cached_samples:
+    if not used_cached_samples:
         grasp_labeler = None
 
     if args.likelihood == 'nn':
@@ -555,6 +555,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
             logger.save_neural_process(pf.likelihood, tx + 1, symlink_tx0=True)
         logger.save_acquisition_data(context_data, acquired_sampled_grasps, tx)
         logger.save_particles(particles, tx + 1)
+    
     if not grasp_labeler is None:
         grasp_labeler.disconnect()
 

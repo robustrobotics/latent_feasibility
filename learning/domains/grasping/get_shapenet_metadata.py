@@ -48,15 +48,20 @@ def get_object_stats(name):
         'avg_min_dist50': avg_min_dist
     }
 
-
+dataset = 'shapenet'
 if __name__ == '__main__':
-    shapenet_root = os.environ['SHAPENET_ROOT']
+    if dataset == 'shapenet':
+        dataset_root = os.environ['SHAPENET_ROOT']
+        urdf_base = 'ShapeNet'
+    else:
+        dataset_root = os.environ['PRIMITIVE_ROOT']
+        urdf_base = 'Box'
     object_names = []
-    for fname in os.listdir(os.path.join(shapenet_root, 'urdfs')):
-        name = f'ShapeNet::{fname.split(".urdf")[0]}'
+    for fname in os.listdir(os.path.join(dataset_root, 'urdfs')):
+        name = f'{urdf_base}::{fname.split(".urdf")[0]}'
         object_names.append(name)
-    # object_names = object_names[:40]
 
+    import ipdb; ipdb.set_trace()
     all_infos = {}
 
     batch_size = 100
@@ -70,5 +75,5 @@ if __name__ == '__main__':
         for name, info in zip(batch_names, object_infos):
             all_infos[name] = info
 
-        with open(os.path.join(shapenet_root, 'object_infos.pkl'), 'wb') as handle:
-            pickle.dump(all_infos, handle)
+        # with open(os.path.join(dataset_root, 'object_infos.pkl'), 'wb') as handle:
+        #     pickle.dump(all_infos, handle)

@@ -274,30 +274,49 @@ def plot_from_dataframe(d, d_latents, d_igs, output_path):
     plt.savefig(os.path.join(output_path, 'igs_test.png'))
 
 
-def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2, name1, name2, output_path,
-                                                                 metric_name):
+def plot_comparison_between_average_precision_of_two_experiments(d_exp1, d_exp2, name1, name2, output_path, metric_name):
     d_exp_1_avg_prec = d_exp1[d_exp1['time metric'] == metric_name].drop_duplicates()
     d_exp_2_avg_prec = d_exp2[d_exp2['time metric'] == metric_name].drop_duplicates()
 
+    import ipdb; ipdb.set_trace()
     d_combo = pd.concat(
         [d_exp_1_avg_prec, d_exp_2_avg_prec],
         axis=1,
         keys=[name1, name2],
-        names=['experiment']) \
-        .stack(level=0) \
-        .reset_index(level=['experiment'])
+        names=['experiment']
+    )
+    d_combo = d_combo.stack(level=0)
+    d_combo = d_combo.reset_index(level=['experiment'])
 
     plt.figure(figsize=(12, 9))
     sns.set_theme(style='darkgrid')
-    sns.relplot(data=d_combo.loc['train'], x='acquisition', y='time metric value', estimator='median',
-                col='experiment', hue='strategy', kind='line', col_wrap=2, errorbar=('pi', 50))
+    sns.relplot(
+        data=d_combo.loc['train'],
+        x='acquisition',
+        y='time metric value',
+        estimator='median',
+        col='experiment',
+        hue='strategy',
+        kind='line',
+        col_wrap=2,
+        errorbar=('pi', 50)
+    )
     plt.ylabel(metric_name)
     plt.savefig(os.path.join(output_path, f'train_{name1}_vs_{name2}_{metric_name}.png'))
 
     plt.figure(figsize=(12, 9))
     sns.set_theme(style='darkgrid')
-    res = sns.relplot(data=d_combo.loc['test'], x='acquisition', y='time metric value', estimator='median',
-                col='experiment', hue='strategy', kind='line', col_wrap=2, errorbar=('pi', 50))
+    res = sns.relplot(
+        data=d_combo.loc['test'],
+        x='acquisition',
+        y='time metric value',
+        estimator='median',
+        col='experiment',
+        hue='strategy',
+        kind='line',
+        col_wrap=2,
+        errorbar=('pi', 50)
+    )
     labels = ['Random', 'Info Gain']
     res._legend.set_title('Strategy')
     for t, l in zip(res._legend.texts, labels):

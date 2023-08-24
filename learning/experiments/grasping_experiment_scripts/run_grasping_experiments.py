@@ -171,8 +171,8 @@ def run_fitting_phase(args):
             fitting_args.ensemble_tx = 0
             fitting_args.eval_object_ix = ox
             fitting_args.strategy = args.strategy
-            fitting_args.n_particles = 1000
-            fitting_args.use_progressive_priors = True
+            fitting_args.n_particles = 10000
+            fitting_args.use_progressive_priors = False
             fitting_args.constrained = args.constrained
             if args.amortize:
                 fitting_args.likelihood = 'gnp'
@@ -260,8 +260,10 @@ def playback_fitting_phase(args):
         with open(os.path.join(log_path, 'args.pkl'), 'rb') as handle:
             fitting_args = pickle.load(handle)
 
-        object_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase',
-                                           f'fit_grasps_train_geo_object{obj_ix}.pkl')
+        object_dataset_path = os.path.join(
+            DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase',
+            f'fit_grasps_train_geo_object{obj_ix}.pkl'
+        )
         get_pf_validation_accuracy(
             logger,
             object_dataset_path,
@@ -281,8 +283,10 @@ def playback_fitting_phase(args):
         with open(os.path.join(log_path, 'args.pkl'), 'rb') as handle:
             fitting_args = pickle.load(handle)
 
-        object_dataset_path = os.path.join(DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase',
-                                           f'fit_grasps_test_geo_object{obj_ix}.pkl')
+        object_dataset_path = os.path.join(
+            DATA_ROOT, exp_args.dataset_name, 'grasps', 'fitting_phase',
+            f'fit_grasps_test_geo_object{obj_ix}.pkl'
+        )
         get_pf_validation_accuracy(
             logger,
             object_dataset_path,
@@ -440,6 +444,7 @@ def run_training_phase(args):
         training_args.n_epochs = 100
         training_args.d_latents = 5  # TODO: fix latent dimension magic number elsewhere?
         training_args.batch_size = 16
+        training_args.n_decoders = 5
         training_args.use_latents = False  # NOTE: this is a workaround for pointnet + latents,
         # GNPs DO USE LATENTS, but they are handled more
         # cleanly in the model specification and training
@@ -600,10 +605,16 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     ignore_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'ignore.txt')
     TRAIN_IGNORE, TEST_IGNORE = parse_ignore_file(ignore_fname)
     # Get object data.
-    train_objects_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'objects', 'train_geo_test_props.pkl')
+    train_objects_fname = os.path.join(
+        DATA_ROOT, exp_args.dataset_name, 'objects',
+        'train_geo_test_props.pkl'
+    )
     with open(train_objects_fname, 'rb') as handle:
         train_objects = pickle.load(handle)
-    test_objects_fname = os.path.join(DATA_ROOT, exp_args.dataset_name, 'objects', 'test_geo_test_props.pkl')
+    test_objects_fname = os.path.join(
+        DATA_ROOT, exp_args.dataset_name, 'objects',
+        'test_geo_test_props.pkl'
+    )
     with open(os.path.join(DATA_ROOT, exp_args.dataset_name, 'args.pkl'), 'rb') as handle:
         dataset_args = pickle.load(handle)
     n_property_samples_train = dataset_args.n_property_samples_train
@@ -629,9 +640,10 @@ def compile_dataframes_and_save_path(exp_name, amortize):
         valid_train_rrates, \
         valid_train_eigval_prod = gather_experiment_logs_file_paths(
         TEST_IGNORE, TRAIN_IGNORE, exp_name, exp_args, logs_lookup, test_objects, train_objects)
+
     # collect all of the stored metric data over the course of training
-    # note; we don't do confusions since they are hard to store... and that data can come from the other
-    # metrics below
+    # note; we don't do confusions since they are hard to store... and
+    # that data can come from the other metrics below
     accuracies = {'train_geo': {}, 'test_geo': {}}
     precisions = {'train_geo': {}, 'test_geo': {}}
     average_precisions = {'train_geo': {}, 'test_geo': {}}
@@ -645,25 +657,40 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     means = {'train_geo': {}, 'test_geo': {}}
     covars = {'train_geo': {}, 'test_geo': {}}
     info_gains = {'train_geo': {}, 'test_geo': {}}
+
     if amortize:
-        metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies,
-                       average_precisions_normed, belief_update_times, ig_compute_times]
-        metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
-                            'val_f1s.pkl', 'val_balanced_accs.pkl', 'belief_update_times.pkl',
-                            'ig_compute_times.pkl',  'val_entropies.pkl']
-        metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
-                        'belief update time', 'ig compute time', 'entropy']
+        metric_list = [
+            accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores,
+            entropies, belief_update_times, ig_compute_times
+        ]
+        metric_file_list = [
+            'val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl',
+            'val_recalls.pkl', 'val_f1s.pkl', 'val_balanced_accs.pkl', 'belief_update_times.pkl',
+            'ig_compute_times.pkl',  'val_entropies.pkl'
+        ]
+        metric_names = [
+            'accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
+            'belief update time', 'ig compute time', 'entropy'
+        ]
     else:
-        metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores,
-                       belief_update_times, ig_compute_times]
-        metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
-                            'val_f1s.pkl', 'val_balanced_accs.pkl', 'belief_update_times.pkl', 'ig_compute_times.pkl']
-        metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
-                        'belief update time', 'ig compute time']
+        metric_list = [
+            accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores,
+            belief_update_times, ig_compute_times
+        ]
+        metric_file_list = [
+            'val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl',
+            'val_recalls.pkl', 'val_f1s.pkl', 'val_balanced_accs.pkl',
+            'belief_update_times.pkl', 'ig_compute_times.pkl'
+        ]
+        metric_names = [
+            'accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
+            'belief update time', 'ig compute time'
+        ]
     log_paths_set = {'train_geo': [], 'test_geo': []}
     n_acquisitions = None
+    strategies = ['random']  # logs_lookup_by_object[obj_set].keys()
     for obj_set in ['train_geo', 'test_geo']:
-        for strategy in logs_lookup_by_object[obj_set].keys():
+        for strategy in strategies:
             log_paths = logs_lookup_by_object[obj_set][strategy]['all']
             log_paths_set[obj_set] += log_paths
             n_objs = len(log_paths)
@@ -685,11 +712,16 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                     np.zeros((n_objs, n_acquisitions))
 
             if amortize:
-                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy]
+                metric_per_strategy_list = [
+                    acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy
+                ]
             else:
-                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm]
+                metric_per_strategy_list = [
+                    acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm
+                ]
 
-            mn, cvr = np.zeros((n_objs, n_latents, n_acquisitions)), np.zeros((n_objs, n_latents, n_acquisitions))
+            mn = np.zeros((n_objs, n_latents, n_acquisitions))
+            cvr = np.zeros((n_objs, n_latents, n_acquisitions))
             igs = np.zeros((n_objs, 25 * n_acquisitions))
 
             for i_obj, log_path in enumerate(log_paths):
@@ -710,36 +742,40 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                             unpickled_arr = pickle.load(handle)
                             data_arr[i_obj, :, :] = np.array(unpickled_arr).squeeze().T
 
-                    # TODO: currently, this is a hack because we have inconsistent # of grasps. talk to mike about this.
+                    # TODO: currently, this is a hack because we have inconsistent # of grasps.
                     with open(logger.get_figure_path('val_info_gains.pkl'), 'rb') as handle:
                         unpickled_arr = pickle.load(handle)
                         if unpickled_arr[0].size < unpickled_arr[1].size:
-                            unpickled_arr[0] = np.concatenate(
-                                [unpickled_arr[0], np.nan * np.zeros(unpickled_arr[1].size - unpickled_arr[0].size)])
+                            unpickled_arr[0] = np.concatenate([
+                                unpickled_arr[0],
+                                np.nan * np.zeros(unpickled_arr[1].size - unpickled_arr[0].size)
+                            ])
                         arrayed_arr = np.array(unpickled_arr)
                         temp_ig = np.zeros((n_acquisitions, 25)) * np.nan
                         temp_ig[:, :arrayed_arr.shape[1]] = arrayed_arr
-                        igs[i_obj, :] = temp_ig.flatten(order='C')  # flatten to format for dataframe loading
+                        igs[i_obj, :] = temp_ig.flatten(order='C')  # flatten for dataframe loading
 
             for metric, metric_per_strategy in zip(metric_list, metric_per_strategy_list):
                 metric[obj_set][strategy] = metric_per_strategy
 
             # HACK: add in the normalized average precisions per acquisitions
-            avg_prec_ix = metric_names.index("average precision")
-            avg_prec = metric_per_strategy_list[avg_prec_ix]
-            avg_prec_last_acquistion = avg_prec[:, -1].reshape(-1, 1)
-            metric_list[-1][obj_set][strategy] = avg_prec / avg_prec_last_acquistion
-            metric_names.append("normalized average precision")
+            # avg_prec_ix = metric_names.index("average precision")
+            # avg_prec = metric_per_strategy_list[avg_prec_ix]
+            # avg_prec_last_acquistion = avg_prec[:, -1].reshape(-1, 1)
+            # metric_list[-1][obj_set][strategy] = avg_prec / avg_prec_last_acquistion
+            # metric_names.append("normalized average precision")
 
             if amortize:
                 means[obj_set][strategy] = mn
                 covars[obj_set][strategy] = cvr
                 info_gains[obj_set][strategy] = igs
-    # we now have all the data we need to construct the full dataframe
-    # we first construct are two dataframes: one for the time-dependent metrics
-    # one to store p_stability, p_size, and also the fitting directory so we can associate grasp selection later
-    # construct hierarchical indices (we'll reuse them for both dataframes, and construct one for train and test
-    # separately since they may not share the same strategies used)
+
+    # We now have all the data we need to construct the full dataframe.
+    # We first construct are two dataframes: one for the time-dependent metrics
+    # and one to store p_stability, p_size, and also the fitting directory so we
+    # can associate grasp selection later. Construct hierarchical indices (we'll
+    # reuse them for both dataframes, and construct one for train and test separately
+    # since they may not share the same strategies used).
     unique_object_names_train = list(dict.fromkeys(
         [name for _, name, _ in valid_train_objects]
     ))
@@ -759,33 +795,48 @@ def compile_dataframes_and_save_path(exp_name, amortize):
         range(n_property_samples_test)
     ], names=['strategy', 'name', 'no_property_sample'])
     # construct non-time series data
-    d_const_train = pd.DataFrame(data=zip(
-        valid_train_eigval_prod * len(strategies_used_for_train),
-        valid_train_pstables * len(strategies_used_for_train),
-        valid_train_min_dists * len(strategies_used_for_train),
-        valid_train_ratios * len(strategies_used_for_train),
-        valid_train_maxdims * len(strategies_used_for_train),
-        valid_train_rrates * len(strategies_used_for_train),
-        [obj[1] for obj in valid_train_objects] * len(strategies_used_for_train),
-        [obj[2] for obj in valid_train_objects] * len(strategies_used_for_train),
-        log_paths_set['train_geo']
-    ), index=mi_train,
-        columns=['eigval_prod', 'pstable', 'avg_min_dist', 'ratio', 'maxdim', 'rrate', 'name', 'props', 'log_paths'])
-    d_const_test = pd.DataFrame(data=zip(
-        valid_test_eigval_prod * len(strategies_used_for_test),
-        valid_test_pstables * len(strategies_used_for_test),
-        valid_test_min_dists * len(strategies_used_for_test),
-        valid_test_ratios * len(strategies_used_for_test),
-        valid_test_maxdims * len(strategies_used_for_test),
-        valid_test_rrates * len(strategies_used_for_test),
-        [obj[1] for obj in valid_test_objects] * len(strategies_used_for_test),
-        [obj[2] for obj in valid_test_objects] * len(strategies_used_for_test),
-        log_paths_set['test_geo']
-    ), index=mi_test,
-        columns=['eigval_prod', 'pstable', 'avg_min_dist', 'ratio', 'maxdim', 'rrate', 'name', 'props', 'log_paths'])
+    d_const_train = pd.DataFrame(
+        data=zip(
+            valid_train_eigval_prod * len(strategies_used_for_train),
+            valid_train_pstables * len(strategies_used_for_train),
+            valid_train_min_dists * len(strategies_used_for_train),
+            valid_train_ratios * len(strategies_used_for_train),
+            valid_train_maxdims * len(strategies_used_for_train),
+            valid_train_rrates * len(strategies_used_for_train),
+            [obj[1] for obj in valid_train_objects] * len(strategies_used_for_train),
+            [obj[2] for obj in valid_train_objects] * len(strategies_used_for_train),
+            log_paths_set['train_geo']
+        ),
+        index=mi_train,
+        columns=[
+            'eigval_prod', 'pstable', 'avg_min_dist', 'ratio', 'maxdim',
+            'rrate', 'name', 'props', 'log_paths'
+        ]
+    )
+    d_const_test = pd.DataFrame(
+        data=zip(
+            valid_test_eigval_prod * len(strategies_used_for_test),
+            valid_test_pstables * len(strategies_used_for_test),
+            valid_test_min_dists * len(strategies_used_for_test),
+            valid_test_ratios * len(strategies_used_for_test),
+            valid_test_maxdims * len(strategies_used_for_test),
+            valid_test_rrates * len(strategies_used_for_test),
+            [obj[1] for obj in valid_test_objects] * len(strategies_used_for_test),
+            [obj[2] for obj in valid_test_objects] * len(strategies_used_for_test),
+            log_paths_set['test_geo']
+        ),
+        index=mi_test,
+        columns=[
+            'eigval_prod', 'pstable', 'avg_min_dist', 'ratio', 'maxdim',
+            'rrate', 'name', 'props', 'log_paths'
+        ]
+    )
     # d_const_train = d_const_test
     # construct multi-index for columns in time-series data
-    mc_time = pd.MultiIndex.from_product([metric_names, range(n_acquisitions)], names=['time metric', 'acquisition'])
+    mc_time = pd.MultiIndex.from_product(
+        [metric_names, range(n_acquisitions)],
+        names=['time metric', 'acquisition']
+    )
     # formatted_metrics_train = np.hstack([
     #     np.vstack(list(metric['train_geo'].values())) for metric in metric_list
     # ])
@@ -794,6 +845,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
             metric['train_geo'][strat] for strat in strategies_used_for_train
         ]) for metric in metric_list
     ])
+    import ipdb; ipdb.set_trace()
     d_time_train = pd.DataFrame(data=formatted_metrics_train, index=mi_train, columns=mc_time)
     # formatted_metrics_test = np.hstack([
     #     np.vstack(list(metric['test_geo'].values())) for metric in metric_list
@@ -804,16 +856,20 @@ def compile_dataframes_and_save_path(exp_name, amortize):
         ]) for metric in metric_list
     ])
     d_time_test = pd.DataFrame(data=formatted_metrics_test, index=mi_test, columns=mc_time)
-    # concat const frames and time frames together and melt into long form so we can merge the tables
+    # concat const frames and time frames together and melt into long
+    # form so we can merge the tables
     d_const = pd.concat([d_const_train, d_const_test], keys=['train', 'test'])
     d_time = pd.concat([d_time_train, d_time_test], keys=['train', 'test']).melt(
         value_name='time metric value', ignore_index=False)
     d_all = pd.merge(d_const, d_time, left_index=True, right_index=True)
-    # if we are amortizing, then we're tracking covariances + means and info gains, so we include in dataframe
+    # if we are amortizing, then we're tracking covariances + means and
+    # info gains, so we include in dataframe
     if amortize:
         # construct multi-index for columns in time-series data per latent property
-        mc_ltime = pd.MultiIndex.from_product([['mean', 'covar'], range(n_latents), range(n_acquisitions)],
-                                              names=['latent parameter', 'latent', 'acquisition'])
+        mc_ltime = pd.MultiIndex.from_product(
+            [['mean', 'covar'], range(n_latents), range(n_acquisitions)],
+            names=['latent parameter', 'latent', 'acquisition']
+        )
         formatted_latent_metrics_train = np.hstack([
             # stack strategy data on top of each other
             np.vstack([
@@ -823,7 +879,11 @@ def compile_dataframes_and_save_path(exp_name, amortize):
             # stack mean and covars side by side
             for latent_metric in [means, covars]
         ])
-        d_latent_time_train = pd.DataFrame(data=formatted_latent_metrics_train, index=mi_train, columns=mc_ltime)
+        d_latent_time_train = pd.DataFrame(
+            data=formatted_latent_metrics_train,
+            index=mi_train,
+            columns=mc_ltime
+        )
 
         formatted_latent_metrics_test = np.hstack([
             # stack strategy data on top of each other
@@ -834,9 +894,13 @@ def compile_dataframes_and_save_path(exp_name, amortize):
             # stack mean and covars side by side
             for latent_metric in [means, covars]
         ])
-        d_latent_time_test = pd.DataFrame(data=formatted_latent_metrics_test, index=mi_test, columns=mc_ltime)
-        d_ltime = pd.concat([d_latent_time_train, d_latent_time_test], keys=['train', 'test']).melt(
-            value_name='latent time value', ignore_index=False)
+        d_latent_time_test = pd.DataFrame(
+            data=formatted_latent_metrics_test, index=mi_test, columns=mc_ltime
+        )
+        d_ltime = pd.concat(
+            [d_latent_time_train, d_latent_time_test],
+            keys=['train', 'test']
+        ).melt(value_name='latent time value', ignore_index=False)
 
         # TODO: again, another hack for inconcistent grasp set sizing
         mc_time_grasp_ig = pd.MultiIndex.from_product([range(n_acquisitions), range(25)],
@@ -844,10 +908,14 @@ def compile_dataframes_and_save_path(exp_name, amortize):
 
         # load in expected IG
         formatted_ig_grasps_train = np.vstack(info_gains['train_geo'].values())
-        d_expected_ig_train = pd.DataFrame(data=formatted_ig_grasps_train, index=mi_train, columns=mc_time_grasp_ig)
+        d_expected_ig_train = pd.DataFrame(
+            data=formatted_ig_grasps_train, index=mi_train, columns=mc_time_grasp_ig
+        )
 
         formatted_ig_grasps_test = np.vstack(info_gains['test_geo'].values())
-        d_expected_ig_test = pd.DataFrame(data=formatted_ig_grasps_test, index=mi_test, columns=mc_time_grasp_ig)
+        d_expected_ig_test = pd.DataFrame(
+            data=formatted_ig_grasps_test, index=mi_test, columns=mc_time_grasp_ig
+        )
 
         # load in actual IG too
         # compute N(0, 1) entropy as initial
@@ -876,10 +944,18 @@ def compile_dataframes_and_save_path(exp_name, amortize):
         d_test_actual_ig.columns = pd.MultiIndex.from_product([d_test_actual_ig.columns, [0]],
                                                               names=['acquisition', 'grasp'])
 
-        d_full_ig_train = pd.concat([d_expected_ig_train, d_train_actual_ig], axis=1, keys=['expected', 'actual'],
-                                    names=['pre or post'])
-        d_full_ig_test = pd.concat([d_expected_ig_test, d_test_actual_ig], axis=1, keys=['expected', 'actual'],
-                                   names=['pre or post'])
+        d_full_ig_train = pd.concat(
+            [d_expected_ig_train, d_train_actual_ig],
+            axis=1,
+            keys=['expected', 'actual'],
+            names=['pre or post']
+        )
+        d_full_ig_test = pd.concat(
+            [d_expected_ig_test, d_test_actual_ig],
+            axis=1,
+            keys=['expected', 'actual'],
+            names=['pre or post']
+        )
 
         d_ig = pd.concat([d_full_ig_train, d_full_ig_test], keys=['train', 'test']).melt(
             value_name='grasp ig value', ignore_index=False

@@ -1,4 +1,5 @@
 .DS_store
+*.csv
 tmp_urdfs/
 __pycache__/
 *.pyc

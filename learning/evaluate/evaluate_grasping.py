@@ -154,7 +154,7 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
             (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
             (meshes, object_properties)
         )
-        pred = pred.squeeze(dim=-1).cpu().detach()
+        pred = pred.mean(dim=-1).cpu().detach()
 
         preds.append(pred)
         labels.append(t_labels)
@@ -210,8 +210,8 @@ def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_s
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
 
 
-def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_samples=10):
-    preds, labels = [], []
+def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_samples=10, batch_size=32):
+    probs, labels = [], []
     dataset = CustomGNPGraspDataset(
         data=grasp_data,
         context_data=grasp_data
@@ -223,38 +223,49 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         shuffle=False
     )
 
+    batch_size = np.min([batch_size, particles.shape[0]])
+    
     latent_samples = torch.Tensor(particles)
+    if torch.cuda.is_available():
+        latent_samples = latent_samples.cuda()
+
     gnp.eval()
     for (_, target_data, object_data) in dataloader:
         t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, t_labels = \
             check_to_cuda(truncate_grasps(target_data, 100))
         meshes, object_properties = check_to_cuda(object_data)
 
-        t_grasp_geoms = t_grasp_geoms.expand(n_particle_samples, -1, -1, -1)
-        t_grasp_points = t_grasp_points.expand(n_particle_samples, -1, -1, -1)
-        t_curvatures = t_curvatures.expand(n_particle_samples, -1, -1, -1)
-        t_normals = t_normals.expand(n_particle_samples, -1, -1, -1)
-        t_midpoints = t_midpoints.expand(n_particle_samples, -1, -1)
-        t_forces = t_forces.expand(n_particle_samples, -1)
+        t_grasp_geoms = t_grasp_geoms.expand(batch_size, -1, -1, -1)
+        t_grasp_points = t_grasp_points.expand(batch_size, -1, -1, -1)
+        t_curvatures = t_curvatures.expand(batch_size, -1, -1, -1)
+        t_normals = t_normals.expand(batch_size, -1, -1, -1)
+        t_midpoints = t_midpoints.expand(batch_size, -1, -1)
+        t_forces = t_forces.expand(batch_size, -1)
 
-        # Sample particles and ensembles models to use to speed up evaluation. Might hurt performance.
-        latents_ix = np.arange(latent_samples.shape[0])
-        np.random.shuffle(latents_ix)
-        latents_ix = latents_ix[:n_particle_samples]
-        # import IPython; IPython.embed()
-        latents = latent_samples[latents_ix, :]
-        if torch.cuda.is_available():
-            latents = latents.cuda()
-        pred = gnp.conditional_forward(
-            target_xs=(t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
-            meshes=meshes,
-            zs=latents
-        ).squeeze().cpu().detach()
+        # Sample particles and ensembles models to use to speed up evaluation. 
+        # Might hurt performance.
+        # latents_ix = np.arange(latent_samples.shape[0])
+        # np.random.shuffle(latents_ix)
+        # latents_ix = latents_ix[:n_particle_samples]
+        # latents = latent_samples[latents_ix, :]
+        bernoulli_probs = []
+        for ix in range(0, latent_samples.shape[0] // batch_size):
+            
+            pred = gnp.conditional_forward(
+                target_xs=(t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
+                meshes=meshes,
+                zs=latent_samples[ix*batch_size:(ix+1)*batch_size]
+            ).squeeze().cpu().detach()
 
-        preds.append(pred.mean(dim=0))
+            # TODO: Confirm batching.
+            bernoulli_probs.append(pred)
+        
+
+
+        probs.append(torch.cat(bernoulli_probs, dim=0).mean(dim=0))
         labels.append(t_labels)
 
-    return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
+    return torch.cat(probs, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
 
 
 def get_pf_task_performance(logger, fname, use_progressive_priors):
@@ -374,7 +385,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                 particles.particles,
                 particles.weights / np.sum(particles.weights)
             )
-            resampled_parts = sample_particle_distribution(sampling_dist, num_samples=50)
+            resampled_parts = sample_particle_distribution(sampling_dist, num_samples=128)
             if amortize:
                 gnp = logger.get_neural_process(tx)
                 if torch.cuda.is_available():
@@ -383,7 +394,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
                     resampled_parts,
                     val_grasp_data,
                     gnp,
-                    n_particle_samples=32
+                    n_particle_samples=128
                 )
 
                 if vis:

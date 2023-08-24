@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from learning.models.ensemble import Ensemble
 from learning.models.pointnet import PointNetRegressor, PointNetClassifier
 
 
@@ -15,7 +16,7 @@ def _get_identity_transform(batch_size):
 
 class CustomGraspNeuralProcess(nn.Module):
 
-    def __init__(self, d_latents, input_features, d_object_mesh_enc, d_grasp_mesh_enc):
+    def __init__(self, d_latents, input_features, d_object_mesh_enc, d_grasp_mesh_enc, n_decoders):
         """
         :param d_latents: # of latent variables for the encoder to output.
         :param input_features: Dictionary describing which features to pass as input to the networks.
@@ -52,10 +53,14 @@ class CustomGraspNeuralProcess(nn.Module):
             input_features=input_features
         )
 
-        self.decoder = CustomGNPDecoder(
-            n_in=n_in_decoder,
-            d_latents=d_latents,
-            input_features=input_features
+        self.decoders = Ensemble(
+            base_model=CustomGNPDecoder,
+            base_args={
+                'n_in': n_in_decoder,
+                'd_latents': d_latents,
+                'input_features': input_features
+            },
+            n_models=n_decoders
         )
 
         n_geometric_feats = 1
@@ -81,8 +86,9 @@ class CustomGraspNeuralProcess(nn.Module):
         self.input_features = input_features
         self.d_object_mesh_enc = d_object_mesh_enc
         self.d_grasp_mesh_enc = d_grasp_mesh_enc
+        self.n_decoders = n_decoders
 
-    def forward(self, contexts, target_xs, object_data):
+    def forward(self, contexts, target_xs, object_data, decoder_ix=-1):
         meshes, object_properties = object_data
 
         q_z, mesh_enc, global_transform = self.forward_until_latents(contexts, meshes)
@@ -102,13 +108,18 @@ class CustomGraspNeuralProcess(nn.Module):
             )[0].view(n_batch, n_grasp, -1)
         else:
             geoms_enc = None
-
-        y_pred = self.decoder(
-            geoms_enc,
-            target_grasp_points, target_curvatures, target_normals, target_mids, target_forces,
-            z, mesh_enc,
-            override_transform=global_transform
+        
+        decoder_input = (
+            geoms_enc, target_grasp_points, target_curvatures,
+            target_normals, target_mids, target_forces,
+            z, mesh_enc, global_transform
         )
+
+        if decoder_ix == -1:
+            y_pred = self.decoders(decoder_input)
+        else:
+            y_pred = self.decoders.models[decoder_ix](decoder_input)
+        
         return y_pred, q_z
 
     def forward_until_latents(self, contexts, meshes):
@@ -156,13 +167,14 @@ class CustomGraspNeuralProcess(nn.Module):
         else:
             geoms_enc = None
 
-        y_pred = self.decoder(
-            geoms_enc,
-            target_grasp_points, target_curvatures, target_normals, target_mids, target_forces,
-            zs, mesh_enc,
-            override_transform=global_transform
+        decoder_input = (
+            geoms_enc, target_grasp_points, target_curvatures,
+            target_normals, target_mids, target_forces,
+            zs, mesh_enc, global_transform
         )
-        return y_pred
+        y_pred = self.decoders(decoder_input)
+
+        return y_pred.mean(dim=2)  # TODO: PF requires 0, 1... GNP requires (1, 2)? Make sure these are correct.
 
 
 class CustomGNPDecoder(nn.Module):
@@ -183,14 +195,16 @@ class CustomGNPDecoder(nn.Module):
         self.d_latents = d_latents
         self.input_features = input_features
 
-    def forward(self, target_geoms, target_grasp_points, target_curvatures, target_normals, target_midpoints, target_forces, zs,
-                meshes, override_transform=None):
+    def forward(self, x):
         """
         :param target geoms: (batch_size, n_grasps, 3, n_points)
         :param target_midpoint: (batch_size, n_grasps, 3)
         :param target_forces: (batch_size, n_grasps)
         :param zs: (batch_size, d_latents)
         """
+        target_geoms, target_grasp_points, target_curvatures, target_normals, \
+            target_midpoints, target_forces, zs, meshes, override_transform = x
+
         n_batch, n_grasp = target_forces.shape
         zs_broadcast = zs[:, None, :].expand(n_batch, n_grasp, -1)
         meshes_broadcast = meshes[:, None, :].expand(n_batch, n_grasp, -1)

@@ -75,7 +75,7 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
                                  len(val_dataloader.dataset.hp_grasp_geometries[5])
     print('Scale Factor:', val_loss_bce_scale_factor)
     alpha = 1.0  # 0.01
-    min_save_epoch = 1  # 20
+    min_save_epoch = 0  # 20
 
     for ep in range(n_epochs):
         print(f'----- Epoch {ep} -----')
@@ -125,7 +125,8 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
             y_probs, q_z = model.forward(
                 (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels, c_sizes),
                 (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
-                (meshes, object_properties)
+                (meshes, object_properties),
+                decoder_ix=np.random.randint(0, model.n_decoders)
             )
             y_probs = y_probs.squeeze()
 
@@ -190,10 +191,11 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
                 y_probs, q_z = model.forward(
                     (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels, c_sizes),
                     (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
-                    (meshes, object_properties)
+                    (meshes, object_properties),
+                    decoder_ix=-1
                 )
                 means.append(q_z.loc)
-                y_probs = y_probs.squeeze()
+                y_probs = y_probs.mean(dim=-1).squeeze()
 
                 q_z_n, _, _ = model.forward_until_latents(
                     (n_c_grasp_geoms, n_c_grasp_points, n_c_curvatures, n_c_normals, n_c_midpoints, n_c_forces, n_c_labels, n_c_sizes),
@@ -256,7 +258,8 @@ def run(args):
             'object_properties': False  # Latent (False) or ground truth (True)
         },
         d_grasp_mesh_enc=16,
-        d_object_mesh_enc=16
+        d_object_mesh_enc=16,
+        n_decoders=args.n_decoders
     )
 
     # load datasets
@@ -315,6 +318,7 @@ if __name__ == '__main__':
     parser.add_argument('--d-latents', type=int, required=True)
     parser.add_argument('--n-epochs', type=int, required=True)
     parser.add_argument('--batch-size', type=int, required=True)
+    parser.add_argument('--n-decoders', type=int, required=True)
     args = parser.parse_args()
     args.use_latents = False  # NOTE: this is for the specific workaround for block stacking that assumes
     # a different NN architecture
