@@ -28,3 +28,4 @@ learning/active/experiments/
 logs_lookup.json
 ignore.txt
 debug/
+wandb/

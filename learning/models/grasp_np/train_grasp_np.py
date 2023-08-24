@@ -12,6 +12,8 @@ from learning.active.utils import ActiveExperimentLogger
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 from learning.models.grasp_np.grasp_neural_process import CustomGraspNeuralProcess
 
+import wandb
+
 
 def check_to_cuda(tensor_list):
     if torch.cuda.is_available():
@@ -145,11 +147,23 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
         epoch_loss /= len(train_dataloader.dataset)
         epoch_bce /= len(train_dataloader.dataset)
         epoch_kld /= len(train_dataloader.dataset)
+        train_probs_all = torch.cat(train_probs).flatten()
+        train_targets_all = torch.cat(train_targets).flatten()
         train_acc = get_accuracy(
-            torch.cat(train_probs).flatten(),
-            torch.cat(train_targets).flatten()
+            train_probs_all,
+            train_targets_all
         )
         print(f'Train Loss: {epoch_loss}\tBCE: {epoch_bce}\tKLD: {epoch_kld}\tTrain Acc: {train_acc}')
+        wandb.log(
+            {
+                'train_loss': epoch_loss,
+                "train_bce": epoch_bce,
+                "train_kld": epoch_kld,
+                "train_acc": train_acc,
+                "avg_train_probs": np.mean(train_probs_all.detach().cpu().numpy()),
+                "avg_train_target": np.mean(train_targets_all.detach().cpu().numpy())
+             }
+        )
 
         model.eval()
         means = []
@@ -207,12 +221,24 @@ def train(train_dataloader, val_dataloader, model, logger, n_epochs=10, use_info
             val_loss /= len(val_dataloader.dataset)
             val_bce /= len(val_dataloader.dataset)
             val_kld /= len(val_dataloader.dataset)
+            val_probs_all = torch.cat(val_probs)
+            val_targets_all = torch.cat(val_targets)
             val_acc = get_accuracy(
-                torch.cat(val_probs),
-                torch.cat(val_targets),
+                val_probs_all,
+                val_targets_all,
                 test=True, save=True
             )
             print(f'Val Loss: {val_loss}\tBCE: {val_bce}\tKLD: {val_kld}\tVal Acc: {val_acc}')
+            wandb.log(
+                {
+                    'val_loss': val_loss,
+                    'val_bce': val_bce,
+                    "val_kld": val_kld,
+                    "val_acc": val_acc,
+                    "avg_val_prob": np.mean(val_probs_all.detach().cpu().numpy()),
+                    "avg_val_target": np.mean(val_targets_all.detach().cpu().numpy())
+                }
+            )
 
             if val_loss < best_loss:
                 best_loss = val_loss
@@ -237,6 +263,12 @@ def print_dataset_stats(dataset, name):
 def run(args):
     # set up logger  # args.exp_name
     logger = ActiveExperimentLogger.setup_experiment_directory(args)
+
+    wandb.init(
+        project="factored-object-models",
+        config=args,
+        name=args.exp_name
+    )
 
     # build the model # args.5
     model = CustomGraspNeuralProcess(
