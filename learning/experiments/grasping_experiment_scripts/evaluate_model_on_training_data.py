@@ -13,7 +13,7 @@ from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_colla
 from learning.models.grasp_np.train_grasp_np import check_to_cuda, get_loss
 
 
-def main(args, logger):
+def main(args, logger, perturb_rad):
     # load model and data
     model = logger.get_neural_process(0)
     model = model.cuda() if torch.cuda.is_available() else model
@@ -84,10 +84,13 @@ def main(args, logger):
             n_c_labels = c_labels[:, n_indices]
             n_c_sizes = torch.ones_like(n_c_forces) * n_grasps / 50
 
+            perturbation = 2 * (torch.rand(5) - 0.5) * torch.tensor(perturb_rad)
+
             y_probs, q_z = model.forward(
                 (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels, c_sizes),
                 (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
-                (meshes, object_properties)
+                (meshes, object_properties),
+                known_property_perturbation=perturbation
             )
             means.append(q_z.loc)
             y_probs = y_probs.squeeze()
@@ -151,10 +154,13 @@ def main(args, logger):
             n_c_labels = c_labels[:, n_indices]
             n_c_sizes = torch.ones_like(n_c_forces) * n_grasps / 50
 
+            perturbation = 2 * (torch.rand(5) - 0.5) * torch.tensor(perturb_rad)
+
             y_probs, q_z = model.forward(
                 (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels, c_sizes),
                 (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
-                (meshes, object_properties)
+                (meshes, object_properties),
+                known_property_perturbation=perturbation
             )
             means.append(q_z.loc)
             y_probs = y_probs.squeeze()
@@ -193,6 +199,7 @@ def main(args, logger):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp-name', type=str, required=True)
+    parser.add_argument('--uniform-perturb-rad', type=float, nargs=5, required=True, default=(0.0, 0.0, 0.0, 0.0, 0.0))
     script_args = parser.parse_args()
 
     # obtain the logger and the training args to initialize model
@@ -207,4 +214,4 @@ if __name__ == '__main__':
     exp_path = log_lookup['training_phase']
     logger = ActiveExperimentLogger(exp_path, use_latents=True)
     training_args = logger.args
-    main(training_args, logger)
+    main(training_args, logger, script_args.uniform_perturb_rad)

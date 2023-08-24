@@ -82,7 +82,7 @@ class CustomGraspNeuralProcess(nn.Module):
         self.d_object_mesh_enc = d_object_mesh_enc
         self.d_grasp_mesh_enc = d_grasp_mesh_enc
 
-    def forward(self, contexts, target_xs, object_data):
+    def forward(self, contexts, target_xs, object_data, known_property_perturbation=torch.zeros(5)):
         meshes, object_properties = object_data
 
         q_z, mesh_enc, global_transform = self.forward_until_latents(contexts, meshes)
@@ -90,7 +90,9 @@ class CustomGraspNeuralProcess(nn.Module):
         target_geoms, target_grasp_points, target_curvatures, target_normals, \
             target_mids, target_forces = target_xs
         if self.input_features['object_properties']:
-            z = object_properties
+            known_property_perturbation = \
+                known_property_perturbation.cuda() if torch.cuda.is_available() else known_property_perturbation
+            z = object_properties + known_property_perturbation
         else:
             z = q_z.rsample()
         
