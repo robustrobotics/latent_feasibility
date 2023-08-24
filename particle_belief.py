@@ -653,7 +653,7 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
         )
         dataloader = DataLoader(
             dataset=dataset,
-            collate_fn=custom_collate_fn,
+            collate_fn=lambda items: custom_collate_fn(items, rotate=False),
             batch_size=1,
             shuffle=False
         )

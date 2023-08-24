@@ -155,7 +155,7 @@ class CustomGNPGraspDataset(Dataset):
         return len(self.hp_grasp_geometries)
 
 
-def custom_collate_fn(items, rand_grasp_num=True, add_mesh_normals=False):
+def custom_collate_fn(items, rand_grasp_num=True, add_mesh_normals=False, rotate=True):
     """
     Decide how many context and target points to add.
     """
@@ -248,7 +248,11 @@ def custom_collate_fn(items, rand_grasp_num=True, add_mesh_normals=False):
     full_meshes = torch.Tensor(np.array(full_meshes).astype('float32'))
     object_properties = torch.Tensor(np.array(object_properties).astype('float32'))
     # Add random rotation.
-    rot_mat = torch.qr(torch.randn(3, 3))[0]
+    if rotate:
+        print('[WARNING]: Rotating grasps. Ensure you are training or using GNP.')
+        rot_mat = torch.qr(torch.randn(3, 3))[0]
+    else:
+        rot_mat = torch.eye(3)
     # import IPython; IPython.embed()
 
     # context_midpoints = context_midpoints@rot_mat

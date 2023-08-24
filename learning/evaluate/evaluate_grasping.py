@@ -218,7 +218,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
     )
     dataloader = DataLoader(
         dataset=dataset,
-        collate_fn=custom_collate_fn,
+        collate_fn=lambda items: custom_collate_fn(items, rotate=False),
         batch_size=1,
         shuffle=False
     )
