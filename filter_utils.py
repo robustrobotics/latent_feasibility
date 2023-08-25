@@ -5,14 +5,14 @@ from collections import namedtuple
 from scipy.stats import multivariate_normal
 
 from block_utils import ParticleDistribution, Environment, Object, World, \
-                        Pose, Position, Quaternion, \
-                        get_rotated_block, ZERO_POS, ZERO_ROT
-
+    Pose, Position, Quaternion, \
+    get_rotated_block, ZERO_POS, ZERO_ROT
 
 '''
 :param particles: np.array, N particles each with dimension D (NxD array)
 :param weights: np.array, the likelyhood of each particle (N array)
 '''
+
 
 def create_uniform_particles(N, D, ranges):
     '''
@@ -21,10 +21,11 @@ def create_uniform_particles(N, D, ranges):
     :param ranges: list of of length D of (min, max) ranges for each state dimension
     '''
     particles = np.empty((N, D))
-    weights = np.ones(N)*(1/N)
+    weights = np.ones(N) * (1 / N)
     for d in range(D):
         particles[:, d] = np.random.uniform(*ranges[d], size=N)
     return ParticleDistribution(particles, weights)
+
 
 def create_gaussian_particles(N, D, means, stds):
     '''
@@ -34,16 +35,33 @@ def create_gaussian_particles(N, D, means, stds):
     :param stds: list of of length D of st dev for each state dimension
     '''
     particles = np.empty((N, D))
-    weights = np.ones(N)*(1/N)
+    weights = np.ones(N) * (1 / N)
     for d in range(D):
         particles[:, d] = means[d] + (np.random.randn(N) * stds[d])
     return ParticleDistribution(particles, weights)
 
+
+def create_centered_uniform_particles(N, D, means, half_lengths):
+    '''
+    :param N: number of particles
+    :param D: number of state dimensions
+    :param means: list of of length D of mean for each state dimension
+    :param half: list of of length D of half the length of the uniform interval for each state dimension
+    '''
+
+    particles = np.empty((N, D))
+    weights = np.ones(N) * (1 / N)
+    for d in range(D):
+        particles[:, d] = np.uniform(low=means[d] - half_lengths[d], high=means[d] + half_lengths[d], size=N)
+    return ParticleDistribution(particles, weights)
+
+
 def sample_particle_distribution(distribution, num_samples=1):
     idxs = np.array(distribution.particles.shape[0])
     idxs = np.random.choice(a=idxs, size=num_samples, replace=True,
-        p=distribution.weights)
+                            p=distribution.weights)
     return distribution.particles[idxs]
+
 
 def get_mean(distribution):
     """ Find the mean of a weighted particle distribution
@@ -60,6 +78,7 @@ def get_mean(distribution):
     w = distribution.weights / distribution.weights.sum()
     return w @ distribution.particles
 
+
 def sample_and_wiggle(distribution, experience, obs_model_cov, true_block, ranges=None):
     N, D = distribution.particles.shape
     # NOTE(izzy): note sure if this is an ok way to get the covariance matrix...
@@ -72,14 +91,14 @@ def sample_and_wiggle(distribution, experience, obs_model_cov, true_block, range
     # something completely unlikely by chance. It's okay for the noise term to be larger 
     # as the M-H step should reject bad particles - it may be inefficient if too large (and not accept often).
     # NOTE(izzy): we do not access the COM of true_block. it's just for geometry
-    cov = np.cov(distribution.particles, rowvar=False, aweights=distribution.weights+1e-3)# + np.eye(D)*2.5e-5
+    cov = np.cov(distribution.particles, rowvar=False, aweights=distribution.weights + 1e-3)  # + np.eye(D)*2.5e-5
     particles = sample_particle_distribution(distribution, num_samples=N)
     # cov = np.cov(particles, rowvar=False)
     mean = np.mean(particles, axis=0)
     proposed_particles = np.random.multivariate_normal(mean=mean, cov=cov, size=N)
 
     # Old particles and new particles.
-    likelihoods = np.zeros((N,2))
+    likelihoods = np.zeros((N, 2))
     # Compute likelihood of particles over history so far.
     for action, T, true_pose in experience:
         sim_poses = simulate(np.concatenate([particles, proposed_particles], axis=0),
@@ -87,35 +106,36 @@ def sample_and_wiggle(distribution, experience, obs_model_cov, true_block, range
                              T,
                              true_block)
         for ix in range(N):
-            likelihoods[ix,0] += np.log(multivariate_normal.pdf(true_pose.pos,
-                                                                mean=sim_poses[ix, :],
-                                                                cov=obs_model_cov)+1e-8)
-            likelihoods[ix,1] += np.log(multivariate_normal.pdf(true_pose.pos,
-                                                                mean=sim_poses[N+ix,:],
-                                                                cov=obs_model_cov)+1e-8)
+            likelihoods[ix, 0] += np.log(multivariate_normal.pdf(true_pose.pos,
+                                                                 mean=sim_poses[ix, :],
+                                                                 cov=obs_model_cov) + 1e-8)
+            likelihoods[ix, 1] += np.log(multivariate_normal.pdf(true_pose.pos,
+                                                                 mean=sim_poses[N + ix, :],
+                                                                 cov=obs_model_cov) + 1e-8)
     # Calculate M-H acceptance prob.
-    prop_probs = np.zeros((N,2))
+    prop_probs = np.zeros((N, 2))
     for ix in range(N):
-        prop_probs[ix,0] = np.log(multivariate_normal.pdf(particles[ix,:], mean=mean, cov=cov)+1e-8)
-        prop_probs[ix,1] = np.log(multivariate_normal.pdf(proposed_particles[ix,:], mean=mean, cov=cov)+1e-8)
+        prop_probs[ix, 0] = np.log(multivariate_normal.pdf(particles[ix, :], mean=mean, cov=cov) + 1e-8)
+        prop_probs[ix, 1] = np.log(multivariate_normal.pdf(proposed_particles[ix, :], mean=mean, cov=cov) + 1e-8)
 
-    p_accept = likelihoods[:,1]+prop_probs[:,0] - (likelihoods[:,0]+prop_probs[:,1])
-    accept = np.zeros((N,2))
+    p_accept = likelihoods[:, 1] + prop_probs[:, 0] - (likelihoods[:, 0] + prop_probs[:, 1])
+    accept = np.zeros((N, 2))
     accept = np.min(accept, axis=1)
 
     # Keep particles based on acceptance probability.
     u = np.random.uniform(size=N)
-    indices = np.argwhere(u > 1-np.exp(accept)).flatten()
+    indices = np.argwhere(u > 1 - np.exp(accept)).flatten()
     particles[indices] = proposed_particles[indices]
 
     # constrain the particles to be within the block if we are given block dimensions
     # Clipping biases the CoM to be towards the center of the block.
     if ranges is not None:
         for i, (lower, upper) in enumerate(ranges):
-            particles[:,i] = np.clip(particles[:,i], lower, upper)
+            particles[:, i] = np.clip(particles[:, i], lower, upper)
 
-    weights = np.ones(N)/float(N) # weights become uniform again
+    weights = np.ones(N) / float(N)  # weights become uniform again
     return ParticleDistribution(particles, weights)
+
 
 def simulate(particles, action, T, true_block):
     particle_blocks = [copy.deepcopy(true_block) for particle in particles]
@@ -147,7 +167,7 @@ def make_platform_world(p_block, action):
     block = get_rotated_block(p_block)
     block.set_pose(Pose(pos=Position(x=action.pos.x,
                                      y=action.pos.y,
-                                     z=platform_table.get_pose().pos.z+platform_table.dimensions.z/2.+block.dimensions.z/2.),
+                                     z=platform_table.get_pose().pos.z + platform_table.dimensions.z / 2. + block.dimensions.z / 2.),
                         orn=ZERO_ROT))
 
     return World([platform_table, block, platform_leg])

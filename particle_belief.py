@@ -26,7 +26,7 @@ from learning.domains.grasping.active_utils import get_fit_object
 from learning.models.grasp_np.create_gnp_data import process_geometry
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 from filter_utils import create_uniform_particles, create_gaussian_particles, sample_and_wiggle, \
-    sample_particle_distribution
+    sample_particle_distribution, create_centered_uniform_particles
 from learning.models.grasp_np.train_grasp_np import check_to_cuda
 
 
@@ -357,7 +357,7 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
     """
 
     def __init__(self, object_set, d_latents, n_particles, likelihood=None, resample=False, plot=False,
-                 means=None, stds=None):
+                 means=None, stds=None, distribution='gaussian'):
         """
         Maintain a particle distribution over the latent properties for an object.
 
@@ -385,6 +385,7 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         self.likelihood = likelihood  # LatentEnsemble object that outputs [0, 1]
         self.proposal_means = [0.0] * self.D if means is None else means
         self.proposal_stds = [1.0] * self.D if stds is None else stds
+        self.original_distribution = distribution
 
         self.setup()
         if self.plot:
@@ -397,15 +398,28 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
 
     def setup(self):
         print('Setting up particles')
-        self.particles = create_gaussian_particles(
-            N=self.N,
-            D=self.D,
-            means=self.proposal_means,
-            stds=self.proposal_stds
-            #[-0.01336855, -0.07791229, -0.10432979, 0.02341524, 0.2466585],
-            # [0.] * self.D, # TODO: need to be able to set this proposal distribution
-            #[0.05641393, 0.56605726, 1.804926, 1.276295, 1.7758392]  # [2.] * self.D
-        )
+        if self.original_distribution == 'gaussian':
+            self.particles = create_gaussian_particles(
+                N=self.N,
+                D=self.D,
+                means=self.proposal_means,
+                stds=self.proposal_stds
+                # [-0.01336855, -0.07791229, -0.10432979, 0.02341524, 0.2466585],
+                # [0.] * self.D, # TODO: need to be able to set this proposal distribution
+                # [0.05641393, 0.56605726, 1.804926, 1.276295, 1.7758392]  # [2.] * self.D
+            )
+        elif self.original_distribution == 'uniform':
+            self.particles = create_centered_uniform_particles(
+                N=self.N,
+                D=self.D,
+                means=self.proposal_means,
+                half_lengths=self.proposal_stds
+            )
+        else:
+            raise NotImplementedError(
+                "Cannot draw samples from the distribution specified. Must be: \"gaussian\", \"uniform\"."
+            )
+
         if not self.resample:
             self.particles = ParticleDistribution(self.particles.particles, np.ones(self.N))
 
@@ -615,9 +629,9 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
     """
 
     def __init__(self, object_set, d_latents, n_particles, likelihood=None, resample=False, plot=False,
-                 data_is_in_gnp_format=False, means=None, stds=None):
+                 data_is_in_gnp_format=False, means=None, stds=None, distribution='gaussian'):
         super().__init__(object_set, d_latents, n_particles, likelihood=likelihood, resample=resample, plot=plot,
-                         means=means, stds=stds)
+                         means=means, stds=stds, distribution=distribution)
         self.data_is_in_gnp_format = data_is_in_gnp_format
 
     def get_label_from_observation(self, observation):
