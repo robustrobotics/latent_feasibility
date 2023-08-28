@@ -52,7 +52,7 @@ def create_centered_uniform_particles(N, D, means, half_lengths):
     particles = np.empty((N, D))
     weights = np.ones(N) * (1 / N)
     for d in range(D):
-        particles[:, d] = np.uniform(low=means[d] - half_lengths[d], high=means[d] + half_lengths[d], size=N)
+        particles[:, d] = np.random.uniform(low=means[d] - half_lengths[d], high=means[d] + half_lengths[d], size=N)
     return ParticleDistribution(particles, weights)
 
 
