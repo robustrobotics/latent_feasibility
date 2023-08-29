@@ -174,7 +174,8 @@ def run_fitting_phase(args):
             fitting_args.use_progressive_priors = True
             fitting_args.constrained = args.constrained
             fitting_args.particle_prop_dist_mean = [0.0, 0.0, 0.0, -0.5, 0.0]
-            fitting_args.particle_prop_dist_stds = [1.0, 1.0, 1.0, 0.5, 1.0]
+            fitting_args.particle_prop_dist_stds = [0.25, 1.0, 1.0, 0.5, 1.0]  # [1.0, 1.0, 1.0, 0.5, 1.0]
+            fitting_args.particle_distribution = 'gaussian'
             if args.amortize:
                 fitting_args.likelihood = 'gnp'
             else:
@@ -575,7 +576,6 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
             valid_maxdims.append(np.NaN)
             valid_rrates.append(np.NaN)
             valid_eigeval_prod.append(np.NaN)
-          
 
     return valid_objects[:max_objects], \
         valid_pstables[:max_objects], \
@@ -664,7 +664,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                        average_precisions_normed, belief_update_times, ig_compute_times]
         metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
                             'val_f1s.pkl', 'val_balanced_accs.pkl', 'belief_update_times.pkl',
-                            'ig_compute_times.pkl',  'val_entropies.pkl']
+                            'ig_compute_times.pkl', 'val_entropies.pkl']
         metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
                         'belief update time', 'ig compute time', 'entropy']
     else:
@@ -748,7 +748,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
             avg_prec = metric_per_strategy_list[avg_prec_ix]
             avg_prec_last_acquistion = avg_prec[:, -1].reshape(-1, 1)
             metric_list[-1][obj_set][strategy] = avg_prec / avg_prec_last_acquistion
-    metric_names.append("normalized average precision") # these need to only be added in once
+    metric_names.append("normalized average precision")  # these need to only be added in once
 
     # we now have all the data we need to construct the full dataframe
     # we first construct are two dataframes: one for the time-dependent metrics
