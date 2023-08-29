@@ -176,7 +176,8 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
                         plot=False,
                         data_is_in_gnp_format=True,
                         means=script_args.prop_means,
-                        stds=script_args.prop_stds
+                        stds=script_args.prop_stds,
+                        distribution=script_args.prop_distribution
                     )
                     particle_filter_loop(pf, object_set, ported_logger, 'bald', fitting_args, used_cached_samples=True)
                 else:
@@ -195,7 +196,8 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
                         plot=False,
                         data_is_in_gnp_format=True,
                         means=script_args.prop_means,
-                        stds=script_args.prop_stds
+                        stds=script_args.prop_stds,
+                        distribution=script_args.prop_distribution
                     )
 
                     particle_update_times = []
@@ -254,6 +256,7 @@ if __name__ == '__main__':
                         default=[0.0, 0.0, 0.0, 0.0, 0.0])
     parser.add_argument('--prop-stds', nargs='+', help='stdevs of ind. normal to sample particles from', type=float,
                         default=[1.0, 1.0, 1.0, 1.0, 1.0])
+    parser.add_argument('--prop-distribution', type=str, default='gaussian')
     parser.add_argument('--strategies', nargs='+', default=['bald', 'random'])
     args = parser.parse_args()
 
