@@ -104,10 +104,15 @@ def explode_dataset_into_list_of_datasets(dataset):
     # this is a hack to get num_grasp info from a length of a grasp property list
     num_grasps = len(list(list(dataset['grasp_data'].values())[1].values())[0])
     grasp_sets = [copy.deepcopy(template) for _ in range(num_grasps)]
-    for field_name in dataset['grasp_data'].keys():
+    for field_name in dataset['grasp_data'].keys():            
         for ox in dataset['grasp_data'][field_name].keys():
-            for entry, grasp_set in zip(dataset['grasp_data'][field_name][ox], grasp_sets):
-                grasp_set['grasp_data'][field_name][ox] = [entry]
+            if field_name not in ['object_meshes']:
+                for entry, grasp_set in zip(dataset['grasp_data'][field_name][ox], grasp_sets):
+                    grasp_set['grasp_data'][field_name][ox] = [entry]
+            else:
+                for grasp_set in grasp_sets:
+                    grasp_set['grasp_data'][field_name][ox] = dataset['grasp_data'][field_name][ox]
+
     return grasp_sets
 
 
