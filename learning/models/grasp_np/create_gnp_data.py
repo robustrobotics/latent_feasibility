@@ -119,8 +119,8 @@ def process_geometry(train_dataset, radius=0.02, skip=1, verbose=True):
         else:
             all_points_per_objects[object_id] = np.concatenate([all_points_per_objects[object_id], mesh_points], axis=0)
     
-    train_dataset['grasp_data']['grasps'] = [np.delete(g, np.s_[3:], 0) for g in train_dataset['grasp_data']['grasps']]
-    all_grasps = train_dataset['grasp_data']['grasps'][::skip]
+    reduced_feature_vects = [np.delete(g, np.s_[3:], 0) for g in train_dataset['grasp_data']['grasps']]
+    all_grasps = reduced_feature_vects[::skip]
     
     # For each grasp, find close points and convert them to the local grasp frame.
     new_geometries_dict = defaultdict(list)  # obj_id -> [grasp__points]

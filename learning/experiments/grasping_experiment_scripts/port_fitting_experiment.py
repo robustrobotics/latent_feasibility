@@ -151,6 +151,9 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
                         likelihood=gnp,
                         resample=False,
                         plot=False,
+                        means=script_args.prop_means,
+                        stds=script_args.prop_stds,
+                        distribution=script_args.prop_distribution
                     )
                     particle_filter_loop(pf, object_set, ported_logger, 'bald', fitting_args,
                                          override_selection_fun=override_fun)
