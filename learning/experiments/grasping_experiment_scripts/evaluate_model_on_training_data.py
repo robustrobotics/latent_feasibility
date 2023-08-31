@@ -13,7 +13,7 @@ from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_colla
 from learning.models.grasp_np.train_grasp_np import check_to_cuda, get_loss
 
 
-def main(args, logger, perturb_rad):
+def evaluate_train_data_with_perturbations(args, logger, perturb_rad):
     # load model and data
     model = logger.get_neural_process(0)
     model = model.cuda() if torch.cuda.is_available() else model
@@ -37,12 +37,12 @@ def main(args, logger, perturb_rad):
     train_dataloader = DataLoader(
         dataset=train_dataset,
         batch_size=args.batch_size,  # number of grasps doesn't matter, since we are only using known prop anyway
-        collate_fn=lambda x: custom_collate_fn(x, rand_grasp_num=False, add_mesh_normals=args.add_mesh_normals),
+        collate_fn=lambda x: custom_collate_fn(x, rand_grasp_num=False, add_mesh_normals=args.add_mesh_normals, rotate=False),
         shuffle=True
     )
     val_dataloader = DataLoader(
         dataset=val_dataset_eval,
-        collate_fn=lambda x: custom_collate_fn(x, rand_grasp_num=False, add_mesh_normals=args.add_mesh_normals),
+        collate_fn=lambda x: custom_collate_fn(x, rand_grasp_num=False, add_mesh_normals=args.add_mesh_normals, rotate=False),
         batch_size=args.batch_size,
         shuffle=False
     )
@@ -84,7 +84,8 @@ def main(args, logger, perturb_rad):
             n_c_labels = c_labels[:, n_indices]
             n_c_sizes = torch.ones_like(n_c_forces) * n_grasps / 50
 
-            perturbation = 2 * (torch.rand(5) - 0.5) * torch.tensor(perturb_rad)
+            n_batch = len(c_grasp_geoms)
+            perturbation = 2 * (torch.rand((n_batch, 5)) - 0.5) * torch.tensor(perturb_rad, dtype=torch.float32)
 
             y_probs, q_z = model.forward(
                 (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels, c_sizes),
@@ -154,7 +155,8 @@ def main(args, logger, perturb_rad):
             n_c_labels = c_labels[:, n_indices]
             n_c_sizes = torch.ones_like(n_c_forces) * n_grasps / 50
 
-            perturbation = 2 * (torch.rand(5) - 0.5) * torch.tensor(perturb_rad)
+            n_batch = len(c_grasp_geoms)
+            perturbation = 2 * (torch.rand((n_batch, 5)) - 0.5) * torch.tensor(perturb_rad, dtype=torch.float32)
 
             y_probs, q_z = model.forward(
                 (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels, c_sizes),
@@ -194,7 +196,7 @@ def main(args, logger, perturb_rad):
             f'Val Loss: {val_loss}\tBCE: {val_bce}\tKLD: {val_kld}\t'
             f'Val Precision: {val_prec}\tVal Recall: {val_recall}\tVal Avg Prec: {val_avg_prec}'
         )
-
+    return train_prec, train_recall, train_avg_prec, val_prec, val_recall, val_avg_prec
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -214,4 +216,4 @@ if __name__ == '__main__':
     exp_path = log_lookup['training_phase']
     logger = ActiveExperimentLogger(exp_path, use_latents=True)
     training_args = logger.args
-    main(training_args, logger, script_args.uniform_perturb_rad)
+    evaluate_train_data_with_perturbations(training_args, logger, script_args.uniform_perturb_rad)
