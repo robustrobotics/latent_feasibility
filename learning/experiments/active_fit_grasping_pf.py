@@ -541,7 +541,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
         print(f'Max Weight: {np.max(pf.particles.weights)}')
         print(f'Sum Weights: {np.sum(pf.particles.weights)}')
 
-        grasp_dataset = process_geometry(grasp_dataset, radius=0.3,
+        grasp_dataset = process_geometry(grasp_dataset, radius=0.03,
                                          verbose=False) if not used_cached_samples else grasp_dataset
         if tx == 0:
             context_data = grasp_dataset
