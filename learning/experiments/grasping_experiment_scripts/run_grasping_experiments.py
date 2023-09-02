@@ -170,12 +170,12 @@ def run_fitting_phase(args):
             fitting_args.ensemble_tx = 0
             fitting_args.eval_object_ix = ox
             fitting_args.strategy = args.strategy
-            fitting_args.n_particles = 1000
-            fitting_args.use_progressive_priors = True
+            fitting_args.n_particles = 10000
+            fitting_args.use_progressive_priors = False
             fitting_args.constrained = args.constrained
-            fitting_args.particle_prop_dist_mean = [0.0, 0.0, 0.0, -0.5, 0.0]
-            fitting_args.particle_prop_dist_stds = [0.25, 1.0, 1.0, 0.5, 1.0]  # [1.0, 1.0, 1.0, 0.5, 1.0]
             fitting_args.particle_distribution = 'gaussian'
+            fitting_args.particle_prop_dist_mean = [0.0, 0.0, 0.0, 0.0, 0.0]
+            fitting_args.particle_prop_dist_stds = [1.0, 1.0, 1.0, 1.0, 1.0]
             if args.amortize:
                 fitting_args.likelihood = 'gnp'
             else:
@@ -380,7 +380,7 @@ def run_task_eval_phase(args):
             [n_test_geo, n_train_geo],
             [TEST_IGNORE, TRAIN_IGNORE]
     ):
-        for ox in range(min(n_objects, 100)):
+        for ox in range(min(n_objects, 500)):
             if ox in ignore: continue
 
             if args.constrained:
@@ -410,8 +410,18 @@ def run_task_eval_phase(args):
 
             with open(os.path.join(fit_log_path, 'args.pkl'), 'rb') as handle:
                 fitting_args = pickle.load(handle)
-            get_pf_task_performance(fit_logger, val_dataset_path,
-                                    use_progressive_priors=fitting_args.use_progressive_priors)
+            # get_pf_task_performance(
+            #     fit_logger,
+            #     val_dataset_path,
+            #     use_progressive_priors=fitting_args.use_progressive_priors
+            # )
+            get_pf_validation_accuracy(
+                fit_logger,
+                val_dataset_path,
+                args.amortize,
+                use_progressive_priors=fitting_args.use_progressive_priors,
+                vis=False
+            )
 
 
 def run_training_phase(args):
