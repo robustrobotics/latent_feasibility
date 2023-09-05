@@ -170,12 +170,12 @@ def run_fitting_phase(args):
             fitting_args.ensemble_tx = 0
             fitting_args.eval_object_ix = ox
             fitting_args.strategy = args.strategy
-            fitting_args.n_particles = 1000
-            fitting_args.use_progressive_priors = True
+            fitting_args.n_particles = 10000
+            fitting_args.use_progressive_priors = False
             fitting_args.constrained = args.constrained
-            fitting_args.particle_prop_dist_mean = [0.0, 0.0, 0.0, -0.5, 0.0]
-            fitting_args.particle_prop_dist_stds = [0.25, 1.0, 1.0, 0.5, 1.0]  # [1.0, 1.0, 1.0, 0.5, 1.0]
             fitting_args.particle_distribution = 'gaussian'
+            fitting_args.particle_prop_dist_mean = [0.0, 0.0, 0.0, 0.0, 0.0]
+            fitting_args.particle_prop_dist_stds = [1.0, 1.0, 1.0, 1.0, 1.0]
             if args.amortize:
                 fitting_args.likelihood = 'gnp'
             else:
@@ -380,7 +380,7 @@ def run_task_eval_phase(args):
             [n_test_geo, n_train_geo],
             [TEST_IGNORE, TRAIN_IGNORE]
     ):
-        for ox in range(min(n_objects, 100)):
+        for ox in range(min(n_objects, 500)):
             if ox in ignore: continue
 
             if args.constrained:
@@ -410,8 +410,18 @@ def run_task_eval_phase(args):
 
             with open(os.path.join(fit_log_path, 'args.pkl'), 'rb') as handle:
                 fitting_args = pickle.load(handle)
-            get_pf_task_performance(fit_logger, val_dataset_path,
-                                    use_progressive_priors=fitting_args.use_progressive_priors)
+            # get_pf_task_performance(
+            #     fit_logger,
+            #     val_dataset_path,
+            #     use_progressive_priors=fitting_args.use_progressive_priors
+            # )
+            get_pf_validation_accuracy(
+                fit_logger,
+                val_dataset_path,
+                args.amortize,
+                use_progressive_priors=fitting_args.use_progressive_priors,
+                vis=False
+            )
 
 
 def run_training_phase(args):
@@ -659,14 +669,15 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     means = {'train_geo': {}, 'test_geo': {}}
     covars = {'train_geo': {}, 'test_geo': {}}
     info_gains = {'train_geo': {}, 'test_geo': {}}
+    regrets = {'train_geo': {}, 'test_geo': {}}
     if amortize:
         metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies,
-                       average_precisions_normed, belief_update_times, ig_compute_times]
+                       average_precisions_normed, belief_update_times, ig_compute_times, regrets]
         metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
                             'val_f1s.pkl', 'val_balanced_accs.pkl', 'belief_update_times.pkl',
-                            'ig_compute_times.pkl', 'val_entropies.pkl']
+                            'ig_compute_times.pkl', 'val_entropies.pkl', 'regrets_0.pkl']
         metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
-                        'belief update time', 'ig compute time', 'entropy']
+                        'belief update time', 'ig compute time', 'entropy', 'regret']
     else:
         metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores,
                        belief_update_times, ig_compute_times]
@@ -687,8 +698,9 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                 fit_args = pickle.load(handle)
             n_acquisitions = fit_args.max_acquisitions
             n_grasps = fit_args.n_samples
-            acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy = \
+            acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy, rgts = \
                 np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
@@ -699,7 +711,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                     np.zeros((n_objs, n_acquisitions))
 
             if amortize:
-                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy]
+                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy, rgts]
             else:
                 metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm]
 

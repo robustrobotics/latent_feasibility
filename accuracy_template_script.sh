@@ -4,4 +4,4 @@
 
 # python -m learning.experiments.grasping_experiment_scripts.port_fitting_experiment --existing-exp-name  gnp-snv2scaleddim-run10 --ported-exp-name pf10-snv2scaledim-run10 --belief particle --num-train-objs-to-port 250 --num-test-objs-to-port 250 --n-particles 10
 #python -m learning.experiments.grasping_experiment_scripts.port_fitting_experiment --existing-exp-name gnp-snv2scaleddim-run10 --ported-exp-name pf100-snv2scaledim-run10 --belief particle --num-train-objs-to-port 250 --num-test-objs-to-port 250 --n-particles 100
-python -m learning.experiments.grasping_experiment_scripts.port_fitting_experiment --existing-exp-name gnp-snv2scaleddim-run10 --ported-exp-name pf10000-snv2scaledim-run10 --belief particle --num-train-objs-to-port 250 --num-test-objs-to-port 250 --n-particles 10000
+python -m learning.experiments.grasping_experiment_scripts.port_fitting_experiment --existing-exp-name gnp-snv2scaleddim-run10 --ported-exp-name pf10000-snv2scaledim-run10 --belief particle --num-train-objs-to-port 500 --num-test-objs-to-port 500 --n-particles 10000

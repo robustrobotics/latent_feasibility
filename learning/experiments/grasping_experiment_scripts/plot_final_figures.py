@@ -1,31 +1,33 @@
 from learning.evaluate.plot_compare_grasping_runs import plot_comparison_between_two_experiments, \
     plot_comparison_between_n_experiments
 from learning.experiments.grasping_experiment_scripts.run_grasping_experiments import compile_dataframes_and_save_path
-
+import sys
+import pickle
 
 def main():
-    # known_particle_sn_name = 'sn_particle_known_latent_10'
-    known_particle_bx_name = 'bx_known_latent_trial4_10000'
 
-    # sn_known_df, _, _, _ = compile_dataframes_and_save_path(known_particle_sn_name, True)
-    bx_known_df, _, _, _ = compile_dataframes_and_save_path(known_particle_bx_name, True)
 
-    # plot_comparison_between_two_experiments(sn_known_df, sn_known_df, known_particle_sn_name,
-    #                                         known_particle_sn_name + '_dup',
-    #                                         'figures/', 'average precision')
-    #
+    # known_particle_sn_name = 'pf10000-snv2scaleddim-run10'
+    known_particle_sn_name = 'pf10000-boxv2-run1'
+    # known_particle_bx_name = 'box_particle_known_latent'
+
+    sn_known_df, _, _, _ = compile_dataframes_and_save_path(known_particle_sn_name, True)
+    # bx_known_df, _, _, _ = compile_dataframes_and_save_path(known_particle_bx_name, True)
+
+    plot_comparison_between_two_experiments(sn_known_df, sn_known_df, known_particle_sn_name,
+                                            known_particle_sn_name + '_dup',
+                                            'figures/', 'average precision')
+
     # plot_comparison_between_two_experiments(sn_known_df, sn_known_df, known_particle_sn_name,
     #                                         known_particle_sn_name + '_dup',
     #                                         'figures/', 'precision', metric_name_opt='recall')
-    plot_comparison_between_n_experiments([bx_known_df], [known_particle_bx_name],
-                                                               'figures/', 'average precision')
-    plot_comparison_between_n_experiments([bx_known_df], [known_particle_bx_name],
-                                                               'figures/', 'precision')
-    plot_comparison_between_n_experiments([bx_known_df], [known_particle_bx_name],
-                                                               'figures/', 'recall')
+    # plot_comparison_between_two_experiments(bx_known_df, bx_known_df, known_particle_bx_name,
+    #                                         known_particle_bx_name + '_dup',
+    #                                         'figures/', 'precision', metric_name_opt='recall')
 
+    sys.exit()
     amortized_exp_name = 'gnp-snv2scaleddim-run10'
-    particle_exp_name = 'pf-snv2scaleddim-run10'
+    particle_exp_name = 'pf10000-snv2scaleddim-run10'
     amortized_name = 'sn-amortized'
     particle_name = 'sn-particle'
     # amortized_exp_name = 'gnp-boxv2-run1'
@@ -36,14 +38,14 @@ def main():
     # ---- Main Experiments ----
     amortized_dataframe, _, _, _ = compile_dataframes_and_save_path(amortized_exp_name, True)
     particle_dataframe, _, _, _ = compile_dataframes_and_save_path(particle_exp_name, True)
-    plot_comparison_between_two_experiments(
-        amortized_dataframe,
-        particle_dataframe,
-        amortized_name,
-        particle_name,
-        'figures/',
-        'regret'
-    )
+    # plot_comparison_between_two_experiments(
+    #     amortized_dataframe,
+    #     particle_dataframe,
+    #     amortized_name,
+    #     particle_name,
+    #     'figures/',
+    #     'regret'
+    # )
     plot_comparison_between_two_experiments(
         amortized_dataframe,
         particle_dataframe,

@@ -7,6 +7,7 @@ import pickle
 import trimesh
 import time
 import io
+from torch.utils.data import DataLoader
 from matplotlib import cm
 import pybullet as p
 from PIL import Image
@@ -14,7 +15,7 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 
 from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector
 from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspSimulationClient, GraspSampler
-
+from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 
 def get_success_per_test_object(dataset_root, n_bins=10):
     p_stables = []
@@ -358,6 +359,25 @@ def show_object_size_distributions(train_fname):
 
     plt.show()
 
+def get_post_processed_object_properties(train_grasps):
+    with open(train_grasps, 'rb') as handle:
+        train_grasps = pickle.load(handle)
+
+    dataset = CustomGNPGraspDataset(data=train_grasps)
+    dataloader = DataLoader(
+        dataset=dataset,
+        collate_fn = lambda items: custom_collate_fn(items, rotate=False),
+        batch_size=1,
+        shuffle=False
+    )
+    all_props = []
+    for (_, _, (_, props)) in dataloader:
+        all_props.append(props.squeeze().numpy())
+    all_props = np.array(all_props)
+
+    import ipdb; ipdb.set_trace()
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset-name', type=str, required=True)
@@ -393,7 +413,11 @@ if __name__ == '__main__':
     # sys.exit()
 
     train_grasps = os.path.join(dataset_root, 'grasps', 'training_phase', 'train_grasps.pkl')
-    show_object_effective_sampling_sizes(train_grasps)
+    # show_object_effective_sampling_sizes(train_grasps)
+    
+
+    get_post_processed_object_properties(train_grasps)
+    
     sys.exit()
     show_object_size_distributions(train_grasps)
     figpath = os.path.join(dataset_figpath, 'train_grasps')
