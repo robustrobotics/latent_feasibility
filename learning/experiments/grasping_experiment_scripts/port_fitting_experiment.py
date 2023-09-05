@@ -206,12 +206,10 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
                     particle_update_times = []
                     for tx, grasp in enumerate(context_set_individual_grasps):
                         print('Particle update for grasp %i' % tx)
-                        particle_update_st = time.process_time()
                         particles, _ = pf.update(grasp)
-                        particle_update_et = time.process_time()
                         ported_logger.save_neural_process(pf.likelihood, tx + 1, symlink_tx0=True)
                         ported_logger.save_particles(particles, tx)
-                        particle_update_times.append(particle_update_et - particle_update_st)
+                        particle_update_times.append(pf.get_last_update_time())
 
                     # store particle filter update computations.
                     # there isn't any IG time data if random/did not recmput ig in this method, so

@@ -530,11 +530,8 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
             grasp_dataset, grasp_labeler = get_label_gnp(grasp_dataset, labeler=grasp_labeler)
         # Update the particle belief.
 
-        particle_update_st = time.process_time()
         particles, means = pf.update(grasp_dataset)
-        particle_update_et = time.process_time()
-
-        particle_update_time = particle_update_et - particle_update_st
+        particle_update_time = pf.get_last_update_time()
 
         print('[ParticleFilter] Particle Statistics')
         print(f'Min Weight: {np.min(pf.particles.weights)}')
@@ -562,15 +559,6 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
     if used_cached_samples and (not grasp_labeler is None):
         grasp_labeler.disconnect()
 
-
-    # save time data from run
-    with open(logger.get_figure_path('belief_update_times.pkl'), 'wb') as handle:
-        pickle.dump(particle_update_times, handle)
-    with open(logger.get_figure_path('ig_compute_times.pkl'), 'wb') as handle:
-        pickle.dump(ig_compute_times, handle)
-
-        particle_update_times.append(particle_update_time)
-        ig_compute_times.append(ig_compute_time)
 
     # save time data from run
     with open(logger.get_figure_path('belief_update_times.pkl'), 'wb') as handle:

@@ -4,6 +4,8 @@ Copyright 2020 Massachusetts Insititute of Technology
 Izzy Brand
 """
 import argparse
+import time
+
 from learning.domains.grasping.grasp_data import GraspDataset, GraspParallelDataLoader
 from learning.domains.towers.tower_data import ParallelDataLoader, TowerDataset
 import matplotlib.pyplot as plt
@@ -387,6 +389,8 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         self.proposal_stds = [1.0] * self.D if stds is None else stds
         self.original_distribution = distribution
 
+        self.last_update_time = -1
+
         self.setup()
         if self.plot:
             plt.ion()
@@ -533,10 +537,12 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         weights = np.ones(N) / float(N)  # weights become uniform again
         return ParticleDistribution(particles, weights)
 
-    def get_particle_likelihoods(self, particles, observation):
+    def get_particle_likelihoods(self, particles, observation, _is_timing_update=False):
         """
          
         """
+        compute_particle_likelihoods_st = time.process_time()
+
         self.likelihood.eval()
         dataset = GraspDataset(data=observation, grasp_encoding='per_point')
         dataloader = GraspParallelDataLoader(dataset=dataset,
@@ -563,6 +569,12 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
                                                pf_latent_ix=self.object_ix,
                                                latent_samples=latent_samples[ix * 20:(ix + 1) * 20, :]).squeeze()
                 bernoulli_probs.append(pred.cpu().detach().numpy())
+
+        compute_particle_likelihoods_et = time.process_time()
+
+        if _is_timing_update:
+            self.last_update_time += compute_particle_likelihoods_et - compute_particle_likelihoods_st
+
         return np.concatenate(bernoulli_probs)
 
     def get_label_from_observation(self, observation):
@@ -572,6 +584,9 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         """
         :param observation: tower_dict format for a single tower.
         """
+        self.last_update_time = 0
+
+        resample_st = time.process_time()
         # Resample the distribution
         if len(self.experience) > 0 and self.resample:
             self.particles = self.sample_and_wiggle(self.particles, self.experience)
@@ -579,11 +594,20 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         # Append the current observation to the dataset of all observations so far.
         self.experience.append(observation)
 
+        resample_et = time.process_time()
+        self.last_update_time += resample_et - resample_st
+
         # Forward simulation using the LatentEnsemble likelihood.
         if isinstance(self.likelihood, nn.Module):
-            bernoulli_probs = self.get_particle_likelihoods(self.particles.particles, observation)
+            bernoulli_probs = self.get_particle_likelihoods(self.particles.particles, observation,
+                                                            _is_timing_update=True)
         else:
+            likelihood_update_st = time.process_time()
             bernoulli_probs = self.likelihood.get_particle_likelihoods(self.particles.particles, observation)
+            likelihood_update_et = time.process_time()
+            self.last_update_time += likelihood_update_et - likelihood_update_st
+
+        reweight_particle_st = time.process_time()
 
         label = self.get_label_from_observation(observation)
         n_correct = ((bernoulli_probs > 0.5).astype('float32') == label).sum()
@@ -608,11 +632,6 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         # and update the particle distribution with the new weights
         self.particles = ParticleDistribution(self.particles.particles, new_weights)
 
-        if self.plot:
-            # visualize particles (it's very slow)
-            self.setup_ax(self.ax)
-            self.plot_particles(self.ax, self.particles.particles, new_weights)
-
         part_probs = np.array(self.particles.weights)
         part_probs /= part_probs.sum()
         mean = np.array(self.particles.particles).T @ part_probs
@@ -620,7 +639,18 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         print('True:', self.object_properties)
         self.estimated_coms.append(mean)
 
+        reweight_particle_et = time.process_time()
+        self.last_update_time += reweight_particle_et - reweight_particle_st
+
+        if self.plot:
+            # visualize particles (it's very slow)
+            self.setup_ax(self.ax)
+            self.plot_particles(self.ax, self.particles.particles, new_weights)
+
         return self.particles, self.estimated_coms
+
+    def get_last_update_time(self):
+        return self.last_update_time
 
 
 class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikelihoodParticleBelief):
@@ -640,7 +670,7 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
         else:
             return observation['grasp_data']['labels'][0]
 
-    def get_particle_likelihoods(self, particles, observation, batch_size=1000):
+    def get_particle_likelihoods(self, particles, observation, batch_size=1000, _is_timing_update=False):
         """
         Compute the likelihood of an obervation for each particle.
         :param particles: NxD matrix of particles.
@@ -659,6 +689,8 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
                 skip=1,
                 verbose=False
             )
+
+        compute_particle_likelihoods_st = time.process_time()
 
         # Note the context data is irrelevant here as we are only using the decoder.
         dataset = CustomGNPGraspDataset(
@@ -699,6 +731,10 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
                     zs=latent_samples[ix * batch_size:(ix + 1) * batch_size]
                 ).squeeze()
                 bernoulli_probs.append(preds.cpu().detach().numpy())
+
+        compute_particle_likelihoods_et = time.process_time()
+        if _is_timing_update:
+            self.last_update_time += compute_particle_likelihoods_et - compute_particle_likelihoods_st
 
         return np.concatenate(bernoulli_probs)
 
