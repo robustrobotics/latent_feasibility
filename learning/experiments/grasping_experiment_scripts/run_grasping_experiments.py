@@ -173,9 +173,9 @@ def run_fitting_phase(args):
             fitting_args.n_particles = 10000
             fitting_args.use_progressive_priors = False
             fitting_args.constrained = args.constrained
-            fitting_args.particle_distribution = 'gaussian'
-            fitting_args.particle_prop_dist_mean = [0.0, 0.0, 0.0, 0.0, 0.0]
-            fitting_args.particle_prop_dist_stds = [1.0, 1.0, 1.0, 1.0, 1.0]
+            fitting_args.particle_prop_dist_mean = [0.0, 0.0, 0.0, -0.5, 0.0]
+            fitting_args.particle_prop_dist_stds = [0.25, 1.0, 1.0, 0.5, 1.0] #[1.0, 1.0, 1.0, 0.5, 1.0]
+            fitting_args.particle_distribution = 'uniform'
             if args.amortize:
                 fitting_args.likelihood = 'gnp'
             else:
@@ -380,7 +380,7 @@ def run_task_eval_phase(args):
             [n_test_geo, n_train_geo],
             [TEST_IGNORE, TRAIN_IGNORE]
     ):
-        for ox in range(min(n_objects, 500)):
+        for ox in range(min(n_objects, 100)):
             if ox in ignore: continue
 
             if args.constrained:
@@ -410,18 +410,8 @@ def run_task_eval_phase(args):
 
             with open(os.path.join(fit_log_path, 'args.pkl'), 'rb') as handle:
                 fitting_args = pickle.load(handle)
-            # get_pf_task_performance(
-            #     fit_logger,
-            #     val_dataset_path,
-            #     use_progressive_priors=fitting_args.use_progressive_priors
-            # )
-            get_pf_validation_accuracy(
-                fit_logger,
-                val_dataset_path,
-                args.amortize,
-                use_progressive_priors=fitting_args.use_progressive_priors,
-                vis=False
-            )
+            get_pf_task_performance(fit_logger, val_dataset_path,
+                                    use_progressive_priors=fitting_args.use_progressive_priors)
 
 
 def run_training_phase(args):
@@ -669,15 +659,14 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     means = {'train_geo': {}, 'test_geo': {}}
     covars = {'train_geo': {}, 'test_geo': {}}
     info_gains = {'train_geo': {}, 'test_geo': {}}
-    regrets = {'train_geo': {}, 'test_geo': {}}
     if amortize:
         metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies,
-                       average_precisions_normed, belief_update_times, ig_compute_times, regrets]
+                       average_precisions_normed, belief_update_times, ig_compute_times]
         metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
                             'val_f1s.pkl', 'val_balanced_accs.pkl', 'belief_update_times.pkl',
-                            'ig_compute_times.pkl', 'val_entropies.pkl', 'regrets_0.pkl']
+                            'ig_compute_times.pkl', 'val_entropies.pkl']
         metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
-                        'belief update time', 'ig compute time', 'entropy', 'regret']
+                        'belief update time', 'ig compute time', 'entropy']
     else:
         metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores,
                        belief_update_times, ig_compute_times]
@@ -698,9 +687,8 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                 fit_args = pickle.load(handle)
             n_acquisitions = fit_args.max_acquisitions
             n_grasps = fit_args.n_samples
-            acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy, rgts = \
+            acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy = \
                 np.zeros((n_objs, n_acquisitions)), \
-                    np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
@@ -711,7 +699,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                     np.zeros((n_objs, n_acquisitions))
 
             if amortize:
-                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy, rgts]
+                metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy]
             else:
                 metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm]
 
@@ -770,22 +758,29 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     unique_object_names_train = list(dict.fromkeys(
         [name for _, name, _ in valid_train_objects]
     ))
+
     strategies_used_for_train = metric_list[0]['train_geo'].keys()
+
+    n_valid_train_entries = len(log_paths_set['train_geo'])
     mi_train = pd.MultiIndex.from_product([
         strategies_used_for_train,
         unique_object_names_train,
         range(n_property_samples_train)
-    ], names=['strategy', 'name', 'no_property_sample'])
+    ], names=['strategy', 'name', 'no_property_sample'])[:n_valid_train_entries]
+
     unique_object_names_test = list(dict.fromkeys(
         [name for _, name, _ in valid_test_objects]
     ))
     strategies_used_for_test = metric_list[0]['test_geo'].keys()
+
+    n_valid_test_entries = len(log_paths_set['test_geo'])
     mi_test = pd.MultiIndex.from_product([
         strategies_used_for_test,
         unique_object_names_test,
         range(n_property_samples_test)
-    ], names=['strategy', 'name', 'no_property_sample'])
+    ], names=['strategy', 'name', 'no_property_sample'])[:n_valid_test_entries]
     # construct non-time series data
+
     d_const_train = pd.DataFrame(data=zip(
         valid_train_eigval_prod * len(strategies_used_for_train),
         valid_train_pstables * len(strategies_used_for_train),
@@ -798,6 +793,7 @@ def compile_dataframes_and_save_path(exp_name, amortize):
         log_paths_set['train_geo']
     ), index=mi_train,
         columns=['eigval_prod', 'pstable', 'avg_min_dist', 'ratio', 'maxdim', 'rrate', 'name', 'props', 'log_paths'])
+
     d_const_test = pd.DataFrame(data=zip(
         valid_test_eigval_prod * len(strategies_used_for_test),
         valid_test_pstables * len(strategies_used_for_test),
