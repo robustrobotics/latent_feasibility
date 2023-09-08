@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import time
 
 from learning.models.pointnet import PointNetRegressor, PointNetClassifier
 
@@ -82,10 +83,13 @@ class CustomGraspNeuralProcess(nn.Module):
         self.d_object_mesh_enc = d_object_mesh_enc
         self.d_grasp_mesh_enc = d_grasp_mesh_enc
 
-    def forward(self, contexts, target_xs, object_data, known_property_perturbation=torch.zeros(5)):
+    def forward(self, contexts, target_xs, object_data, known_property_perturbation=torch.zeros(5), return_inf_time=False, use_mean=False):
         meshes, object_properties = object_data
-
+        if return_inf_time:
+            start_time = time.process_time()
         q_z, mesh_enc, global_transform = self.forward_until_latents(contexts, meshes)
+        if return_inf_time:
+            inf_time = time.process_time() - start_time
         # Replace True properties with latent samples.
         target_geoms, target_grasp_points, target_curvatures, target_normals, \
             target_mids, target_forces = target_xs
@@ -93,6 +97,8 @@ class CustomGraspNeuralProcess(nn.Module):
             known_property_perturbation = \
                 known_property_perturbation.cuda() if torch.cuda.is_available() else known_property_perturbation
             z = object_properties + known_property_perturbation
+        elif use_mean:
+            z = q_z.loc
         else:
             z = q_z.rsample()
         
@@ -111,7 +117,10 @@ class CustomGraspNeuralProcess(nn.Module):
             z, mesh_enc,
             override_transform=global_transform
         )
-        return y_pred, q_z
+        if return_inf_time:
+            return y_pred, q_z, inf_time
+        else:
+            return y_pred, q_z
 
     def forward_until_latents(self, contexts, meshes):
         mesh_enc, global_transform = self.mesh_encoder(meshes)

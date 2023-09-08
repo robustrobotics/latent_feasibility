@@ -57,4 +57,3 @@ if __name__ == '__main__':
     for dx, ax in enumerate(axes):
         ax.hist(all_means[:, dx], bins=50)
     plt.show()
-

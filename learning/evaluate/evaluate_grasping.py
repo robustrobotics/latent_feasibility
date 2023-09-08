@@ -138,7 +138,6 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
         batch_size=16,
         shuffle=False
     )
-
     gnp.eval()
     for (context_data, target_data, object_data) in dataloader:
         t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, t_labels = \
@@ -148,11 +147,13 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
         
         c_sizes = torch.ones_like(c_forces)*c_forces.shape[1]/50
         t_labels = t_labels.squeeze(dim=-1)
-
-        pred, q_z = gnp.forward(
+        
+        pred, q_z, inf_time = gnp.forward(
             (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels, c_sizes),
             (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
-            (meshes, object_properties)
+            (meshes, object_properties),
+            return_inf_time=True,
+            use_mean=True
         )
         pred = pred.squeeze(dim=-1).cpu().detach()
 
@@ -164,7 +165,7 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
 
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu(), \
            torch.cat(means, dim=0).cpu(), torch.cat(covars, dim=0).cpu(), \
-           torch.cat(entropy, dim=0).cpu()
+           torch.cat(entropy, dim=0).cpu(), inf_time
 
 
 def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_samples=10):
@@ -222,7 +223,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         batch_size=1,
         shuffle=False
     )
-
+    
     latent_samples = torch.Tensor(particles)
     gnp.eval()
     for (_, target_data, object_data) in dataloader:
@@ -364,6 +365,7 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
         val_grasp_data = pickle.load(handle)
 
     eval_range = range(0, logger.args.max_acquisitions, 1)
+    times = []
     for tx in eval_range:
         print('Eval timestep, ', tx)
 
@@ -443,11 +445,12 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
             if torch.cuda.is_available():
                 gnp = gnp.cuda()
             # Write function to get predictions given a set of context data.
-            probs, labels, means, covars, entropy = get_gnp_contextualized_gnp_predictions(
+            probs, labels, means, covars, entropy, inf_time = get_gnp_contextualized_gnp_predictions(
                 gnp,
                 context_data,
                 val_grasp_data,
             )
+            times.append(inf_time)
             # we have to drop the last grasp in the context set to see what the ig comp looked like
 
             pre_selection_context_data = drop_last_grasp_in_dataset(context_data)
@@ -493,6 +496,9 @@ def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, 
         confusions.append(confs)
         f1s.append(f1)
         balanced_accs.append(b_acc)
+    
+    # print(times)
+    # import ipdb; ipdb.set_trace()
 
     with open(logger.get_figure_path('val_accuracies.pkl'), 'wb') as handle:
         pickle.dump(accs, handle)
