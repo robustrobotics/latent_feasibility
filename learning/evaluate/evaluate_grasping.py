@@ -13,7 +13,8 @@ from sklearn.metrics import recall_score, precision_score, balanced_accuracy_sco
     accuracy_score, average_precision_score
 from torch.utils.data import DataLoader
 from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, \
-    get_train_and_fit_objects, drop_last_grasp_in_dataset, explode_dataset_into_list_of_datasets, select_gnp_dataset_firstk
+    get_train_and_fit_objects, drop_last_grasp_in_dataset, explode_dataset_into_list_of_datasets, \
+    select_gnp_dataset_firstk
 from learning.active.acquire import bald
 
 from block_utils import ParticleDistribution
@@ -143,10 +144,11 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
     for (context_data, target_data, object_data) in dataloader:
         t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, t_labels = \
             check_to_cuda(truncate_grasps(target_data, 100))
-        c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels = check_to_cuda(context_data)
+        c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels = check_to_cuda(
+            context_data)
         meshes, object_properties = check_to_cuda(object_data)
-        
-        c_sizes = torch.ones_like(c_forces)*c_forces.shape[1]/50
+
+        c_sizes = torch.ones_like(c_forces) * c_forces.shape[1] / 50
         t_labels = t_labels.squeeze(dim=-1)
 
         pred, q_z = gnp.forward(
@@ -163,8 +165,8 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
         entropy.append(torch.distributions.Independent(q_z, 1).entropy().detach().cpu())
 
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu(), \
-           torch.cat(means, dim=0).cpu(), torch.cat(covars, dim=0).cpu(), \
-           torch.cat(entropy, dim=0).cpu()
+        torch.cat(means, dim=0).cpu(), torch.cat(covars, dim=0).cpu(), \
+        torch.cat(entropy, dim=0).cpu()
 
 
 def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_samples=10):
@@ -257,7 +259,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
 
 
-def get_pf_task_performance(logger, fname, use_progressive_priors):
+def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-force'):
     """ 
     Perform minimum force evaluation for a specific object.
     :param logger: Logger object for the fitted object.
@@ -271,7 +273,7 @@ def get_pf_task_performance(logger, fname, use_progressive_priors):
     grasp_forces = val_grasp_data['grasp_data']['grasp_forces']
     grasp_forces = list(grasp_forces.values())[0]
 
-    regrets = []
+    record = []
     eval_range = range(0, logger.args.max_acquisitions, 1)
     for tx in eval_range:
         print('Eval timestep, ', tx)
@@ -309,48 +311,75 @@ def get_pf_task_performance(logger, fname, use_progressive_priors):
             )
             probs = probs.squeeze().cpu().numpy()
             labels = labels.squeeze().cpu().numpy()
-        
-        max_force = 20
-        neg_reward = 0  # -max_force
 
-        max_reward = neg_reward
-        max_exp_reward = neg_reward
-        max_achieved_reward = neg_reward
-        max_stable_force, min_stable_force = 0, 25
+        if task == 'min-grasp':
+            max_force = 20  # NOTE: for the max likelihood grasp detector, we'd replace from here:
+            neg_reward = 0  # -max_force        # We just choose the grasp with the highest likelihood and report success.
 
-        print(f'# Stable: {np.sum(labels)}/{len(labels)}')
-        for force, prob, label in zip(grasp_forces, probs, labels):
-            pos_reward = (max_force - force)
-            exp_reward = neg_reward * (1 - prob) + prob * pos_reward
-            true_reward = pos_reward if label else neg_reward
+            max_reward = neg_reward
+            max_exp_reward = neg_reward
+            max_achieved_reward = neg_reward
+            max_stable_force, min_stable_force = 0, 25
 
-            if (true_reward > max_reward) and (label == 1):
-                max_reward = true_reward
+            print(f'# Stable: {np.sum(labels)}/{len(labels)}')
+            for force, prob, label in zip(grasp_forces, probs, labels):
+                pos_reward = (max_force - force)
+                exp_reward = neg_reward * (1 - prob) + prob * pos_reward
+                true_reward = pos_reward if label else neg_reward
 
-            if exp_reward > max_exp_reward:
-                max_exp_reward = exp_reward
-                max_achieved_reward = true_reward
+                if (true_reward > max_reward) and (label == 1):
+                    max_reward = true_reward
 
-            if label == 1:
-                if force > max_stable_force:
-                    max_stable_force = force
-                if force < min_stable_force:
-                    min_stable_force = force
+                if exp_reward > max_exp_reward:
+                    max_exp_reward = exp_reward
+                    max_achieved_reward = true_reward
 
-            # if label == 1:
-            #     print(f'F: {force}\tProb: {prob}\tExpR: {exp_reward}')
+                if label == 1:
+                    if force > max_stable_force:
+                        max_stable_force = force
+                    if force < min_stable_force:
+                        min_stable_force = force
 
-        if max_achieved_reward == neg_reward:
-            regret = 1
+                # if label == 1:
+                #     print(f'F: {force}\tProb: {prob}\tExpR: {exp_reward}')
+
+            if max_achieved_reward == neg_reward:
+                regret = 1
+            else:
+                regret = (
+                                     max_reward - max_achieved_reward) / 15  # TODO: magic number alert! is this just a normalization?
+            record.append(regret)  # to here. (from Note above).
+
+            valid_force_range = max_stable_force - min_stable_force
+            print(
+                f'Max Reward: {max_reward}\tReward: {max_achieved_reward}\tRegret: {regret}\tRange: {valid_force_range}')
+
+            with open(logger.get_figure_path(f'regrets_{neg_reward}.pkl'), 'wb') as handle:
+                pickle.dump(record, handle)
+
+        elif task == 'likely-grasp':
+
+            # TODO: question for mike: in the extreme case, what is there are no valid grasps?
+            most_likely_ind = np.argmax(probs)
+            ml_likelihood = probs[most_likely_ind]
+            ml_label = labels[most_likely_ind]
+            record.append(ml_label)
+
+            print(
+                f'Chose grasp: {most_likely_ind}\tLikelihood: {ml_likelihood}\tStable: {ml_label}'
+            )
+
+            with open(logger.get_figure_path('success.pkl'), 'rb') as handle:
+                pickle.dump(record, handle)
+
+
+
+
+
+
+
         else:
-            regret = (max_reward - max_achieved_reward) / 15 # TODO: magic number alert! is this just a normalization?
-        regrets.append(regret)
-
-        valid_force_range = max_stable_force - min_stable_force
-        print(f'Max Reward: {max_reward}\tReward: {max_achieved_reward}\tRegret: {regret}\tRange: {valid_force_range}')
-
-        with open(logger.get_figure_path(f'regrets_{neg_reward}.pkl'), 'wb') as handle:
-            pickle.dump(regrets, handle)
+            raise NotImplementedError('Unrecognized task. Options: likely-grasp, min-force.')
 
 
 def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, vis=False):
@@ -631,6 +660,7 @@ def visualize_gnp_predictions():
         else:
             print(f'----- Object {ox}: {acc} True {targets[ox].mean()}')
 
+
 def evaluate_trained_gnp(logger, train_fname, val_fname, exp_path):
     # Load GNP.
     gnp = logger.get_neural_process(tx=0)
@@ -705,7 +735,7 @@ def evaluate_trained_gnp(logger, train_fname, val_fname, exp_path):
 
         print(c_size, np.histogram(
             object_wise_accuracies[c_size],
-            bins=[0. , 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1. ],
+            bins=[0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.],
             range=(0.0, 1.0)
         ))
 
