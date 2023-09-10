@@ -359,18 +359,21 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
 
         elif task == 'likely-grasp':
 
-            # TODO: question for mike: in the extreme case, what is there are no valid grasps?
-            most_likely_ind = np.argmax(probs)
-            ml_likelihood = probs[most_likely_ind]
-            ml_label = labels[most_likely_ind]
-            record.append(ml_label)
+            if np.any(labels > 0.05): # filter out degenerate cases where there are no valid grasps
+                most_likely_ind = np.argmax(probs)
+                ml_likelihood = probs[most_likely_ind]
+                ml_label = labels[most_likely_ind]
+                record.append(ml_label)
 
-            print(
-                f'Chose grasp: {most_likely_ind}\tLikelihood: {ml_likelihood}\tStable: {ml_label}'
-            )
+                print(
+                    f'Chose grasp: {most_likely_ind}\tLikelihood: {ml_likelihood}\tStable: {ml_label}'
+                )
+            else:
+                record.append(np.NaN)
 
             with open(logger.get_figure_path('success.pkl'), 'rb') as handle:
                 pickle.dump(record, handle)
+
 
         else:
             raise NotImplementedError('Unrecognized task. Options: likely-grasp, min-force.')
