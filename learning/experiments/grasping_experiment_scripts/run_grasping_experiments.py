@@ -411,7 +411,8 @@ def run_task_eval_phase(args):
             with open(os.path.join(fit_log_path, 'args.pkl'), 'rb') as handle:
                 fitting_args = pickle.load(handle)
             get_pf_task_performance(fit_logger, val_dataset_path,
-                                    use_progressive_priors=fitting_args.use_progressive_priors)
+                                    use_progressive_priors=fitting_args.use_progressive_priors,
+                                    task=args.task)
 
 
 def run_training_phase(args):
@@ -1050,6 +1051,7 @@ if __name__ == '__main__':
                         help='this is really to add an new metrics to fitting we did not have before')
     parser.add_argument('--playback-test-fitting', action='store_true', default=False,
                         help='this is really to add an new metrics to fitting we did not have before')
+    parser.add_argument('--task', type=str, default='min-force', options=['min-force', 'likely-grasp'])
 
     args = parser.parse_args()
 
