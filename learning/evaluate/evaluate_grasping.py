@@ -372,12 +372,6 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
             with open(logger.get_figure_path('success.pkl'), 'rb') as handle:
                 pickle.dump(record, handle)
 
-
-
-
-
-
-
         else:
             raise NotImplementedError('Unrecognized task. Options: likely-grasp, min-force.')
 
