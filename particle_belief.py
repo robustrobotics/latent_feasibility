@@ -584,7 +584,7 @@ class GraspingDiscreteLikelihoodParticleBelief(BeliefBase):
         """
         :param observation: tower_dict format for a single tower.
         """
-        self.last_update_time = 0
+        self.last_update_time = 0.0
 
         resample_st = time.process_time()
         # Resample the distribution
@@ -670,7 +670,7 @@ class AmortizedGraspingDiscreteLikelihoodParticleBelief(GraspingDiscreteLikeliho
         else:
             return observation['grasp_data']['labels'][0]
 
-    def get_particle_likelihoods(self, particles, observation, batch_size=1000, _is_timing_update=False):
+    def get_particle_likelihoods(self, particles, observation, batch_size=100, _is_timing_update=False):
         """
         Compute the likelihood of an obervation for each particle.
         :param particles: NxD matrix of particles.
