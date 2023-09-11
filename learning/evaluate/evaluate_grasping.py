@@ -13,7 +13,8 @@ from sklearn.metrics import recall_score, precision_score, balanced_accuracy_sco
     accuracy_score, average_precision_score
 from torch.utils.data import DataLoader
 from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, \
-    get_train_and_fit_objects, drop_last_grasp_in_dataset, explode_dataset_into_list_of_datasets, select_gnp_dataset_firstk
+    get_train_and_fit_objects, drop_last_grasp_in_dataset, explode_dataset_into_list_of_datasets, \
+    select_gnp_dataset_firstk
 from learning.active.acquire import bald
 
 from block_utils import ParticleDistribution
@@ -134,7 +135,7 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
     )
     dataloader = DataLoader(
         dataset=dataset,
-        collate_fn=custom_collate_fn,
+        collate_fn=lambda items: custom_collate_fn(items, rand_grasp_num=False),
         batch_size=16,
         shuffle=False
     )
@@ -165,8 +166,8 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
         entropy.append(torch.distributions.Independent(q_z, 1).entropy().detach().cpu())
 
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu(), \
-           torch.cat(means, dim=0).cpu(), torch.cat(covars, dim=0).cpu(), \
-           torch.cat(entropy, dim=0).cpu(), inf_time
+        torch.cat(means, dim=0).cpu(), torch.cat(covars, dim=0).cpu(), \
+        torch.cat(entropy, dim=0).cpu(), inf_time
 
 
 def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_samples=10):
@@ -271,9 +272,15 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
         val_grasp_data = pickle.load(handle)
 
     grasp_forces = val_grasp_data['grasp_data']['grasp_forces']
-    grasp_forces = list(grasp_forces.values())[0]
+    grasp_forces = np.array(list(grasp_forces.values())[0])
 
-    record = []
+    regrets = []
+
+    successes20 = []
+    successes15 = []
+    successes10 = []
+    successes05 = []
+
     eval_range = range(0, logger.args.max_acquisitions, 1)
     for tx in eval_range:
         print('Eval timestep, ', tx)
@@ -347,33 +354,40 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
                 regret = 1
             else:
                 regret = (
-                                     max_reward - max_achieved_reward) / 15  # TODO: magic number alert! is this just a normalization?
-            record.append(regret)  # to here. (from Note above).
+                                 max_reward - max_achieved_reward) / 15  # TODO: magic number alert! is this just a normalization?
+            regrets.append(regret)  # to here. (from Note above).
 
             valid_force_range = max_stable_force - min_stable_force
             print(
                 f'Max Reward: {max_reward}\tReward: {max_achieved_reward}\tRegret: {regret}\tRange: {valid_force_range}')
 
             with open(logger.get_figure_path(f'regrets_{neg_reward}.pkl'), 'wb') as handle:
-                pickle.dump(record, handle)
+                pickle.dump(regrets, handle)
 
         elif task == 'likely-grasp':
+            for threshold, success_record in zip(
+                    [20, 15, 10, 5],
+                    [successes20, successes15, successes10, successes05]):
 
-            if np.any(labels > 0.05): # filter out degenerate cases where there are no valid grasps
-                most_likely_ind = np.argmax(probs)
-                ml_likelihood = probs[most_likely_ind]
-                ml_label = labels[most_likely_ind]
-                record.append(ml_label)
+                mask_within_threshold = grasp_forces <= threshold
+                probs_within_threshold = probs[mask_within_threshold]
+                labels_within_threshold = labels[mask_within_threshold]
 
-                print(
-                    f'Chose grasp: {most_likely_ind}\tLikelihood: {ml_likelihood}\tStable: {ml_label}'
-                )
-            else:
-                record.append(np.NaN)
+                # filter out degenerate cases where there are no valid grasps
+                if np.any(labels_within_threshold > 0.05):
+                    most_likely_ind = np.argmax(probs_within_threshold)
+                    ml_likelihood = probs_within_threshold[most_likely_ind]
+                    ml_label = labels_within_threshold[most_likely_ind]
+                    success_record.append(ml_label)
 
-            with open(logger.get_figure_path('success.pkl'), 'rb') as handle:
-                pickle.dump(record, handle)
+                    print(
+                        f'Chose grasp: {most_likely_ind}\tLikelihood: {ml_likelihood}\tStable: {ml_label}'
+                    )
+                else:
+                    success_record.append(np.NaN)
 
+                with open(logger.get_figure_path(f'success{threshold:02}.pkl'), 'rb') as handle:
+                    pickle.dump(success_record, handle)
 
         else:
             raise NotImplementedError('Unrecognized task. Options: likely-grasp, min-force.')
