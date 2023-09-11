@@ -304,7 +304,7 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
             if torch.cuda.is_available():
                 gnp = gnp.cuda()
             # Write function to get predictions given a set of context data.
-            probs, labels, _, _, _ = get_gnp_contextualized_gnp_predictions(
+            probs, labels, _, _, _, _ = get_gnp_contextualized_gnp_predictions(
                 gnp,
                 context_data,
                 val_grasp_data
@@ -371,7 +371,7 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
             else:
                 record.append(np.NaN)
 
-            with open(logger.get_figure_path('success.pkl'), 'rb') as handle:
+            with open(logger.get_figure_path('success.pkl'), 'wb') as handle:
                 pickle.dump(record, handle)
 
 
