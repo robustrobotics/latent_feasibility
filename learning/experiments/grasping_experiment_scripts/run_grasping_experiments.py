@@ -380,7 +380,7 @@ def run_task_eval_phase(args):
             [n_test_geo, n_train_geo],
             [TEST_IGNORE, TRAIN_IGNORE]
     ):
-        for ox in range(min(n_objects, 100)):
+        for ox in range(min(n_objects, 500)):
             if ox in ignore: continue
 
             if args.constrained:
@@ -1068,7 +1068,7 @@ if __name__ == '__main__':
                         help='this is really to add an new metrics to fitting we did not have before')
     parser.add_argument('--playback-test-fitting', action='store_true', default=False,
                         help='this is really to add an new metrics to fitting we did not have before')
-    parser.add_argument('--task', type=str, default='min-force', options=['min-force', 'likely-grasp'])
+    parser.add_argument('--task', type=str, default='min-force', choices=['min-force', 'likely-grasp'])
 
     args = parser.parse_args()
 
