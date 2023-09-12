@@ -57,6 +57,20 @@ def load_blocks(train_blocks_fname, eval_blocks_fname='', num_blocks=10, eval_bl
         del blocks[ix]
     return blocks[:num_blocks]
 
+def load_eval_block(blocks_fname, eval_block_id):
+    """"
+    Load blocks from a pickle file. Option to remove specific block ids.
+    :param fname: .pkl file of the blocks.
+    :param num_blocks: The number of desired blocks to load.
+    :param remove_ixs: List of indices to exclude from the final set. The indices start at the first block set.
+    """
+    with open(blocks_fname, 'rb') as handle:
+        blocks = pickle.load(handle)
+    for block in blocks:
+        if int(block.name.split('_')[1]) == eval_block_id:
+            return [block]
+    return None
+
 def get_train_and_fit_blocks(pretrained_ensemble_path, use_latents, fit_blocks_fname, fit_block_ixs):
     train_logger = ActiveExperimentLogger(exp_path=pretrained_ensemble_path,
                                           use_latents=use_latents)
@@ -113,7 +127,7 @@ def ExecuteActions(plan, real=False, pause=True, wait=True, prompt=True, obstacl
             if real:
                 e.simulate(timestep=0.1, obstacles=obstacles)
             else:
-                e.simulate(timestep=0.05, obstacles=obstacles)
+                e.simulate(timestep=0.1, obstacles=obstacles)
 
             # Assign the object being held
             # if isinstance(e, pb_robot.vobj.BodyGrasp):

@@ -661,17 +661,22 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     covars = {'train_geo': {}, 'test_geo': {}}
     info_gains = {'train_geo': {}, 'test_geo': {}}
     regrets = {'train_geo': {}, 'test_geo': {}}
-    successes = {'train_geo': {}, 'test_geo': {}}
-
+    successes20 = {'train_geo': {}, 'test_geo': {}}
+    successes15 = {'train_geo': {}, 'test_geo': {}}
+    successes10 = {'train_geo': {}, 'test_geo': {}}
+    successes05 = {'train_geo': {}, 'test_geo': {}}
 
     if amortize:
         metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies,
-                       average_precisions_normed, belief_update_times, ig_compute_times, regrets, successes]
+                       average_precisions_normed, belief_update_times, ig_compute_times, regrets,
+                       successes20, successes15, successes10, successes05]
         metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
                             'val_f1s.pkl', 'val_balanced_accs.pkl', 'belief_update_times.pkl',
-                            'ig_compute_times.pkl', 'val_entropies.pkl', 'regrets_0.pkl', 'success.pkl']
+                            'ig_compute_times.pkl', 'val_entropies.pkl', 'regrets_0.pkl',
+                            'success20.pkl', 'success15.pkl', 'success10.pkl', 'success05.pkl']
         metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
-                        'belief update time', 'ig compute time', 'entropy', 'regret', 'success']
+                        'belief update time', 'ig compute time', 'entropy', 'regret',
+                        'success20', 'success15', 'success10', 'success05']
     else:
         metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores,
                        belief_update_times, ig_compute_times]
@@ -692,8 +697,11 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                 fit_args = pickle.load(handle)
             n_acquisitions = fit_args.max_acquisitions
             n_grasps = fit_args.n_samples
-            acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy, rgts, sccs = \
+            acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy, rgts, sccs20, sccs15, sccs10, sccs05 = \
                 np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
@@ -707,7 +715,8 @@ def compile_dataframes_and_save_path(exp_name, amortize):
 
             if amortize:
                 metric_per_strategy_list = [
-                    acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy, rgts, sccs
+                    acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy, rgts,
+                    sccs20, sccs15, sccs10, sccs05
                 ]
             else:
                 metric_per_strategy_list = [acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm]

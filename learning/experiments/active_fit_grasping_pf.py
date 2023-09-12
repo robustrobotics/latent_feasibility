@@ -7,6 +7,7 @@ import time
 import numpy as np
 import torch
 
+from agents.panda_agent import PandaClientAgent
 from learning.active.utils import ActiveExperimentLogger
 from learning.domains.grasping.active_utils import (
     get_fit_object,
@@ -344,18 +345,22 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
     print('----- Running fitting phase with learned progressive priors -----')
     logger.save_neural_process(gnp, 0, symlink_tx0=False)
 
+    constrained = args.constrained or args.exec_mode == 'real'
     # TODO: if we regularize with uninformed prior, we shouldn't start with a random sample.
     #  we should be using IG the uninformed prior
     # Initialize data dictionary in GNP format with a random data point.
-    samples = sample_unlabeled_gnp_data(n_samples=args.n_samples, object_set=object_set,
-                                        object_ix=args.eval_object_ix)
+    samples = sample_unlabeled_gnp_data(
+        n_samples=args.n_samples,  # Why is this here? Shouldn't it be 1?
+        object_set=object_set,
+        object_ix=args.eval_object_ix
+    )
     context_data = select_gnp_dataset_ix(samples, 0)
     context_data = get_labels_gnp(context_data)
 
     logger.save_acquisition_data(context_data, samples, 0)
 
     # All random grasps end up getting labeled, so parallelize this.
-    if strategy == 'random' and not args.constrained:
+    if strategy == 'random' and not constrained:
         print('[Random]: Sampling')
         random_pool = sample_unlabeled_gnp_data(
             n_samples=args.max_acquisitions,
@@ -365,23 +370,28 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
         print('[Random]: Labeling')
         random_pool = get_labels_gnp(random_pool)
 
-    if args.constrained:
+    if constrained:
         # Initialize PyBullet agent used for planning.
         name, properties, _ = get_fit_object(object_set)
         agent = GraspingAgent(
             object_name=name,
             object_properties=properties,
-            use_gui=False
+            use_gui=True
         )
 
-    grasp_labeler = None
+    if args.exec_mode == 'sim':
+        grasp_labeler = None
+    elif args.exec_mode == 'real':
+        grasp_labeler = PandaClientAgent()
+    else:
+        raise NotImplementedError()
 
     amortized_pred_times = []
     ig_compute_times = []
     for tx in range(0, args.max_acquisitions):
         print('[AmortizedFilter] Interaction Number', tx)
 
-        if strategy == 'random' and not args.constrained:
+        if strategy == 'random' and not constrained:
             grasp_dataset = select_gnp_dataset_ix(random_pool, tx)
             context_data = merge_gnp_datasets(context_data, grasp_dataset)
             logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
@@ -389,11 +399,19 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
 
             amortized_pred_times.append(np.NaN)
             ig_compute_times.append(np.NaN)
-        elif strategy == 'random' and args.constrained:
+        elif strategy == 'random' and constrained:
             # Sample a plan of horizon 1. Pick/place.
-            (grasp, place) = agent.sample_plan(horizon=1)
+            # TODO: Update pose based on perception first.
+            # if args.exec_mode == 'real':
+            #     agent.set_object_pose(None, find_stable_z=True)
+
+            grasp = agent._sample_grasp_action()
             # Execute plan. Set object state based on result.
-            label = agent.execute_first_action((grasp, place))
+            if args.exec_mode == 'real':
+                label = grasp_labeler.get_label(grasp)
+            else:
+                label = agent.execute_first_action((grasp, None))
+
             # Convert plan to GNP data format.
             grasp_dataset = gnp_dataset_from_raw_grasps([grasp], [label], object_set, args.eval_object_ix)
 
@@ -616,37 +634,37 @@ def run_particle_filter_fitting(args):
         )
         d_latents = 5
 
-    # ----- Initialize particle filter from prior -----
-    if args.likelihood == 'gnp':
-        pf = AmortizedGraspingDiscreteLikelihoodParticleBelief(
-            object_set=object_set,
-            d_latents=d_latents,
-            n_particles=args.n_particles,
-            likelihood=likelihood_model,
-            resample=False,
-            plot=False,
-            means=args.particle_prop_dist_mean,
-            stds=args.particle_prop_dist_stds,
-            distribution=args.particle_distribution
-        )
-    else:
-        pf = GraspingDiscreteLikelihoodParticleBelief(
-            object_set=object_set,
-            d_latents=d_latents,
-            n_particles=args.n_particles,
-            means=args.particle_prop_dist_mean,
-            stds=args.particle_prop_dist_stds,
-            distribution=args.particle_distribution,
-            likelihood=likelihood_model,
-            resample=False,
-            plot=False)
-    if args.likelihood == 'pb':
-        pf.particles = likelihood_model.init_particles(args.n_particles)
-
     # ----- Run particle filter loop -----
     if args.use_progressive_priors:
         amortized_filter_loop(likelihood_model, object_set, logger, args.strategy, args)
     else:
+        # ----- Initialize particle filter from prior -----
+        if args.likelihood == 'gnp':
+            pf = AmortizedGraspingDiscreteLikelihoodParticleBelief(
+                object_set=object_set,
+                d_latents=d_latents,
+                n_particles=args.n_particles,
+                likelihood=likelihood_model,
+                resample=False,
+                plot=False,
+                means=args.particle_prop_dist_mean,
+                stds=args.particle_prop_dist_stds,
+                distribution=args.particle_distribution
+            )
+        else:
+            pf = GraspingDiscreteLikelihoodParticleBelief(
+                object_set=object_set,
+                d_latents=d_latents,
+                n_particles=args.n_particles,
+                means=args.particle_prop_dist_mean,
+                stds=args.particle_prop_dist_stds,
+                distribution=args.particle_distribution,
+                likelihood=likelihood_model,
+                resample=False,
+                plot=False)
+        if args.likelihood == 'pb':
+            pf.particles = likelihood_model.init_particles(args.n_particles)
+
         particle_filter_loop(pf, object_set, logger, args.strategy, args)
 
     return logger.exp_path
@@ -659,7 +677,7 @@ if __name__ == '__main__':
     parser.add_argument('--max-acquisitions', type=int, default=25,
                         help='Number of iterations to run the main active learning loop for.')
     parser.add_argument('--objects-fname', type=str, default='', help='File containing a list of objects to grasp.')
-    parser.add_argument('--n-samples', type=int, default=1000)
+    parser.add_argument('--n-samples', type=int, default=20)
     parser.add_argument('--pretrained-ensemble-exp-path', type=str, default='', help='Path to a trained ensemble.')
     parser.add_argument('--ensemble-tx', type=int, default=-1, help='Timestep of the trained ensemble to evaluate.')
     parser.add_argument('--eval-object-ix', type=int, default=0, help='Index of which eval object to use.')
@@ -667,6 +685,14 @@ if __name__ == '__main__':
     parser.add_argument('--n-particles', type=int, default=100)
     parser.add_argument('--likelihood', choices=['nn', 'pb', 'gnp'], default='nn')
     parser.add_argument('--constrained', action='store_true', default=False)
+    parser.add_argument('--use-progressive-priors', action='store_true', default=False)
+    parser.add_argument('--exec-mode', default='sim', choices=['sim', 'real'], help='Collect labels using PyBullet (sim) or the real Panda (real).')
+    parser.add_argument('--prop-means', nargs='+', help='means of ind. normal to sample particles from', type=float,
+                        default=[0.0, 0.0, 0.0, 0.0, 0.0])
+    parser.add_argument('--prop-stds', nargs='+', help='stdevs of ind. normal to sample particles from', type=float,
+                        default=[1.0, 1.0, 1.0, 1.0, 1.0])
+    parser.add_argument('--prop-distribution', type=str, default='gaussian')
+    
     args = parser.parse_args()
 
     run_particle_filter_fitting(args)

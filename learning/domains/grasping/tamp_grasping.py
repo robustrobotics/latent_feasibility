@@ -17,7 +17,7 @@ class GraspingAgent:
 
     def __init__(self, object_name, object_properties, init_pose=None, use_gui=False):
         # TODO: Adapt to also work with boxes.
-        self.primitive_root = '/home/mnosew/workspace/object_models/box-data/urdfs'
+        self.primitive_root = '/home/mnosew/workspace/object_models/real-box-data/urdfs'
         self.shapenet_root = '/home/mnosew/workspace/object_models/shapenet-sem/urdfs'
 
         self.client_id = pb_robot.utils.connect(use_gui=use_gui)
@@ -71,6 +71,7 @@ class GraspingAgent:
                 # TODO: Sample random grasp at pose.
                 grasp = self._sample_grasp_action()
                 label = labeler.get_label(grasp)
+                return init_pose
                 # TODO: Check if the grasp is stable.
                 if label:
                     labeler.disconnect()
@@ -109,11 +110,11 @@ class GraspingAgent:
         labeler.disconnect()
         # If grasp is stable, change pose of object.
         print(f'[TAMP] Executing grasp... label={label}')
-        if label:
-            self.set_object_pose(
-                pose=place,
-                find_stable_z=False
-            )
+        # if label:
+        #     self.set_object_pose(
+        #         pose=place,
+        #         find_stable_z=False
+        #     )
         if wait:
             input('Continue?')
         return label
@@ -149,11 +150,16 @@ class GraspingAgent:
     def _sample_grasp_action(self, max_attempts=1000):
         for ax in range(0, max_attempts):
             # Step (1): Sample valid antipodal grasp for object.
-            sampler = GraspSampler(graspable_body=self.graspable_body,
+            sampler = GraspSampler(
+                graspable_body=self.graspable_body,
                 antipodal_tolerance=30,
-                show_pybullet=False)
-            if ax < 10: print('Connected to:', sampler.sim_client.pb_client_id)
-            grasp = sampler.sample_grasp(force=np.random.uniform(5, 20))
+                show_pybullet=False
+            )
+            # if ax < 10: print('Connected to:', sampler.sim_client.pb_client_id)
+            grasp = sampler.sample_grasps(
+                num_grasps=1,
+                force_range=(5, 20)
+            )[0]
             sampler.disconnect()
 
             # Step (2): Calculate world transform of gripper.

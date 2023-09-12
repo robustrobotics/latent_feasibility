@@ -3,11 +3,12 @@ Utilities for ROS serialization and deserialization of task planning entities
 """
 
 import pb_robot
+from pb_robot.planners.antipodalGraspPlanner import Grasp, GraspableBody
 import numpy as np
 from block_utils import Object, Pose, Position, Quaternion
 from stacking_ros.msg import (
     BodyInfo, GoalInfo, RobotConfig, TaskAction,
-    TaskPlanGoal, TaskPlanResult, TrajInfo)
+    TaskPlanGoal, TaskPlanResult, TrajInfo, GraspInfo)
 from tf.transformations import (
     quaternion_matrix, quaternion_from_matrix, translation_from_matrix)
 
@@ -120,7 +121,7 @@ def transform_to_ros(T, msg):
         quaternion_from_matrix(T)
 
 
-def grasp_to_ros(grasp, msg):
+def pb_grasp_to_ros(grasp, msg):
     """ Sets information from a BodyGrasp object in a ROS pose message """
     T = grasp.grasp_objF
     t = translation_from_matrix(T)
@@ -179,20 +180,20 @@ def task_plan_to_ros(plan):
         elif ros_act.type == "move_holding":
             q1, q2, obj1, grasp, traj = act_args
             ros_act.obj1 = obj1.readableName
-            grasp_to_ros(grasp, ros_act.grasp)
+            pb_grasp_to_ros(grasp, ros_act.grasp)
         elif ros_act.type == "pick":
             obj1, pose1, obj2, grasp, q1, q2, traj = act_args
             ros_act.obj1 = obj1.readableName
             ros_act.obj2 = obj2.readableName
             pose_to_ros(pose1, ros_act.pose1)
-            grasp_to_ros(grasp, ros_act.grasp)
+            pb_grasp_to_ros(grasp, ros_act.grasp)
         elif ros_act.type in ["place", "place_home"]:
             obj1, pose1, obj2, pose2, grasp, q1, q2, traj = act_args
             ros_act.obj1 = obj1.readableName
             ros_act.obj2 = obj2.readableName
             pose_to_ros(pose1, ros_act.pose1)
             pose_to_ros(pose2, ros_act.pose2)
-            grasp_to_ros(grasp, ros_act.grasp)
+            pb_grasp_to_ros(grasp, ros_act.grasp)
 
         # Generic parameters
         ros_act.q1.angles = q1.configuration
@@ -201,6 +202,13 @@ def task_plan_to_ros(plan):
 
         ros_actions.append(ros_act)
     return ros_actions
+
+def grasp_to_ros(grasp):
+    ros_grasp = GraspInfo()
+    ros_grasp.name = grasp.graspable_body.object_name
+    ros_grasp.ee_relpose = pose_tuple_to_ros(grasp.ee_relpose)
+    ros_grasp.force = grasp.force
+    return ros_grasp
 
 
 ############
@@ -326,3 +334,26 @@ def ros_to_tower(msg):
         blk.rotation = rot
         tower.append(blk)
     return tower
+
+def ros_to_grasp(msg):
+    graspable_body = GraspableBody(
+        object_name=msg.name,
+        com=(0.0, 0.0, 0.0),
+        mass=0.1,
+        friction=0.1
+    )
+    # Only force/ee_relpose needed by robot. Can update ros message later.
+    grasp = Grasp(
+        graspable_body=graspable_body,
+        pb_point1=None,
+        pb_point2=None,
+        normal1=None,
+        normal2=None,
+        antipodal_error1=None,
+        antipodal_error2=None,
+        pitch=None,
+        roll=None,
+        ee_relpose=ros_to_pose_tuple(msg.pose),
+        force=msg.force
+    )
+    return grasp
