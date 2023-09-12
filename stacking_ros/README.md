@@ -76,12 +76,12 @@ python3.7 -m learning.experiments.active_train_towers --exec-mode sim --use-pand
 ```
 
 ## Grasping Usage
-On narrator, start two nodes.
+On Ted (RTK), start two nodes.
 
 1. Franka Interface: `roslaunch franka_interface interface.launch`
 2. Panda Agent Server: `rosrun stacking_ros panda_agent_server.py --block-id <block_id> --real --use-vision --blocks-file learning/domains/towers/grasping_block_set_sim.pkl`
 
-On Ted, start two more nodes.
+On narrator (GPU), start two more nodes.
 
 1. Panda Vision: `roslaunch panda_vision vision.launch`
 2. Fitting Script: `python -m learning.experiments.active_fit_grasping_pf --exp-name real-robot-block0 --max-acquisitions 10 --objects-fname learning/domains/towers/grasping_block_set_sim.pkl --pretrained-ensemble-exp-path learning/experiments/logs/grasp_gnp-boxv2-run1_train-20230406-110724 --eval-object-ix 0 --strategy random --exec-mode real --use-progressive-priors --likelihood gnp`

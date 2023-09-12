@@ -2,4 +2,4 @@
 
 string object_name
 geometry_msgs/Pose ee_relpose
-float force
+float64 force

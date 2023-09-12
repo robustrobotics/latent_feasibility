@@ -1240,7 +1240,7 @@ if __name__ == '__main__':
     )
     block_id = 16
 
-    block_set_fname = 'learning/domains/towers/grasping_block_set.pkl'
+    block_set_fname = 'learning/domains/towers/grasping_block_set_robot.pkl'
     block_set = load_eval_block(
         blocks_fname=block_set_fname,
         eval_block_id=block_id
