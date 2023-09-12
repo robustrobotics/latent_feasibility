@@ -261,6 +261,8 @@ def setup_panda_world(robot, blocks, xy_poses=None, use_platform=True):
                                      xy_pose.pos.z),
                             xy_pose.orn)
             block.set_base_link_pose(full_pose)
+            z = pb_robot.placements.stable_z(block, pddl_table)
+            block.set_base_link_point([xy_pose.pos.x, xy_pose.pos.y, z])
 
 
     # Setup platform.
