@@ -145,7 +145,6 @@ def get_ik_fn(robot, fixed=[], num_attempts=4, approach_frame='gripper', backoff
         is_camera_down = grasp_worldR[:,0].dot(-e_z) > 0.999
         is_wrist_too_low = grasp_worldF[2,3] < 0.088/2 + 0.005
 
-
         if is_gripper_sideways:
             return None
         if is_upside_down_grasp:

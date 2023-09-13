@@ -57,6 +57,20 @@ def load_blocks(train_blocks_fname, eval_blocks_fname='', num_blocks=10, eval_bl
         del blocks[ix]
     return blocks[:num_blocks]
 
+def load_eval_block(blocks_fname, eval_block_id):
+    """"
+    Load blocks from a pickle file. Option to remove specific block ids.
+    :param fname: .pkl file of the blocks.
+    :param num_blocks: The number of desired blocks to load.
+    :param remove_ixs: List of indices to exclude from the final set. The indices start at the first block set.
+    """
+    with open(blocks_fname, 'rb') as handle:
+        blocks = pickle.load(handle)
+    for block in blocks:
+        if int(block.name.split('_')[1]) == eval_block_id:
+            return [block]
+    return None
+
 def get_train_and_fit_blocks(pretrained_ensemble_path, use_latents, fit_blocks_fname, fit_block_ixs):
     train_logger = ActiveExperimentLogger(exp_path=pretrained_ensemble_path,
                                           use_latents=use_latents)
@@ -113,7 +127,7 @@ def ExecuteActions(plan, real=False, pause=True, wait=True, prompt=True, obstacl
             if real:
                 e.simulate(timestep=0.1, obstacles=obstacles)
             else:
-                e.simulate(timestep=0.05, obstacles=obstacles)
+                e.simulate(timestep=0.1, obstacles=obstacles)
 
             # Assign the object being held
             # if isinstance(e, pb_robot.vobj.BodyGrasp):
@@ -247,6 +261,8 @@ def setup_panda_world(robot, blocks, xy_poses=None, use_platform=True):
                                      xy_pose.pos.z),
                             xy_pose.orn)
             block.set_base_link_pose(full_pose)
+            z = pb_robot.placements.stable_z(block, pddl_table)
+            block.set_base_link_point([xy_pose.pos.x, xy_pose.pos.y, z])
 
 
     # Setup platform.
@@ -283,7 +299,7 @@ def get_pddlstream_info(robot, fixed, movable, add_slanted_grasps, approach_fram
         'sample-pose-block': from_fn(primitives.get_stable_gen_block(fixed)),
         'sample-grasp': from_list_fn(primitives.get_grasp_gen(robot, add_slanted_grasps=True, add_orthogonal_grasps=False)),
         # 'sample-grasp': from_gen_fn(primitives.get_grasp_gen(robot, add_slanted_grasps=True, add_orthogonal_grasps=False)),
-        'pick-inverse-kinematics': from_fn(primitives.get_ik_fn(robot, fixed, approach_frame='gripper', backoff_frame='global', use_wrist_camera=use_vision)),
+        'pick-inverse-kinematics': from_fn(primitives.get_ik_fn(robot, fixed, approach_frame='gripper', backoff_frame='global', use_wrist_camera=False)),
         'place-inverse-kinematics': from_fn(primitives.get_ik_fn(robot, fixed, approach_frame='global', backoff_frame='gripper', use_wrist_camera=False)),
         'plan-free-motion': from_fn(primitives.get_free_motion_gen(robot, fixed)),
         'plan-holding-motion': from_fn(primitives.get_holding_motion_gen(robot, fixed)),

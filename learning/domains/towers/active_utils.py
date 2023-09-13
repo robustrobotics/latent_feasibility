@@ -313,7 +313,8 @@ def get_sequential_predictions(dataset, ensemble, use_latents=False):
             with torch.no_grad():
                 if use_latents:
                     sub_tower_preds.append(ensemble.forward(
-                        tensor[:, :n_blocks, 4:], block_ids[:, :n_blocks], N_samples=10, collapse_ensemble=True, collapse_latents=True).squeeze(dim=-1))
+                        tensor[:, :n_blocks, 4:], block_ids[:, :n_blocks], N_samples=10, collapse_ensemble=True, collapse_latents=True
+                    ).squeeze(dim=-1))
                 else:
                     sub_tower_preds.append(ensemble.forward(tensor[:, :n_blocks, :]).mean(-1, keepdim=True))
         sub_tower_preds = torch.stack(sub_tower_preds, dim=0)
@@ -406,9 +407,9 @@ def get_labels(dataset, exec_mode, agent, logger, xy_noise, save_tower=False, la
         subtower_dataset[k]['towers'] = []
         subtower_dataset[k]['block_ids'] = []
         subtower_dataset[k]['labels'] = []
-        
+
     block_placements = 0
-        
+
     tp = TowerPlanner(stability_mode='contains')
     for k in dataset.keys():
         n_towers, n_blocks, _ = dataset[k]['towers'].shape
@@ -477,19 +478,19 @@ def get_labels(dataset, exec_mode, agent, logger, xy_noise, save_tower=False, la
                             input('Should reset sim. Not yet handled. Exit and restart training.')
                 labels[tower_ix] = label
                 if 'block_ids' in dataset[k].keys():
-                    logger.save_towers_data(dataset[k]['towers'][tower_ix, :, :], 
+                    logger.save_towers_data(dataset[k]['towers'][tower_ix, :, :],
                                             dataset[k]['block_ids'][tower_ix, :],
                                             labels[tower_ix])
                 else:
-                    logger.save_towers_data(dataset[k]['towers'][tower_ix, :, :], 
+                    logger.save_towers_data(dataset[k]['towers'][tower_ix, :, :],
                                             None,
                                             labels[tower_ix])
         dataset[k]['labels'] = labels
-    
+
     if save_tower:
         # save block placement data
         logger.save_block_placement_data(block_placements)
-        
+
     if label_subtowers:
         # vectorize labeled dataset and return
         for ki, k in enumerate(subtower_dataset, start=2):
@@ -513,7 +514,7 @@ def get_subset(samples, indices):
     """
     keys = samples.keys()
     selected_towers = {k: {'towers': [], 'block_ids': []} for k in keys}
-    
+
     # Initialize tower ranges.
     start = 0
     for k in keys:
@@ -552,21 +553,21 @@ class PoolSampler:
         start = 0
         for k in self.keys:
             end = start + self.pool[k]['towers'].shape[0]
-            
+
             tower_ixs = indices[np.logical_and(indices >= start,
                                         indices < end)] - start
             selected_towers[k]['towers'] = self.pool[k]['towers'][tower_ixs,...]
- 
+
             mask = np.ones(self.pool[k]['towers'].shape[0], dtype=bool)
 
             mask[tower_ixs] = False
             self.pool[k]['towers'] = self.pool[k]['towers'][mask,...]
             self.pool[k]['labels'] = self.pool[k]['labels'][mask,...]
-            
+
             start = end
-        
+
         return selected_towers
-        
+
 
 
 if __name__ == '__main__':

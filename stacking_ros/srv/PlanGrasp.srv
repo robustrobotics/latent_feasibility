@@ -1,0 +1,9 @@
+# ROS Service for starting planning for a grasp
+
+# REQUEST: Grasp information
+GraspInfo grasp_info
+
+---
+
+# RESPONSE: Labels for fitting
+bool success

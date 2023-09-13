@@ -33,6 +33,7 @@ add_message_files(
   FILES
   BodyInfo.msg
   GoalInfo.msg
+  GraspInfo.msg
   RobotConfig.msg
   TaskAction.msg
   TrajInfo.msg
@@ -43,6 +44,7 @@ add_service_files(
   FILES
   GetPlan.srv
   PlanTower.srv
+  PlanGrasp.srv
   SetPlanningState.srv
 )
 
