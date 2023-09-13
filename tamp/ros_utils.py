@@ -205,8 +205,8 @@ def task_plan_to_ros(plan):
 
 def grasp_to_ros(grasp):
     ros_grasp = GraspInfo()
-    ros_grasp.name = grasp.graspable_body.object_name
-    ros_grasp.ee_relpose = pose_tuple_to_ros(grasp.ee_relpose)
+    ros_grasp.object_name = grasp.graspable_body.object_name
+    pose_tuple_to_ros(grasp.ee_relpose, ros_grasp.ee_relpose)
     ros_grasp.force = grasp.force
     return ros_grasp
 
@@ -337,7 +337,7 @@ def ros_to_tower(msg):
 
 def ros_to_grasp(msg):
     graspable_body = GraspableBody(
-        object_name=msg.name,
+        object_name=msg.object_name,
         com=(0.0, 0.0, 0.0),
         mass=0.1,
         friction=0.1
@@ -353,7 +353,7 @@ def ros_to_grasp(msg):
         antipodal_error2=None,
         pitch=None,
         roll=None,
-        ee_relpose=ros_to_pose_tuple(msg.pose),
+        ee_relpose=ros_to_pose_tuple(msg.ee_relpose),
         force=msg.force
     )
     return grasp

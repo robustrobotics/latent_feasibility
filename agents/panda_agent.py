@@ -50,7 +50,7 @@ class PandaAgent:
         self.use_action_server = use_action_server
         self.use_learning_server = use_learning_server
 
-        self.Q_VIEW = [1., -0.78, 0., -2.35, 0., 1.57,  0.78]
+        self.Q_VIEW = [0.00906281211377156, -0.6235522351178657, -0.7049609841296547, -2.688986561330677, 0.16884370372653495, 2.34366196881325, -0.8102285046842361]
 
         # Setup PyBullet instance to run in the background and handle planning/collision checking.
         self._planning_client_id = pb_robot.utils.connect(use_gui=False)
@@ -97,6 +97,7 @@ class PandaAgent:
 
         # Create an arm interface
         if real:
+            print('[PandaAgent] Loading franka_interface...')
             from franka_interface import ArmInterface
             self.real_arm = ArmInterface()
 
@@ -106,6 +107,7 @@ class PandaAgent:
             self.arm_error_check_time = 3.0
             self.arm_state_subscriber = rospy.Subscriber(
                 state_topic, RobotState, self.robot_state_callback)
+            print('[PandaAgent] Loaded franka_interface.')
 
         # Setup vision ROS services. Assume cameras can't see blocks initially.
         #TODO: (ICRA) Will probably only be using the wrist camera.
@@ -137,6 +139,7 @@ class PandaAgent:
                 print("Learning server started!")
             print("Done!")
         elif self.use_learning_server:
+            print('Starting server...')
             from stacking_ros.srv import PlanGrasp
             from tamp.ros_utils import goal_to_ros, ros_to_task_plan
 
@@ -212,7 +215,7 @@ class PandaAgent:
     def _update_block_poses(self, find_moved=False):
         """ Use the global world cameras to update the positions of the blocks """
         try:
-            resp = self._get_block_poses_world()
+            resp = self._get_block_poses_wrist()
             named_poses = resp.poses
         except:
             import sys
@@ -742,6 +745,31 @@ class PandaAgent:
         resp.success = success
         return resp
 
+    def _plan_look(self):
+        self._add_text('Planning look action')
+        self.robot.arm.hand.Open()
+        saved_world = pb_robot.utils.WorldSaver()
+
+        self.plan()
+        start = time.time()
+
+        # Get planning helper functions (streams)
+        stream_map = self.pddl_info[-1]
+        plan_free_motion_fn = stream_map['plan-free-motion']
+        plan_holding_motion_fn = stream_map['plan-holding-motion']
+
+        # Move to view config.
+        q_init = pb_robot.vobj.BodyConf(self.robot, self.robot.arm.GetJointValues())
+        q_view = pb_robot.vobj.BodyConf(self.robot, self.Q_VIEW)
+        move_to_look = next(plan_free_motion_fn(q_init, q_view))[0]
+
+        plan = [('move_free', move_to_look)]
+
+        duration = time.time() - start
+        saved_world.restore()
+        return plan
+
+
     def _plan_grasp(self, grasp):
         self._add_text('Planning grasp placement')
         self.robot.arm.hand.Open()
@@ -756,12 +784,8 @@ class PandaAgent:
         plan_holding_motion_fn = stream_map['plan-holding-motion']
         ik_fn = stream_map['pick-inverse-kinematics']
 
-        # TODO: Find good VIEW config on robot.
-
         # Move to view config.
-        q_init = pb_robot.vobj.BodyConf(self.robot, self.robot.arm.GetJointValues())
         q_view = pb_robot.vobj.BodyConf(self.robot, self.Q_VIEW)
-        move_to_look = next(plan_free_motion_fn(q_init, q_view))[0]
 
         # TODO: Update object pose (from_vision).
         obj_pose = self.pddl_blocks[0]
@@ -781,16 +805,8 @@ class PandaAgent:
         q_approach, q_backoff, pick_block = next(ik_fn(self.pddl_blocks[0], block_pose, grasp))[0]
         move_to_pregrasp = next(plan_free_motion_fn(q_view, q_approach))[0]
 
-        plan = [('move_free', move_to_look),
-                ('move_free', move_to_pregrasp),
+        plan = [('move_free', move_to_pregrasp),
                 ('pick', (pick_block,))]
-
-        # TODO: Get pose of object.
-        # TODO: Check if grasp is valid.
-        # TODO: Move arm to pre-grasp.
-        # TODO: Move arm to grasp.
-        # TODO: Close arm.
-        # TODO: Lift object.
 
         duration = time.time() - start
         saved_world.restore()
@@ -800,11 +816,21 @@ class PandaAgent:
         """
         
         """
-        plan = self._plan_grasp(grasp)
+        look_plan = self._plan_look()
         self.execute()
-        ExecuteActions(plan, real=real, pause=False, wait=True, obstacles=[f for f in self.fixed if f is not None])
+        ExecuteActions(look_plan, real=real, pause=False, wait=True, obstacles=[f for f in self.fixed if f is not None])
         self.plan()
-        ExecuteActions(plan, real=False, pause=False, wait=False, obstacles=[f for f in self.fixed if f is not None])
+        ExecuteActions(look_plan, real=False, pause=False, wait=False, obstacles=[f for f in self.fixed if f is not None])
+
+        input('Update block poses?')
+        if self.use_vision:
+            self._update_block_poses()
+
+        grasp_plan = self._plan_grasp(grasp)
+        self.execute()
+        ExecuteActions(grasp_plan, real=real, pause=False, wait=True, obstacles=[f for f in self.fixed if f is not None])
+        self.plan()
+        ExecuteActions(grasp_plan, real=False, pause=False, wait=False, obstacles=[f for f in self.fixed if f is not None])
 
     def simulate_tower(self, tower, vis, T=2500, real=False, base_xy=(0., 0.5), save_tower=False):
         """
@@ -1247,15 +1273,16 @@ if __name__ == '__main__':
     )
     assert block_set is not None, 'Block not found'
 
-    agent = PandaAgent(
-        blocks=block_set,
-        block_init_xy_poses=[
-            Pose(
-                Position(0.4, 0.0, 0.0),
-                Quaternion(0.0, 0.0, 0.0, 1.0)
-            )
-        ]
-    )
+    # agent = PandaAgent(
+    #     blocks=block_set,
+    #     block_init_xy_poses=[
+    #         Pose(
+    #             Position(0.4, 0.0, 0.0),
+    #             Quaternion(0.0, 0.0, 0.0, 1.0)
+    #         )
+    #     ]
+    # )
+    agent = PandaClientAgent()
     graspable_body = graspablebody_from_vector(
         object_name=f'Primitive::Box_{block_id}',
         vector=np.array([0.0, 0.0, 0.0, 0.1, 0.1])
@@ -1269,5 +1296,6 @@ if __name__ == '__main__':
     # TODO: Generate a test grasp (top-down or sampled)
     grasp = sampler.sample_grasps(num_grasps=1, force_range=(10, 10))[0]
     grasp = grasp._replace(ee_relpose=((0.008233875036239624, 0.1209687739610672, 0.1020907312631607), (0.6761376857757568, -0.6475048065185547, 0.21328584849834442, 0.27943605184555054)))
-    agent.simulate_grasp(grasp, real=False)
+    # agent.simulate_grasp(grasp, real=False)
+    agent.get_label(grasp)
     import ipdb; ipdb.set_trace()
