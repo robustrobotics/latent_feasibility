@@ -325,7 +325,7 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
             probs = probs.squeeze().cpu().numpy()
             labels = labels.squeeze().cpu().numpy()
 
-        if task == 'min-grasp':
+        if task == 'min-force':
             max_force = 20  # NOTE: for the max likelihood grasp detector, we'd replace from here:
             neg_rewards = [0, -10, -20]
 
