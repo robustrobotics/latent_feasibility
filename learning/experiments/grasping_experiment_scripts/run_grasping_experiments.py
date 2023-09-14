@@ -174,7 +174,7 @@ def run_fitting_phase(args):
             fitting_args.use_progressive_priors = False
             fitting_args.constrained = args.constrained
             fitting_args.particle_prop_dist_mean = [0.0, 0.0, 0.0, -0.5, 0.0]
-            fitting_args.particle_prop_dist_stds = [0.25, 1.0, 1.0, 0.5, 1.0] #[1.0, 1.0, 1.0, 0.5, 1.0]
+            fitting_args.particle_prop_dist_stds = [0.25, 1.0, 1.0, 0.5, 1.0]  # [1.0, 1.0, 1.0, 0.5, 1.0]
             fitting_args.particle_distribution = 'uniform'
             if args.amortize:
                 fitting_args.likelihood = 'gnp'
@@ -531,27 +531,27 @@ def filter_objects(object_names, ignore_list, phase, dataset_name, min_pstable, 
         sample_covar /= len(name_ixs)
         # TODO: note that this is a hack right now since we're dealing with 2d mean and covariance
         eigval_prod = np.real(np.prod(np.linalg.eigvals(sample_covar)[0:2]))  # we know sample covar PSD so eigval real
-      
+
         try:
             volume = metadata[name]['volume']
             bb_volume = metadata[name]['bb_volume']
-        # max_dim = np.max(mesh.bounds[1]*2)
+            # max_dim = np.max(mesh.bounds[1]*2)
             ratio = bb_volume / volume
-        # sim_client.disconnect()
+            # sim_client.disconnect()
             max_dim = 0.2
             rejection_rate = metadata[name]['rejection_rate']
 
-        # all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
-        # dists_to_closest = []
-        # for gx, midpoint in enumerate(all_midpoints):
-        #     other_points = np.concatenate(
-        #         [all_midpoints[:gx, :], all_midpoints[gx + 1:, :]],
-        #         axis=0
-        #     )
-        #     dists = np.linalg.norm(midpoint - other_points, axis=1)
-        #     dists_to_closest.append(np.min(dists))
+            # all_midpoints = np.array(list(data['grasp_data']['grasp_midpoints'].values())[0])[:50]
+            # dists_to_closest = []
+            # for gx, midpoint in enumerate(all_midpoints):
+            #     other_points = np.concatenate(
+            #         [all_midpoints[:gx, :], all_midpoints[gx + 1:, :]],
+            #         axis=0
+            #     )
+            #     dists = np.linalg.norm(midpoint - other_points, axis=1)
+            #     dists_to_closest.append(np.min(dists))
 
-        # avg_min_dist = np.mean(dists_to_closest)
+            # avg_min_dist = np.mean(dists_to_closest)
             avg_min_dist = metadata[name]['avg_min_dist50']
             p_stable = np.mean(list(data['grasp_data']['labels'].values())[0])
             if avg_min_dist < min_dist_threshold:
@@ -660,7 +660,15 @@ def compile_dataframes_and_save_path(exp_name, amortize):
     means = {'train_geo': {}, 'test_geo': {}}
     covars = {'train_geo': {}, 'test_geo': {}}
     info_gains = {'train_geo': {}, 'test_geo': {}}
-    regrets = {'train_geo': {}, 'test_geo': {}}
+
+    regrets5 = {'train_geo': {}, 'test_geo': {}}
+    regrets10 = {'train_geo': {}, 'test_geo': {}}
+    regrets20 = {'train_geo': {}, 'test_geo': {}}
+
+    successes_regrets5 = {'train_geo': {}, 'test_geo': {}}
+    successes_regrets10 = {'train_geo': {}, 'test_geo': {}}
+    successes_regrets20 = {'train_geo': {}, 'test_geo': {}}
+
     successes20 = {'train_geo': {}, 'test_geo': {}}
     successes15 = {'train_geo': {}, 'test_geo': {}}
     successes10 = {'train_geo': {}, 'test_geo': {}}
@@ -668,14 +676,20 @@ def compile_dataframes_and_save_path(exp_name, amortize):
 
     if amortize:
         metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores, entropies,
-                       average_precisions_normed, belief_update_times, ig_compute_times, regrets,
+                       average_precisions_normed, belief_update_times, ig_compute_times,
+                       regrets5, regrets10, regrets20,
+                       successes_regrets5, successes_regrets10, successes_regrets20,
                        successes20, successes15, successes10, successes05]
         metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
                             'val_f1s.pkl', 'val_balanced_accs.pkl', 'belief_update_times.pkl',
-                            'ig_compute_times.pkl', 'val_entropies.pkl', 'regrets_0.pkl',
+                            'ig_compute_times.pkl', 'val_entropies.pkl',
+                            'regrets_0.pkl', 'regrets_10.pkl', 'regrets_20.pkl',
+                            'regret_success_0.pkl', 'regrets_success_10.pkl', 'regrets_success_20.pkl',
                             'success20.pkl', 'success15.pkl', 'success10.pkl', 'success05.pkl']
         metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
-                        'belief update time', 'ig compute time', 'entropy', 'regret',
+                        'belief update time', 'ig compute time', 'entropy',
+                        'regret0', 'regret10', 'regret20',
+                        'regret_success0', 'regret_success10', 'regret_success20',
                         'success20', 'success15', 'success10', 'success05']
     else:
         metric_list = [accuracies, precisions, average_precisions, recalls, f1s, balanced_accuracy_scores,
@@ -697,8 +711,16 @@ def compile_dataframes_and_save_path(exp_name, amortize):
                 fit_args = pickle.load(handle)
             n_acquisitions = fit_args.max_acquisitions
             n_grasps = fit_args.n_samples
-            acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy, rgts, sccs20, sccs15, sccs10, sccs05 = \
+            acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy, \
+                rgts0, rgts10, rgts20, \
+                rgts_sccs0, rgts_sccs10, rgts_sccs20, \
+                sccs20, sccs15, sccs10, sccs05 = \
                 np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
+                    np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
                     np.zeros((n_objs, n_acquisitions)), \
@@ -715,7 +737,9 @@ def compile_dataframes_and_save_path(exp_name, amortize):
 
             if amortize:
                 metric_per_strategy_list = [
-                    acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy, rgts,
+                    acc, prec, avg_prec, recalls, f1s, bal_acc, bel_tm, ig_tm, etrpy,
+                    rgts0, rgts10, rgts20,
+                    rgts_sccs0, rgts_sccs10, rgts_sccs20,
                     sccs20, sccs15, sccs10, sccs05
                 ]
             else:
