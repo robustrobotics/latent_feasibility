@@ -337,6 +337,35 @@ def compute_ig(gnp, current_context, unlabeled_samples, n_samples_from_latent_di
         ig_time = ig_et - ig_st
         return info_gain.cpu().numpy(), latent_pred_time, ig_time
 
+def sample_and_label_real(grasp_labeler, object_set, args):
+    """
+    Return a gnp dataset with a label.
+    """
+    object_name, object_properties, tmp_ox = get_fit_object(object_set)
+
+    label = -1
+    pose = grasp_labeler.get_pose()
+    while label == -1:
+        sampling_agent = GraspingAgent(
+            object_name=object_name,
+            object_properties=object_properties,
+            init_pose=pose,
+            use_gui=False
+        )
+        grasp = sampling_agent._sample_grasp_action()
+        sampling_agent.disconnect()
+
+        label = grasp_labeler.get_label(grasp)
+    
+    # Post process dataset appropriately for GNP format.
+    grasp_dataset = gnp_dataset_from_raw_grasps(
+        [grasp],
+        [label],
+        object_set, 
+        args.eval_object_ix
+    )
+    return grasp_dataset
+
 
 def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_selection_fun=None):
     # We generate the datasets here, but evaluate_grasping is when we actually
@@ -348,19 +377,30 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
     constrained = args.constrained or args.exec_mode == 'real'
     # TODO: if we regularize with uninformed prior, we shouldn't start with a random sample.
     #  we should be using IG the uninformed prior
-    # Initialize data dictionary in GNP format with a random data point.
-    samples = sample_unlabeled_gnp_data(
-        n_samples=args.n_samples,  # Why is this here? Shouldn't it be 1?
-        object_set=object_set,
-        object_ix=args.eval_object_ix
-    )
-    context_data = select_gnp_dataset_ix(samples, 0)
-    context_data = get_labels_gnp(context_data)
+    if args.exec_mode == 'sim':
+        grasp_labeler = None
+    elif args.exec_mode == 'real':
+        grasp_labeler = PandaClientAgent()
+    else:
+        raise NotImplementedError()
 
-    logger.save_acquisition_data(context_data, samples, 0)
+    # Execute first grasp.
+    if args.exec_mode == 'real':
+        context_data = sample_and_label_real(grasp_labeler, object_set, args)
+    else:
+        # Initialize data dictionary in GNP format with a random data point.
+        samples = sample_unlabeled_gnp_data(
+            n_samples=args.n_samples,  # Why is this here? Shouldn't it be 1?
+            object_set=object_set,
+            object_ix=args.eval_object_ix
+        )
+        context_data = select_gnp_dataset_ix(samples, 0)
+        context_data = get_labels_gnp(context_data)
+
+    logger.save_acquisition_data(context_data, None, 0)
 
     # All random grasps end up getting labeled, so parallelize this.
-    if strategy == 'random' and not constrained:
+    if strategy == 'random' and not constrained and args.exec_mode != 'real':
         print('[Random]: Sampling')
         random_pool = sample_unlabeled_gnp_data(
             n_samples=args.max_acquisitions,
@@ -370,28 +410,22 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
         print('[Random]: Labeling')
         random_pool = get_labels_gnp(random_pool)
 
-    if constrained:
-        # Initialize PyBullet agent used for planning.
-        name, properties, _ = get_fit_object(object_set)
-        agent = GraspingAgent(
-            object_name=name,
-            object_properties=properties,
-            use_gui=True
-        )
-
-    if args.exec_mode == 'sim':
-        grasp_labeler = None
-    elif args.exec_mode == 'real':
-        grasp_labeler = PandaClientAgent()
-    else:
-        raise NotImplementedError()
-
     amortized_pred_times = []
     ig_compute_times = []
     for tx in range(0, args.max_acquisitions):
         print('[AmortizedFilter] Interaction Number', tx)
 
-        if strategy == 'random' and not constrained:
+        if strategy == 'random' and args.exec_mode == 'real':
+            grasp_dataset = sample_and_label_real(grasp_labeler, object_set, args)
+            context_data = merge_gnp_datasets(context_data, grasp_dataset)
+            logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
+            logger.save_acquisition_data(context_data, None, tx + 1)
+
+            amortized_pred_times.append(np.NaN)
+            ig_compute_times.append(np.NaN)
+        elif strategy == 'bald' and args.exec_mode == 'real':
+            raise NotImplementedError()
+        elif strategy == 'random' and not constrained:
             grasp_dataset = select_gnp_dataset_ix(random_pool, tx)
             context_data = merge_gnp_datasets(context_data, grasp_dataset)
             logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
@@ -405,12 +439,8 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
             # if args.exec_mode == 'real':
             #     agent.set_object_pose(None, find_stable_z=True)
 
-            grasp = agent._sample_grasp_action()
             # Execute plan. Set object state based on result.
-            if args.exec_mode == 'real':
-                label = grasp_labeler.get_label(grasp)
-            else:
-                label = agent.execute_first_action((grasp, None))
+            label = agent.execute_first_action((grasp, None))
 
             # Convert plan to GNP data format.
             grasp_dataset = gnp_dataset_from_raw_grasps([grasp], [label], object_set, args.eval_object_ix)
@@ -452,11 +482,11 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
             raise NotImplementedError()
 
         # Add datapoint to context dictionary.
-    if not grasp_labeler is None:
+    if not grasp_labeler is None and args.exec_mode != 'real':
         grasp_labeler.disconnect()
 
-    if args.constrained:
-        agent.disconnect()
+    # if args.constrained:
+    #     agent.disconnect()
 
     # save time data from run
     with open(logger.get_figure_path('belief_update_times.pkl'), 'wb') as handle:

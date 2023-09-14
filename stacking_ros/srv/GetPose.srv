@@ -1,0 +1,8 @@
+# ROS Service for getting a block pose from the real world.
+
+# REQUEST: Empty
+
+---
+
+# RESPONSE: Labels for fitting
+geometry_msgs/Pose block_pose
