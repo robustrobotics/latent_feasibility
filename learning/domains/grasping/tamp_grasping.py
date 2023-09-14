@@ -147,7 +147,7 @@ class GraspingAgent:
         self.robot.arm.SetJointValues(robot_conf)
         self.pb_body.set_base_link_pose(object_pose)
 
-    def _sample_grasp_action(self, max_attempts=1000):
+    def _sample_grasp_action(self, force_range=(5, 20), max_attempts=1000):
         for ax in range(0, max_attempts):
             # Step (1): Sample valid antipodal grasp for object.
             sampler = GraspSampler(
@@ -158,7 +158,7 @@ class GraspingAgent:
             # if ax < 10: print('Connected to:', sampler.sim_client.pb_client_id)
             grasp = sampler.sample_grasps(
                 num_grasps=1,
-                force_range=(5, 20)
+                force_range=force_range
             )[0]
             sampler.disconnect()
 

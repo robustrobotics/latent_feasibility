@@ -76,15 +76,17 @@ python3.7 -m learning.experiments.active_train_towers --exec-mode sim --use-pand
 ```
 
 ## Grasping Usage
-On Ted (RTK), start two nodes.
+On Ted (RTK), start one nodes:
 
 1. Franka Interface: `roslaunch franka_interface interface.launch`
 
-
-On narrator (GPU), start two more nodes.
+On narrator (GPU), start two more nodes:
 
 1. Panda Vision: `roslaunch panda_vision vision.launch`
-2. Fitting Script: `python -m learning.experiments.active_fit_grasping_pf --exp-name real-robot-block0 --max-acquisitions 10 --objects-fname learning/domains/towers/grasping_block_set_sim.pkl --pretrained-ensemble-exp-path learning/experiments/logs/grasp_gnp-boxv2-run1_train-20230406-110724 --eval-object-ix 0 --strategy random --exec-mode real --use-progressive-priors --likelihood gnp`
-3. Panda Agent Server: `rosrun stacking_ros panda_agent_server.py  --real --use-vision --blocks-file learning/domains/towers/grasping_block_set_robot.pkl --block-id <block_id>`
-4. To open loop execute a plan:
+2. Panda Agent Server: `rosrun stacking_ros panda_agent_server.py  --real --use-vision --blocks-file learning/domains/towers/grasping_block_set_robot.pkl --block-id <block_id>`
 
+Continuing on narrator, run one of the following:
+
+1. To open loop execute a plan: `python agents.panda_agent`
+2. Fitting script: `python -m learning.experiments.active_fit_grasping_pf --exp-name real-robot-block0 --objects-fname learning/domains/towers/grasping_block_set_sim.pkl --pretrained-ensemble-exp-path learning/experiments/logs/grasp_gnp-boxv2-run1_train-20230406-110724  --strategy random --exec-mode real --use-progressive-priors --likelihood gnp --max-acquisitions 10 --eval-object-ix 16`
+3. Eval script: `python -m learning.evaluate.evaluate_grasping --exec-mode real --exp-path real-robot-block0 --n-samples 100 --eval-tx 4 --task likely-grasp`

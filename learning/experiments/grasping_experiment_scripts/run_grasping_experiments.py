@@ -683,8 +683,8 @@ def compile_dataframes_and_save_path(exp_name, amortize):
         metric_file_list = ['val_accuracies.pkl', 'val_precisions.pkl', 'val_average_precisions.pkl', 'val_recalls.pkl',
                             'val_f1s.pkl', 'val_balanced_accs.pkl', 'belief_update_times.pkl',
                             'ig_compute_times.pkl', 'val_entropies.pkl',
-                            'regrets_0.pkl', 'regrets_10.pkl', 'regrets_20.pkl',
-                            'regret_success_0.pkl', 'regrets_success_10.pkl', 'regrets_success_20.pkl',
+                            'regrets_0.pkl', 'regrets_-10.pkl', 'regrets_-20.pkl',
+                            'regret_success_0.pkl', 'regret_success_-10.pkl', 'regret_success_-20.pkl',
                             'success20.pkl', 'success15.pkl', 'success10.pkl', 'success05.pkl']
         metric_names = ['accuracy', 'precision', 'average precision', 'recall', 'f1', 'balanced accuracy',
                         'belief update time', 'ig compute time', 'entropy',

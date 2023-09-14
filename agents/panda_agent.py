@@ -849,6 +849,9 @@ class PandaAgent:
 
     def simulate_look(self, real=False):
         look_plan = self._plan_look()
+        if real:
+            self.real_arm.hand.open()
+
         self.execute()
         ExecuteActions(look_plan, real=real, pause=False, wait=False, obstacles=[f for f in self.fixed if f is not None])
         self.plan()
