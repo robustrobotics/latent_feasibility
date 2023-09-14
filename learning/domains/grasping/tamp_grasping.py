@@ -17,8 +17,8 @@ class GraspingAgent:
 
     def __init__(self, object_name, object_properties, init_pose=None, use_gui=False):
         # TODO: Adapt to also work with boxes.
-        self.primitive_root = '/home/mnosew/workspace/object_models/real-box-data/urdfs'
-        self.shapenet_root = '/home/mnosew/workspace/object_models/shapenet-sem/urdfs'
+        self.primitive_root = os.path.join(os.environ['PRIMITIVE_ROOT'], 'urdfs')
+        self.shapenet_root = os.path.join(os.environ['SHAPENET_ROOT'], 'urdfs')
 
         self.client_id = pb_robot.utils.connect(use_gui=use_gui)
         pb_robot.utils.set_pbrobot_clientid(self.client_id)
