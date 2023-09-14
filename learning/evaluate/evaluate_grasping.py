@@ -410,6 +410,8 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
         else:
             raise NotImplementedError('Unrecognized task. Options: likely-grasp, min-force.')
 
+        
+
 
 def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, vis=False):
     accs, precisions, recalls, f1s, balanced_accs, av_precs = [], [], [], [], [], []

@@ -12,7 +12,7 @@ from scipy.spatial.transform import Rotation as R
 
 
 rotations = all_rotations()
-DEBUG_FAILURE = False
+DEBUG_FAILURE = True
 
 def get_grasp_gen(robot, add_slanted_grasps=True, add_orthogonal_grasps=True):
     # add_slanted_grasps = True
@@ -145,10 +145,11 @@ def get_ik_fn(robot, fixed=[], num_attempts=4, approach_frame='gripper', backoff
         is_camera_down = grasp_worldR[:,0].dot(-e_z) > 0.999
         is_wrist_too_low = grasp_worldF[2,3] < 0.088/2 + 0.005
 
+        print('[IK Bad Grasp]:', is_gripper_sideways, is_upside_down_grasp, is_camera_down)
         if is_gripper_sideways:
             return None
-        if is_upside_down_grasp:
-            return None
+        # if is_upside_down_grasp:
+        #     return None
         if is_camera_down:# and approach_frame == 'gripper':
             return None
 
@@ -156,9 +157,11 @@ def get_ik_fn(robot, fixed=[], num_attempts=4, approach_frame='gripper', backoff
         # in diameter, and it is the widest part of the hand. Include a 5mm
         # clearance
         if not is_top_grasp and is_wrist_too_low:
+            print('[IK]: Failure mode 1')
             return None
         # If the block/gripper is in the storage area, don't use low grasps.
         if grasp_worldF[0,3] < 0.2 and grasp_worldF[2,3] < 0.1:
+            print('[IK]: Failure mode 2')
             return None
 
         if approach_frame == 'gripper':

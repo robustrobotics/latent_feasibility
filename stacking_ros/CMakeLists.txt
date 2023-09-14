@@ -45,6 +45,7 @@ add_service_files(
   GetPlan.srv
   PlanTower.srv
   PlanGrasp.srv
+  GetPose.srv
   SetPlanningState.srv
 )
 

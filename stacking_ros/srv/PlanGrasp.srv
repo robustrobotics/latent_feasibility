@@ -6,4 +6,4 @@ GraspInfo grasp_info
 ---
 
 # RESPONSE: Labels for fitting
-bool success
+int32 success

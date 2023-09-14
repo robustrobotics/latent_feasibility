@@ -9,6 +9,7 @@ import pyquaternion
 import pb_robot
 import tamp.primitives
 
+from pb_robot.vobj import BodyPose
 from actions import PlaceAction, make_platform_world
 from block_utils import get_adversarial_blocks, rotation_group, ZERO_POS, \
                         Quaternion, get_rotated_block, Pose, add_noise, \
@@ -140,11 +141,18 @@ class PandaAgent:
             print("Done!")
         elif self.use_learning_server:
             print('Starting server...')
-            from stacking_ros.srv import PlanGrasp
-            from tamp.ros_utils import goal_to_ros, ros_to_task_plan
+            from stacking_ros.srv import PlanGrasp, GetPose
 
+            self.pose_server = rospy.Service(
+                "/get_pose",
+                GetPose,
+                self.plan_and_execute_look
+            )
             self.learning_server = rospy.Service(
-                "/plan_grasp", PlanGrasp, self.plan_and_execute_grasp)
+                "/plan_grasp",
+                PlanGrasp,
+                self.plan_and_execute_grasp
+            )
             print("Learning server started!")
         else:
             # Looks like this variable is never used anymore/broken.
@@ -282,6 +290,7 @@ class PandaAgent:
                     self.plan()
                     top_block.set_base_link_pose((position, orientation))
 
+        return (position, orientation)
 
     def _get_initial_pddl_state(self):
         """
@@ -745,6 +754,28 @@ class PandaAgent:
         resp.success = success
         return resp
 
+    def plan_and_execute_look(self, ros_req):
+        from stacking_ros.srv import GetPoseResponse
+        from tamp.ros_utils import pose_tuple_to_ros
+        updated_pose = self.simulate_look(real=self.real)
+
+        resp = GetPoseResponse()
+        pose_tuple_to_ros(updated_pose, resp.block_pose)
+        return resp
+
+    def _get_block_fluents(self):
+        fluents = []
+
+        for block in self.pddl_blocks:
+            fluents.append((
+                'atpose',
+                block,
+                BodyPose(block.get_name(), block.get_base_link_pose())
+            ))
+
+        return fluents
+
+
     def _plan_look(self):
         self._add_text('Planning look action')
         self.robot.arm.hand.Open()
@@ -761,7 +792,7 @@ class PandaAgent:
         # Move to view config.
         q_init = pb_robot.vobj.BodyConf(self.robot, self.robot.arm.GetJointValues())
         q_view = pb_robot.vobj.BodyConf(self.robot, self.Q_VIEW)
-        move_to_look = next(plan_free_motion_fn(q_init, q_view))[0]
+        move_to_look = next(plan_free_motion_fn(q_init, q_view, fluents=self._get_block_fluents()))[0]
 
         plan = [('move_free', move_to_look)]
 
@@ -769,13 +800,13 @@ class PandaAgent:
         saved_world.restore()
         return plan
 
-
     def _plan_grasp(self, grasp):
         self._add_text('Planning grasp placement')
         self.robot.arm.hand.Open()
-        saved_world = pb_robot.utils.WorldSaver()
 
         self.plan()
+        saved_world = pb_robot.utils.WorldSaver()
+
         start = time.time()
 
         # Get planning helper functions (streams)
@@ -800,10 +831,14 @@ class PandaAgent:
         grasp = pb_robot.vobj.BodyGrasp(
             body=self.pddl_blocks[0],
             grasp_objF=grasp_relpose,
-            manip=self.robot.arm
+            manip=self.robot.arm,
+            N=grasp.force
         )
-        q_approach, q_backoff, pick_block = next(ik_fn(self.pddl_blocks[0], block_pose, grasp))[0]
-        move_to_pregrasp = next(plan_free_motion_fn(q_view, q_approach))[0]
+        try:
+            q_approach, q_backoff, pick_block = next(ik_fn(self.pddl_blocks[0], block_pose, grasp))[0]
+        except:
+            return []
+        move_to_pregrasp = next(plan_free_motion_fn(q_view, q_approach, fluents=self._get_block_fluents()))[0]
 
         plan = [('move_free', move_to_pregrasp),
                 ('pick', (pick_block,))]
@@ -812,25 +847,35 @@ class PandaAgent:
         saved_world.restore()
         return plan
 
+    def simulate_look(self, real=False):
+        look_plan = self._plan_look()
+        self.execute()
+        ExecuteActions(look_plan, real=real, pause=False, wait=False, obstacles=[f for f in self.fixed if f is not None])
+        self.plan()
+        ExecuteActions(look_plan, real=False, pause=False, wait=False, obstacles=[f for f in self.fixed if f is not None])
+
+        if self.use_vision:
+            updated_pose = self._update_block_poses()
+            return updated_pose
+
     def simulate_grasp(self, grasp, real=False):
         """
         
         """
-        look_plan = self._plan_look()
-        self.execute()
-        ExecuteActions(look_plan, real=real, pause=False, wait=True, obstacles=[f for f in self.fixed if f is not None])
-        self.plan()
-        ExecuteActions(look_plan, real=False, pause=False, wait=False, obstacles=[f for f in self.fixed if f is not None])
-
-        input('Update block poses?')
-        if self.use_vision:
-            self._update_block_poses()
-
         grasp_plan = self._plan_grasp(grasp)
+        if len(grasp_plan) == 0:
+            return -1
+
         self.execute()
-        ExecuteActions(grasp_plan, real=real, pause=False, wait=True, obstacles=[f for f in self.fixed if f is not None])
+        ExecuteActions(grasp_plan, real=real, pause=False, wait=False, obstacles=[f for f in self.fixed if f is not None])
         self.plan()
         ExecuteActions(grasp_plan, real=False, pause=False, wait=False, obstacles=[f for f in self.fixed if f is not None])
+
+        result = input('Did the grasp succeed? [y/n]')
+        if 'y' in result.strip().lower():
+            return 1
+        else:
+            return 0
 
     def simulate_tower(self, tower, vis, T=2500, real=False, base_xy=(0., 0.5), save_tower=False):
         """
@@ -1211,12 +1256,21 @@ class PandaClientAgent:
 
     def restart_services(self):
         import rospy
-        from stacking_ros.srv import PlanGrasp
+        from stacking_ros.srv import PlanGrasp, GetPose
         print("Waiting for Panda Agent server...")
         rospy.wait_for_service("/plan_grasp")
+        rospy.wait_for_service("/get_pose")
         print("Done")
-        self.client = rospy.ServiceProxy(
-            "/plan_grasp", PlanGrasp)
+        self.grasp_client = rospy.ServiceProxy("/plan_grasp", PlanGrasp)
+        self.pose_client = rospy.ServiceProxy("/get_pose", GetPose)
+
+    def get_pose(self):
+        from stacking_ros.srv import GetPoseRequest
+        from tamp.ros_utils import ros_to_pose_tuple
+        request = GetPoseRequest()
+        response = self.pose_client.call(request)
+        pose_tuple = ros_to_pose_tuple(response.block_pose)
+        return pose_tuple
 
     def get_label(self, grasp):
         from stacking_ros.srv import PlanGraspRequest
@@ -1225,7 +1279,7 @@ class PandaClientAgent:
         grasp_info = grasp_to_ros(grasp)
         request.grasp_info = grasp_info
         
-        response = self.client.call(request)
+        response = self.grasp_client.call(request)
         return response.success
 
     def simulate_tower(self, tower, vis, real=False):
@@ -1258,6 +1312,7 @@ if __name__ == '__main__':
 
     from tamp.misc import load_eval_block
     from learning.domains.grasping.generate_grasp_datasets import graspablebody_from_vector
+    from learning.domains.grasping.tamp_grasping import GraspingAgent
     from pb_robot.planners.antipodalGraspPlanner import (
         GraspableBody,
         GraspSampler,
@@ -1283,19 +1338,37 @@ if __name__ == '__main__':
     #     ]
     # )
     agent = PandaClientAgent()
-    graspable_body = graspablebody_from_vector(
-        object_name=f'Primitive::Box_{block_id}',
-        vector=np.array([0.0, 0.0, 0.0, 0.1, 0.1])
-    )
-    sampler = GraspSampler(
-        graspable_body=graspable_body,
-        antipodal_tolerance=30,
-        show_pybullet=False
-    )
-    # import ipdb; ipdb.set_trace()
-    # TODO: Generate a test grasp (top-down or sampled)
-    grasp = sampler.sample_grasps(num_grasps=1, force_range=(10, 10))[0]
-    grasp = grasp._replace(ee_relpose=((0.008233875036239624, 0.1209687739610672, 0.1020907312631607), (0.6761376857757568, -0.6475048065185547, 0.21328584849834442, 0.27943605184555054)))
-    # agent.simulate_grasp(grasp, real=False)
-    agent.get_label(grasp)
-    import ipdb; ipdb.set_trace()
+    pose = agent.get_pose()
+    print(f'New Pose: {pose}')
+    
+    object_name = f'Primitive::Box_{block_id}'
+    object_properties = np.array([0.0, 0.0, 0.0, 0.1, 0.1])
+
+    label = -1
+    while label == -1:
+        print('Attempting to plan grasp...')
+        mode = 'constrained'
+        if mode == 'constrained':
+            sampling_agent = GraspingAgent(
+                object_name=object_name,
+                object_properties=object_properties,
+                init_pose=pose,
+                use_gui=False
+            )
+            grasp = sampling_agent._sample_grasp_action()
+        else:
+            # Use a fixed grasp. On real robot, use block 16 -- make sure tag 100 is up.
+            graspable_body = graspablebody_from_vector(
+                object_name=object_name,
+                vector=object_properties
+            )
+            sampler = GraspSampler(
+                graspable_body=graspable_body,
+                antipodal_tolerance=30,
+                show_pybullet=False
+            )
+            grasp = sampler.sample_grasps(num_grasps=1, force_range=(20, 20))[0]
+            grasp = grasp._replace(ee_relpose=((0.008233875036239624, 0.1209687739610672, 0.1020907312631607), (0.6761376857757568, -0.6475048065185547, 0.21328584849834442, 0.27943605184555054)))
+
+        label = agent.get_label(grasp)
+        import ipdb; ipdb.set_trace()
