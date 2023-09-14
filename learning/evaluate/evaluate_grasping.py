@@ -274,7 +274,13 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
     grasp_forces = val_grasp_data['grasp_data']['grasp_forces']
     grasp_forces = np.array(list(grasp_forces.values())[0])
 
-    regrets = []
+    regrets0 = []
+    regrets10 = []
+    regrets20 = []
+
+    regret_success0 = []
+    regret_success10 = []
+    regret_success20 = []
 
     successes20 = []
     successes15 = []
@@ -321,48 +327,61 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
 
         if task == 'min-grasp':
             max_force = 20  # NOTE: for the max likelihood grasp detector, we'd replace from here:
-            neg_reward = 0  # -max_force        # We just choose the grasp with the highest likelihood and report success.
+            neg_rewards = [0, -10, -20]
 
-            max_reward = neg_reward
-            max_exp_reward = neg_reward
-            max_achieved_reward = neg_reward
-            max_stable_force, min_stable_force = 0, 25
+            for neg_reward, regrets_record, regret_successes_record in zip(
+                    neg_rewards,
+                    [regrets0, regrets10, regrets20],
+                    [regret_success0, regret_success10,regret_success20]):
 
-            print(f'# Stable: {np.sum(labels)}/{len(labels)}')
-            for force, prob, label in zip(grasp_forces, probs, labels):
-                pos_reward = (max_force - force)
-                exp_reward = neg_reward * (1 - prob) + prob * pos_reward
-                true_reward = pos_reward if label else neg_reward
+                max_reward = neg_reward
+                max_exp_reward = neg_reward
+                max_achieved_reward = neg_reward
+                max_stable_force, min_stable_force = 0, 25
 
-                if (true_reward > max_reward) and (label == 1):
-                    max_reward = true_reward
+                chosen_label = 0
 
-                if exp_reward > max_exp_reward:
-                    max_exp_reward = exp_reward
-                    max_achieved_reward = true_reward
+                print(f'# Stable: {np.sum(labels)}/{len(labels)}')
+                for force, prob, label in zip(grasp_forces, probs, labels):
+                    pos_reward = (max_force - force)
+                    exp_reward = neg_reward * (1 - prob) + prob * pos_reward
+                    true_reward = pos_reward if label else neg_reward
 
-                if label == 1:
-                    if force > max_stable_force:
-                        max_stable_force = force
-                    if force < min_stable_force:
-                        min_stable_force = force
+                    if (true_reward > max_reward) and (label == 1):
+                        max_reward = true_reward
 
-                # if label == 1:
-                #     print(f'F: {force}\tProb: {prob}\tExpR: {exp_reward}')
+                    if exp_reward > max_exp_reward:
+                        max_exp_reward = exp_reward
+                        max_achieved_reward = true_reward
+                        chosen_label = label
 
-            if max_achieved_reward == neg_reward:
-                regret = 1
-            else:
-                regret = (
-                                 max_reward - max_achieved_reward) / 15  # TODO: magic number alert! is this just a normalization?
-            regrets.append(regret)  # to here. (from Note above).
+                    if label == 1:
+                        if force > max_stable_force:
+                            max_stable_force = force
+                        if force < min_stable_force:
+                            min_stable_force = force
 
-            valid_force_range = max_stable_force - min_stable_force
-            print(
-                f'Max Reward: {max_reward}\tReward: {max_achieved_reward}\tRegret: {regret}\tRange: {valid_force_range}')
+                    # if label == 1:
+                    #     print(f'F: {force}\tProb: {prob}\tExpR: {exp_reward}')
 
-            with open(logger.get_figure_path(f'regrets_{neg_reward}.pkl'), 'wb') as handle:
-                pickle.dump(regrets, handle)
+                if chosen_label < 1:
+                    regret = np.NaN
+                else:
+                    regret = (
+                                     max_reward - max_achieved_reward) / 15  # TODO: magic number alert! is this just a normalization?
+
+                regrets_record.append(regret)  # to here. (from Note above).
+                regret_successes_record.append(chosen_label)
+
+                valid_force_range = max_stable_force - min_stable_force
+                print(
+                    f'Max Reward: {max_reward}\tReward: {max_achieved_reward}\tRegret: {regret}\tRange: {valid_force_range}')
+
+                with open(logger.get_figure_path(f'regrets_{neg_reward}.pkl'), 'wb') as handle:
+                    pickle.dump(regrets_record, handle)
+
+                with open(logger.get_figure_path(f'regret_success_{neg_reward}.pkl'), 'wb') as handle:
+                    pickle.dump(regret_successes_record, handle)
 
         elif task == 'likely-grasp':
             for threshold, success_record in zip(
