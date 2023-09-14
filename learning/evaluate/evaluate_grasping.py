@@ -291,12 +291,15 @@ def get_pf_task_performance_real(logger, task='min-force'):
         use_gui=False
     )
 
+    threshold = 20
     print('Samping grasp pool...')
     val_grasp_data_raw = []
     for ix in range(args.n_samples):
         print(f'Sampling grasp {ix}...')
         val_grasp_data_raw.append(
-            sampling_agent._sample_grasp_action()
+            sampling_agent._sample_grasp_action(
+                force_range=(5, threshold)
+            )
         )
     sampling_agent.disconnect()
 
@@ -328,50 +331,38 @@ def get_pf_task_performance_real(logger, task='min-force'):
         max_force = 20  # NOTE: for the max likelihood grasp detector, we'd replace from here:
         neg_reward = -20  # [0, -10, -20]
 
-        max_exp_reward = neg_reward
-        max_achieved_reward = neg_reward
-        chosen_force = 0
-        chosen_gx = -1
+        pos_reward = max_force - grasp_forces
+        exp_reward = neg_reward * (1 - probs) + pos_reward * probs
+        sorted_gx = np.argsort(exp_reward)[::-1]
 
-        print(f'# Stable: {np.sum(labels)}/{len(labels)}')
-        for gx, (force, prob) in enumerate(zip(grasp_forces, probs)):
-            pos_reward = (max_force - force)
-            exp_reward = neg_reward * (1 - prob) + prob * pos_reward
+        best_force = grasp_forces[sorted_gx[0]]
+        best_reward = pos_reward[sorted_gx[0]]
+        best_exp_reward = exp_reward[sorted_gx[0]]
 
-            if exp_reward > max_exp_reward:
-                max_exp_reward = exp_reward
-                max_achieved_reward = pos_reward
-                chosen_force = force
-                chosen_gx = gx
-
-        grasp = val_grasp_data_raw[chosen_gx]
         print('---- Min Force Grasp ----')
-        print(f'Reward: {max_achieved_reward}')
-        print(f'Expected Reward: {max_exp_reward}\t')
-        print(f'Force: {chosen_force}\t')
+        print(f'Reward: {best_reward}')
+        print(f'Expected Reward: {best_exp_reward}\t')
+        print(f'Force: {best_force}\t')
 
     elif args.task == 'likely-grasp':
-        threshold = 20
-
-        mask_within_threshold = grasp_forces <= threshold
-        probs_within_threshold = probs[mask_within_threshold]
-        forces_within_threshold = grasp_forces[mask_within_threshold]
-        gxs_within_threshold = np.arange(len(val_grasp_data_raw))[mask_within_threshold]
-        
         # filter out degenerate cases where there are no valid grasps
-        most_likely_ind = np.argmax(probs_within_threshold)
-        ml_likelihood = probs_within_threshold[most_likely_ind]
-        grasp = val_grasp_data_raw[gxs_within_threshold[most_likely_ind]]
-
+        most_likely_ind = np.argmax(probs)
+        sorted_gx = np.argsort(probs)[::-1]
+        ml_likelihood = probs[sorted_gx[0]]
+        ml_force = grasp_forces[sorted_gx[0]]
         print('---- Most Likely Grasp ----')
         print(f'Chose grasp: {most_likely_ind}')
         print(f'Likelihood: {ml_likelihood}')
-        print(f'Force: {forces_within_threshold[most_likely_ind]}')
+        print(f'Force: {ml_force}')
     else:
         raise NotImplementedError('Unrecognized task. Options: likely-grasp, min-force.')
 
-    # TODO: Execute grasp.
-    label = grasp_labeler.get_label(grasp)
+    # Execute best grasp until one is feasible.
+    for gx in sorted_gx:
+        grasp = val_grasp_data_raw[gx]
+        label = grasp_labeler.get_label(grasp)
+        if label != -1:
+            break
 
 
 def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-force'):
