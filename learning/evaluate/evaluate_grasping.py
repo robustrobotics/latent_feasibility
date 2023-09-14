@@ -14,7 +14,7 @@ from sklearn.metrics import recall_score, precision_score, balanced_accuracy_sco
 from torch.utils.data import DataLoader
 from learning.domains.grasping.active_utils import get_fit_object, sample_unlabeled_data, get_labels, \
     get_train_and_fit_objects, drop_last_grasp_in_dataset, explode_dataset_into_list_of_datasets, \
-    select_gnp_dataset_firstk
+    select_gnp_dataset_firstk, gnp_dataset_from_raw_grasps
 from learning.active.acquire import bald
 
 from block_utils import ParticleDistribution
@@ -26,6 +26,8 @@ from learning.experiments.active_fit_grasping_pf import compute_ig, particle_bal
 from learning.models.grasp_np.dataset import CustomGNPGraspDataset, custom_collate_fn
 from learning.models.grasp_np.train_grasp_np import check_to_cuda
 from particle_belief import GraspingDiscreteLikelihoodParticleBelief, AmortizedGraspingDiscreteLikelihoodParticleBelief
+from agents.panda_agent import PandaClientAgent
+from learning.domains.grasping.tamp_grasping import GraspingAgent
 
 
 def get_labels_predictions(logger, val_dataset_fname):
@@ -258,6 +260,118 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
         labels.append(t_labels)
 
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
+
+
+def get_pf_task_performance_real(logger, task='min-force'):
+    """
+    Perform minimum force evaluation for a specific object.
+    :param logger: Logger object for the fitted object.
+    :param fname: Test dataset for the object of interest. Contains pool of samples.
+    Note this only works with GNP models.
+    """
+    # TODO: Load object set from logger.
+    fitting_args = logger.args
+
+    object_set = get_train_and_fit_objects(
+        pretrained_ensemble_path=fitting_args.pretrained_ensemble_exp_path,
+        use_latents=True,
+        fit_objects_fname=fitting_args.objects_fname,
+        fit_object_ix=fitting_args.eval_object_ix
+    )
+    object_name, object_properties, tmp_ox = get_fit_object(object_set)
+
+    # TODO: Generate a grasping dataset based on on current object pose.
+    grasp_labeler = PandaClientAgent()
+    pose = grasp_labeler.get_pose()
+
+    sampling_agent = GraspingAgent(
+        object_name=object_name,
+        object_properties=object_properties,
+        init_pose=pose,
+        use_gui=False
+    )
+
+    print('Samping grasp pool...')
+    val_grasp_data_raw = []
+    for ix in range(args.n_samples):
+        print(f'Sampling grasp {ix}...')
+        val_grasp_data_raw.append(
+            sampling_agent._sample_grasp_action()
+        )
+    sampling_agent.disconnect()
+
+    val_grasp_data_gnp = gnp_dataset_from_raw_grasps(
+        val_grasp_data_raw,
+        [0]*len(val_grasp_data_raw),
+        object_set,
+        args.eval_object_ix
+    )
+        
+    grasp_forces = val_grasp_data_gnp['grasp_data']['grasp_forces']
+    grasp_forces = np.array(list(grasp_forces.values())[0])
+
+    print('Eval timestep, ', args.eval_tx)
+    context_data, _ = logger.load_acquisition_data(args.eval_tx)
+    gnp = logger.get_neural_process(args.eval_tx)
+    if torch.cuda.is_available():
+        gnp = gnp.cuda()
+    # Write function to get predictions given a set of context data.
+    probs, labels, _, _, _, _ = get_gnp_contextualized_gnp_predictions(
+        gnp,
+        context_data,
+        val_grasp_data_gnp
+    )
+    probs = probs.squeeze().cpu().numpy()
+    labels = labels.squeeze().cpu().numpy()
+
+    if args.task == 'min-force':
+        max_force = 20  # NOTE: for the max likelihood grasp detector, we'd replace from here:
+        neg_reward = -20  # [0, -10, -20]
+
+        max_exp_reward = neg_reward
+        max_achieved_reward = neg_reward
+        chosen_force = 0
+        chosen_gx = -1
+
+        print(f'# Stable: {np.sum(labels)}/{len(labels)}')
+        for gx, (force, prob) in enumerate(zip(grasp_forces, probs)):
+            pos_reward = (max_force - force)
+            exp_reward = neg_reward * (1 - prob) + prob * pos_reward
+
+            if exp_reward > max_exp_reward:
+                max_exp_reward = exp_reward
+                max_achieved_reward = pos_reward
+                chosen_force = force
+                chosen_gx = gx
+
+        grasp = val_grasp_data_raw[chosen_gx]
+        print('---- Min Force Grasp ----')
+        print(f'Reward: {max_achieved_reward}')
+        print(f'Expected Reward: {max_exp_reward}\t')
+        print(f'Force: {chosen_force}\t')
+
+    elif args.task == 'likely-grasp':
+        threshold = 20
+
+        mask_within_threshold = grasp_forces <= threshold
+        probs_within_threshold = probs[mask_within_threshold]
+        forces_within_threshold = grasp_forces[mask_within_threshold]
+        gxs_within_threshold = np.arange(len(val_grasp_data_raw))[mask_within_threshold]
+        
+        # filter out degenerate cases where there are no valid grasps
+        most_likely_ind = np.argmax(probs_within_threshold)
+        ml_likelihood = probs_within_threshold[most_likely_ind]
+        grasp = val_grasp_data_raw[gxs_within_threshold[most_likely_ind]]
+
+        print('---- Most Likely Grasp ----')
+        print(f'Chose grasp: {most_likely_ind}')
+        print(f'Likelihood: {ml_likelihood}')
+        print(f'Force: {forces_within_threshold[most_likely_ind]}')
+    else:
+        raise NotImplementedError('Unrecognized task. Options: likely-grasp, min-force.')
+
+    # TODO: Execute grasp.
+    label = grasp_labeler.get_label(grasp)
 
 
 def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-force'):
@@ -834,18 +948,23 @@ def evaluate_trained_gnp(logger, train_fname, val_fname, exp_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp-path', type=str, required=True)
-    parser.add_argument('--train-dataset-fname', type=str, required=True)
-    parser.add_argument('--val-dataset-fname', type=str, required=True)
+    parser.add_argument('--train-dataset-fname', type=str, required=False, default='')
+    parser.add_argument('--val-dataset-fname', type=str, required=False, default='')
+    parser.add_argument('--exec-mode', default='sim', choices=['sim', 'real'])
+    parser.add_argument('--eval-tx', default=0, type=int)
+    parser.add_argument('--task', default='likely-grasp', choices=['likely-grasp', 'min-force'])
     args = parser.parse_args()
 
-    # logger = ActiveExperimentLogger(args.exp_path, use_latents=True)
+    logger = ActiveExperimentLogger(args.exp_path, use_latents=True)
 
-    # get_validation_metrics(logger, args.val_dataset_fname)
-    # get_pf_task_performance(logger, args.val_dataset_fname)
-    # visualize_predictions(logger, args.val_dataset_fname)
-    # combine_image_grids(logger, ['labels', 'predictions', 'correct'])
-    visualize_gnp_predictions()
-    # get_acquired_preditctions_pf(logger)
-    # plot_training_latents(logger)
-
-    # get_pf_validation_accuracy(logger, args.val_dataset_fname)
+    if args.exec_mode == 'real':
+        get_pf_task_performance_real(logger, args)
+    else:
+        # get_validation_metrics(logger, args.val_dataset_fname)
+        # get_pf_task_performance(logger, args.val_dataset_fname)
+        # visualize_predictions(logger, args.val_dataset_fname)
+        # combine_image_grids(logger, ['labels', 'predictions', 'correct'])
+        # visualize_gnp_predictions()
+        # get_acquired_preditctions_pf(logger)
+        # plot_training_latents(logger)
+        get_pf_validation_accuracy(logger, args.val_dataset_fname)
