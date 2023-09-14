@@ -237,18 +237,19 @@ def get_labels_gnp(grasp_dataset):
     worker_pool.close()
     return grasp_dataset
 
-def get_label_gnp(grasp_dataset, labeler=None):
+def get_label_gnp(grasp_dataset, labeler=None, labels=None):
     raw_grasps = grasp_dataset['grasp_data']['raw_grasps']
     for ox in raw_grasps:
         graspable_body = raw_grasps[ox][0].graspable_body
-        if labeler is None:
+        if labeler is None and labels is None:
             labeler = GraspStabilityChecker(
                 graspable_body,
                 stability_direction='all',
                 label_type='relpose',
                 recompute_inertia=True
             )
-        for gx in range(0, len(raw_grasps[ox])):
-            labels = [labeler.get_label(raw_grasps[ox][gx])]
+        if labels is None:
+            for gx in range(0, len(raw_grasps[ox])):
+                labels = [labeler.get_label(raw_grasps[ox][gx])]
         grasp_dataset['grasp_data']['labels'][ox] = labels
     return grasp_dataset, labeler

@@ -366,6 +366,39 @@ def sample_and_label_real(grasp_labeler, object_set, args):
     )
     return grasp_dataset
 
+def label_until_valid(grasp_labeler, raw_grasps, sorted_gx):
+    for gx in sorted_gx:
+        label = grasp_labeler.get_label(raw_grasps[gx])
+        if label != -1:
+            return gx, label
+
+def sample_real(grasp_labeler, object_set, args):
+    """
+    Return a gnp dataset with a label.
+    """
+    object_name, object_properties, tmp_ox = get_fit_object(object_set)
+
+    grasps = []
+    pose = grasp_labeler.get_pose()
+    sampling_agent = GraspingAgent(
+        object_name=object_name,
+        object_properties=object_properties,
+        init_pose=pose,
+        use_gui=False
+    )
+    while len(grasps) < args.n_samples:
+        grasps.append(sampling_agent._sample_grasp_action())
+    sampling_agent.disconnect()
+    
+    # Post process dataset appropriately for GNP format.
+    grasp_dataset = gnp_dataset_from_raw_grasps(
+        grasps,
+        [0]*args.n_samples,
+        object_set,
+        args.eval_object_ix
+    )
+    return grasps, grasp_dataset
+
 
 def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_selection_fun=None):
     # We generate the datasets here, but evaluate_grasping is when we actually
@@ -424,7 +457,30 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
             amortized_pred_times.append(np.NaN)
             ig_compute_times.append(np.NaN)
         elif strategy == 'bald' and args.exec_mode == 'real':
-            raise NotImplementedError()
+            print('[BALD] Sampling...')
+            raw_grasps, unlabeled_dataset = sample_real(grasp_labeler, object_set, args)
+            print('[BALD] Selecting...')
+            info_gain, _, _ = compute_ig(
+                gnp,
+                context_data,
+                unlabeled_dataset,
+                n_samples_from_latent_dist=32,
+                batching_size=32
+            )
+            sorted_gx = np.argmax(info_gain)[::-1]
+
+            print('[BALD] Labeling...')
+            selected_gx, label = label_until_valid(grasp_labeler, raw_grasps, sorted_gx)
+            grasp_dataset = select_gnp_dataset_ix(unlabeled_dataset, selected_gx)
+            grasp_dataset, grasp_labeler = get_label_gnp(grasp_dataset, labels=[label])
+
+            context_data = merge_gnp_datasets(context_data, grasp_dataset)
+            logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
+            logger.save_acquisition_data(context_data, unlabeled_dataset, tx + 1)
+
+            amortized_pred_times.append(np.NaN)
+            ig_compute_times.append(np.NaN)
+
         elif strategy == 'random' and not constrained:
             grasp_dataset = select_gnp_dataset_ix(random_pool, tx)
             context_data = merge_gnp_datasets(context_data, grasp_dataset)
