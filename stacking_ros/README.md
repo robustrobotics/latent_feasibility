@@ -89,4 +89,4 @@ Continuing on narrator, run one of the following:
 
 1. To open loop execute a plan: `python agents.panda_agent`
 2. Fitting script: `python -m learning.experiments.active_fit_grasping_pf --exp-name real-robot-block0 --objects-fname learning/domains/towers/grasping_block_set_sim.pkl --pretrained-ensemble-exp-path learning/experiments/logs/grasp_gnp-boxv2-run1_train-20230406-110724  --strategy random --exec-mode real --use-progressive-priors --likelihood gnp --max-acquisitions 10 --eval-object-ix 16`
-3. Eval script: `python -m learning.evaluate.evaluate_grasping --exec-mode real --exp-path real-robot-block0 --n-samples 100 --eval-tx 4 --task likely-grasp`
+3. Eval script: `python -m learning.evaluate.evaluate_grasping --exec-mode real --exp-path real-robot-block0 --n-samples 100 --eval-tx 3 --task likely-grasp`

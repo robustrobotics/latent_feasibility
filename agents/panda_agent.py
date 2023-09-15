@@ -792,7 +792,7 @@ class PandaAgent:
         # Move to view config.
         q_init = pb_robot.vobj.BodyConf(self.robot, self.robot.arm.GetJointValues())
         q_view = pb_robot.vobj.BodyConf(self.robot, self.Q_VIEW)
-        move_to_look = next(plan_free_motion_fn(q_init, q_view, fluents=self._get_block_fluents()))[0]
+        move_to_look = next(plan_free_motion_fn(q_init, q_view))[0]
 
         plan = [('move_free', move_to_look)]
 

@@ -32,7 +32,7 @@ def graspablebody_from_vector(object_name, vector):
                                    friction=vector[4])
     return graspable_body
 
-def sample_grasps_and_Xs(graspable_body, n_grasps, n_points_per_object, curvature_rads):
+def sample_grasps_and_Xs(graspable_body, n_grasps, n_points_per_object, curvature_rads, grasps=None):
     # Sample new point cloud for object.
     start_mesh = time.time()
 
@@ -91,24 +91,26 @@ def sample_grasps_and_Xs(graspable_body, n_grasps, n_points_per_object, curvatur
 
     #print('Mesh sampling done...')
 
-    # Sample grasp.
-    try:
-        random.seed()
-        np.random.seed()
-        grasp_sampler = GraspSampler(   
-            graspable_body=graspable_body,
-            antipodal_tolerance=30,
-            show_pybullet=False
-        )
-        grasps = grasp_sampler.sample_grasps(
-            num_grasps=n_grasps,
-            force_range=(5, 20),
-            show_trimesh=False
-        )
-        grasp_sampler.disconnect()
-    except Exception as e:
-        grasp_sampler.disconnect()
-        raise e
+    if grasps is None:
+        # Sample grasp.
+        input("SHOULD NOT BE HERE!")
+        try:
+            random.seed()
+            np.random.seed()
+            grasp_sampler = GraspSampler(   
+                graspable_body=graspable_body,
+                antipodal_tolerance=30,
+                show_pybullet=False
+            )
+            grasps = grasp_sampler.sample_grasps(
+                num_grasps=n_grasps,
+                force_range=(5, 20),
+                show_trimesh=False
+            )
+            grasp_sampler.disconnect()
+        except Exception as e:
+            grasp_sampler.disconnect()
+            raise e
 
     # Encode grasp as points.
     grasps_vectors = np.array(
