@@ -14,6 +14,13 @@ def _get_identity_transform(batch_size):
     return batched_identity
 
 
+def _mc_repeat(in_data, mc_samples):
+    id_dim = in_data.dim()
+    return in_data.repeat(
+        *([mc_samples] + [1] * (id_dim - 1))
+    )
+
+
 class CustomGraspNeuralProcess(nn.Module):
 
     def __init__(self, d_latents, input_features, d_object_mesh_enc, d_grasp_mesh_enc):
@@ -24,7 +31,7 @@ class CustomGraspNeuralProcess(nn.Module):
         "param d_grasp_mesh_enc: Dimensionality of grasp mesh encoding.
         """
         super(CustomGraspNeuralProcess, self).__init__()
-        
+
         # Compute number of features being used.
         n_mesh_features = 3
         n_in_decoder = 6 + 1 + d_object_mesh_enc  # grasp_points, force, object_mesh
@@ -83,7 +90,8 @@ class CustomGraspNeuralProcess(nn.Module):
         self.d_object_mesh_enc = d_object_mesh_enc
         self.d_grasp_mesh_enc = d_grasp_mesh_enc
 
-    def forward(self, contexts, target_xs, object_data, known_property_perturbation=torch.zeros(5), return_inf_time=False, use_mean=False):
+    def forward(self, contexts, target_xs, object_data, known_property_perturbation=torch.zeros(5),
+                return_inf_time=False, use_mean=False, monte_carlo_samples=0):
         meshes, object_properties = object_data
         if return_inf_time:
             start_time = time.process_time()
@@ -97,30 +105,64 @@ class CustomGraspNeuralProcess(nn.Module):
             known_property_perturbation = \
                 known_property_perturbation.cuda() if torch.cuda.is_available() else known_property_perturbation
             z = object_properties + known_property_perturbation
+        elif monte_carlo_samples > 0:
+            zs = q_z.rsample(sample_shape=[monte_carlo_samples])
+            n_batch = zs.size(dim=0)
+            z = zs.swapaxes(0, 1).reshape(n_batch * monte_carlo_samples, self.d_latents)
         elif use_mean:
             z = q_z.loc
         else:
             z = q_z.rsample()
-        
+
         n_batch, n_grasp, n_feat, n_pts = target_geoms.shape
         geoms = target_geoms.view(-1, n_feat, n_pts)
         if self.input_features['grasp_mesh']:
             geoms_enc = self.grasp_geom_encoder(
-                geoms, override_transform=_get_identity_transform(n_batch*n_grasp)
+                geoms, override_transform=_get_identity_transform(n_batch * n_grasp)
             )[0].view(n_batch, n_grasp, -1)
+
+            if monte_carlo_samples > 0:
+                geoms_enc = _mc_repeat(geoms_enc, monte_carlo_samples)
         else:
             geoms_enc = None
 
-        y_pred = self.decoder(
-            geoms_enc,
-            target_grasp_points, target_curvatures, target_normals, target_mids, target_forces,
-            z, mesh_enc,
-            override_transform=global_transform
-        )
-        if return_inf_time:
-            return y_pred, q_z, inf_time
+        if monte_carlo_samples > 0:
+            target_grasp_points = _mc_repeat(target_grasp_points, monte_carlo_samples)
+            target_curvatures = _mc_repeat(target_curvatures, monte_carlo_samples)
+            target_normals = _mc_repeat(target_normals, monte_carlo_samples)
+            target_mids = _mc_repeat(target_mids, monte_carlo_samples)
+            target_forces = _mc_repeat(target_forces, monte_carlo_samples)
+            mesh_enc = _mc_repeat(mesh_enc, monte_carlo_samples)
+            global_transform = _mc_repeat(global_transform, monte_carlo_samples)
+
+            mc_y_pred = self.decoder(
+                geoms_enc,
+                target_grasp_points, target_curvatures, target_normals, target_mids, target_forces,
+                z, mesh_enc,
+                override_transform=global_transform
+            )
+
+            y_pred = torch.mean(
+                mc_y_pred.reshape(monte_carlo_samples, n_batch).swapaxes(0, 1),
+                dim=1
+            )
+
+            if return_inf_time:
+                return y_pred, q_z, inf_time
+            else:
+                return y_pred, q_z
+
         else:
-            return y_pred, q_z
+            y_pred = self.decoder(
+                geoms_enc,
+                target_grasp_points, target_curvatures, target_normals, target_mids, target_forces,
+                z, mesh_enc,
+                override_transform=global_transform
+            )
+            if return_inf_time:
+                return y_pred, q_z, inf_time
+            else:
+                return y_pred, q_z
 
     def forward_until_latents(self, contexts, meshes):
         mesh_enc, global_transform = self.mesh_encoder(meshes)
@@ -135,14 +177,15 @@ class CustomGraspNeuralProcess(nn.Module):
         geoms = context_geoms.view(-1, n_feat, n_geom_pts)
         if self.input_features['grasp_mesh']:
             geoms_enc = self.grasp_geom_encoder(
-                geoms, override_transform=_get_identity_transform(n_batch*n_grasp)
+                geoms, override_transform=_get_identity_transform(n_batch * n_grasp)
             )[0].view(n_batch, n_grasp, -1)
         else:
             geoms_enc = None
 
         mu, sigma = self.encoder(
             geoms_enc,
-            context_grasp_points, context_curvatures, context_normals, context_midpoints, context_forces, context_labels, context_sizes,
+            context_grasp_points, context_curvatures, context_normals, context_midpoints, context_forces,
+            context_labels, context_sizes,
             mesh_enc,
             override_transform=global_transform
         )
@@ -162,7 +205,7 @@ class CustomGraspNeuralProcess(nn.Module):
 
         if self.input_features['grasp_mesh']:
             geoms_enc = self.grasp_geom_encoder(
-                geoms, override_transform=_get_identity_transform(n_batch*n_grasp)
+                geoms, override_transform=_get_identity_transform(n_batch * n_grasp)
             )[0].view(n_batch, n_grasp, -1)
         else:
             geoms_enc = None
@@ -194,7 +237,8 @@ class CustomGNPDecoder(nn.Module):
         self.d_latents = d_latents
         self.input_features = input_features
 
-    def forward(self, target_geoms, target_grasp_points, target_curvatures, target_normals, target_midpoints, target_forces, zs,
+    def forward(self, target_geoms, target_grasp_points, target_curvatures, target_normals, target_midpoints,
+                target_forces, zs,
                 meshes, override_transform=None):
         """
         :param target geoms: (batch_size, n_grasps, 3, n_points)
@@ -249,7 +293,8 @@ class CustomGNPEncoder(nn.Module):
         self.d_latents = d_latents
         self.input_features = input_features
 
-    def forward(self, geoms_enc, context_grasp_points, context_curvatures, context_normals, context_midpoints, context_forces,
+    def forward(self, geoms_enc, context_grasp_points, context_curvatures, context_normals, context_midpoints,
+                context_forces,
                 context_labels, context_sizes, meshes, override_transform=None):
         """
         :param context_geoms: (batch_size, n_grasps, 3, n_points)
@@ -259,7 +304,8 @@ class CustomGNPEncoder(nn.Module):
         n_batch, n_grasp = context_labels.shape
 
         # Build input feature vector.
-        meshes = meshes[:, None, :].expand(n_batch, n_grasp, -1)  # expand single object global mesh encodings for all grasps
+        meshes = meshes[:, None, :].expand(n_batch, n_grasp,
+                                           -1)  # expand single object global mesh encodings for all grasps
         context_grasp_points_flat = context_grasp_points.flatten(start_dim=2)
 
         grasp_input = [context_grasp_points_flat]
