@@ -262,7 +262,7 @@ def get_gnp_predictions_with_particles(particles, grasp_data, gnp, n_particle_sa
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu()
 
 
-def get_pf_task_performance_real(logger, task='min-force'):
+def get_pf_task_performance_real(logger, args):
     """
     Perform minimum force evaluation for a specific object.
     :param logger: Logger object for the fitted object.
@@ -272,11 +272,16 @@ def get_pf_task_performance_real(logger, task='min-force'):
     # TODO: Load object set from logger.
     fitting_args = logger.args
 
+    if args.block_ix == -1:
+        block_ix = fitting_args.eval_object_ix
+    else:
+        block_ix = args.block_ix
+
     object_set = get_train_and_fit_objects(
         pretrained_ensemble_path=fitting_args.pretrained_ensemble_exp_path,
         use_latents=True,
         fit_objects_fname=fitting_args.objects_fname,
-        fit_object_ix=fitting_args.eval_object_ix
+        fit_object_ix=block_ix
     )
     object_name, object_properties, tmp_ox = get_fit_object(object_set)
 
@@ -291,14 +296,14 @@ def get_pf_task_performance_real(logger, task='min-force'):
         use_gui=False
     )
 
-    threshold = 20
+    threshold = 10
     print('Samping grasp pool...')
     val_grasp_data_raw = []
     for ix in range(args.n_samples):
         print(f'Sampling grasp {ix}...')
         val_grasp_data_raw.append(
             sampling_agent._sample_grasp_action(
-                force_range=(5, threshold)
+                force_range=(10, 10)
             )
         )
     sampling_agent.disconnect()
@@ -307,25 +312,29 @@ def get_pf_task_performance_real(logger, task='min-force'):
         val_grasp_data_raw,
         [0]*len(val_grasp_data_raw),
         object_set,
-        args.eval_object_ix
+        block_ix
     )
         
     grasp_forces = val_grasp_data_gnp['grasp_data']['grasp_forces']
     grasp_forces = np.array(list(grasp_forces.values())[0])
 
     print('Eval timestep, ', args.eval_tx)
-    context_data, _ = logger.load_acquisition_data(args.eval_tx)
-    gnp = logger.get_neural_process(args.eval_tx)
-    if torch.cuda.is_available():
-        gnp = gnp.cuda()
-    # Write function to get predictions given a set of context data.
-    probs, labels, _, _, _, _ = get_gnp_contextualized_gnp_predictions(
-        gnp,
-        context_data,
-        val_grasp_data_gnp
-    )
-    probs = probs.squeeze().cpu().numpy()
-    labels = labels.squeeze().cpu().numpy()
+    if  args.task != 'random':
+        context_data, _ = logger.load_acquisition_data(args.eval_tx)
+        gnp = logger.get_neural_process(args.eval_tx)
+        if torch.cuda.is_available():
+            gnp = gnp.cuda()
+
+        # Write function to get predictions given a set of context data.
+        probs, labels, _, _, _, _ = get_gnp_contextualized_gnp_predictions(
+            gnp,
+            context_data,
+            val_grasp_data_gnp
+        )
+        probs = probs.squeeze().cpu().numpy()
+        labels = labels.squeeze().cpu().numpy()
+
+    # import ipdb; ipdb.set_trace()
 
     if args.task == 'min-force':
         max_force = 20  # NOTE: for the max likelihood grasp detector, we'd replace from here:
@@ -354,12 +363,16 @@ def get_pf_task_performance_real(logger, task='min-force'):
         print(f'Chose grasp: {most_likely_ind}')
         print(f'Likelihood: {ml_likelihood}')
         print(f'Force: {ml_force}')
+    elif args.task == 'random':
+        sorted_gx = np.arange(args.n_samples)
     else:
         raise NotImplementedError('Unrecognized task. Options: likely-grasp, min-force.')
 
     # Execute best grasp until one is feasible.
     for gx in sorted_gx:
         grasp = val_grasp_data_raw[gx]
+        print('Force:', grasp.force)
+        # print('Probs:', probs[gx])
         label = grasp_labeler.get_label(grasp)
         if label != -1:
             break
@@ -943,7 +956,10 @@ if __name__ == '__main__':
     parser.add_argument('--val-dataset-fname', type=str, required=False, default='')
     parser.add_argument('--exec-mode', default='sim', choices=['sim', 'real'])
     parser.add_argument('--eval-tx', default=0, type=int)
-    parser.add_argument('--task', default='likely-grasp', choices=['likely-grasp', 'min-force'])
+    parser.add_argument('--n-samples', default=20, type=int)
+    parser.add_argument('--task', default='likely-grasp', choices=['likely-grasp', 'min-force', 'random'])
+    parser.add_argument('--block-ix', default=-1, type=int)
+
     args = parser.parse_args()
 
     logger = ActiveExperimentLogger(args.exp_path, use_latents=True)

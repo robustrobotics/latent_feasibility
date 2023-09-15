@@ -39,7 +39,7 @@ class ActiveExperimentLogger:
         max_aq = np.max([int(s.split('_')[-1].split('.')[0]) for s in aq_files if '_' in s]) + 1
         if max_aq < self.args.max_acquisitions:
             print(f'[WARNING] Only {max_aq} acquisition steps have been executed so far.')
-            self.args.max_acquisitions = max_aq
+            # self.args.max_acquisitions = max_aq
 
     def get_acquisition_params(self):
         """ Return parameters useful for knowing how much data was collected.
@@ -53,13 +53,13 @@ class ActiveExperimentLogger:
     @staticmethod
     def get_experiments_logger(exp_path, args):
         logger = ActiveExperimentLogger(exp_path, use_latents=args.use_latents)
-        dataset_path = os.path.join(exp_path, 'datasets')
+        dataset_path = os.path.join(exp_path, 'acquisition_data')
         dataset_files = os.listdir(dataset_path)
         if len(dataset_files) == 0:
             raise Exception('No datasets found on args.exp_path. Cannot restart active training.')
         txs = []
         for file in dataset_files:
-            matches = re.match(r'active_(.*).pkl', file)
+            matches = re.match(r'acquired_(.*).pkl', file)
             if matches:  # sometimes system files are saved here, don't parse these
                 txs += [int(matches.group(1))]
         logger.acquisition_step = max(txs)
