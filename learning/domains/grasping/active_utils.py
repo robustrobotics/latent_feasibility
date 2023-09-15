@@ -129,13 +129,14 @@ def sample_unlabeled_gnp_data(n_samples, object_set, object_ix):
 def gnp_dataset_from_raw_grasps(raw_grasps, labels, object_set, object_ix):
     object_grasp_data, object_grasp_ids, object_grasp_forces, object_grasp_labels = [], [], [], []
 
-    for grasp, label in zip(raw_grasps, labels):
-        grasp, X = sample_grasp_X(
-            grasp.graspable_body,
-            vector_from_graspablebody(grasp.graspable_body),
-            10000,
-            (0.005, 0.01, 0.02),
-            grasp=grasp)
+    _, Xs = sample_grasps_and_Xs(
+        graspable_body=raw_grasps[0].graspable_body,
+        n_grasps=len(raw_grasps),
+        n_points_per_object=10000,
+        curvature_rads=(),
+        grasps=raw_grasps
+    )
+    for grasp, X, label in zip(raw_grasps, Xs, labels):
         object_grasp_data.append(X)
         object_grasp_ids.append(object_ix)
         object_grasp_forces.append(grasp.force)

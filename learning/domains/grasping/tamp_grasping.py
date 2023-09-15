@@ -152,7 +152,7 @@ class GraspingAgent:
             # Step (1): Sample valid antipodal grasp for object.
             sampler = GraspSampler(
                 graspable_body=self.graspable_body,
-                antipodal_tolerance=30,
+                antipodal_tolerance=10,
                 show_pybullet=False
             )
             # if ax < 10: print('Connected to:', sampler.sim_client.pb_client_id)

@@ -352,7 +352,9 @@ def sample_and_label_real(grasp_labeler, object_set, args):
             init_pose=pose,
             use_gui=False
         )
-        grasp = sampling_agent._sample_grasp_action()
+        grasp = sampling_agent._sample_grasp_action(
+            force_range=(10, 10)
+        )
         sampling_agent.disconnect()
 
         label = grasp_labeler.get_label(grasp)
@@ -387,7 +389,9 @@ def sample_real(grasp_labeler, object_set, args):
         use_gui=False
     )
     while len(grasps) < args.n_samples:
-        grasps.append(sampling_agent._sample_grasp_action())
+        grasps.append(sampling_agent._sample_grasp_action(
+            force_range=(10, 10)
+        ))
     sampling_agent.disconnect()
     
     # Post process dataset appropriately for GNP format.
@@ -416,22 +420,27 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
         grasp_labeler = PandaClientAgent()
     else:
         raise NotImplementedError()
+    
+    # TODO: Figure out how many grasps have already been labeled.
+    if logger.acquisition_step == 0:
+        # Execute first grasp.
+        if args.exec_mode == 'real':
+            context_data = sample_and_label_real(grasp_labeler, object_set, args)
+        else:
+            # Initialize data dictionary in GNP format with a random data point.
+            samples = sample_unlabeled_gnp_data(
+                n_samples=args.n_samples,  # Why is this here? Shouldn't it be 1?
+                object_set=object_set,
+                object_ix=args.eval_object_ix
+            )
+            context_data = select_gnp_dataset_ix(samples, 0)
+            context_data = get_labels_gnp(context_data)
 
-    # Execute first grasp.
-    if args.exec_mode == 'real':
-        context_data = sample_and_label_real(grasp_labeler, object_set, args)
+        logger.save_acquisition_data(context_data, None, 0)
     else:
-        # Initialize data dictionary in GNP format with a random data point.
-        samples = sample_unlabeled_gnp_data(
-            n_samples=args.n_samples,  # Why is this here? Shouldn't it be 1?
-            object_set=object_set,
-            object_ix=args.eval_object_ix
-        )
-        context_data = select_gnp_dataset_ix(samples, 0)
-        context_data = get_labels_gnp(context_data)
+        context_data, _ = logger.load_acquisition_data(logger.acquisition_step)
 
-    logger.save_acquisition_data(context_data, None, 0)
-
+    import ipdb; ipdb.set_trace()
     # All random grasps end up getting labeled, so parallelize this.
     if strategy == 'random' and not constrained and args.exec_mode != 'real':
         print('[Random]: Sampling')
@@ -445,7 +454,7 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
 
     amortized_pred_times = []
     ig_compute_times = []
-    for tx in range(0, args.max_acquisitions):
+    for tx in range(logger.acquisition_step+1, args.max_acquisitions):
         print('[AmortizedFilter] Interaction Number', tx)
 
         if strategy == 'random' and args.exec_mode == 'real':
@@ -467,12 +476,12 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
                 n_samples_from_latent_dist=32,
                 batching_size=32
             )
-            sorted_gx = np.argmax(info_gain)[::-1]
+            sorted_gx = np.argsort(info_gain)[::-1]
 
             print('[BALD] Labeling...')
             selected_gx, label = label_until_valid(grasp_labeler, raw_grasps, sorted_gx)
             grasp_dataset = select_gnp_dataset_ix(unlabeled_dataset, selected_gx)
-            grasp_dataset, grasp_labeler = get_label_gnp(grasp_dataset, labels=[label])
+            grasp_dataset, _ = get_label_gnp(grasp_dataset, labels=[label])
 
             context_data = merge_gnp_datasets(context_data, grasp_dataset)
             logger.save_neural_process(gnp, tx + 1, symlink_tx0=True)
@@ -676,7 +685,12 @@ def run_particle_filter_fitting(args):
     args.use_latents = True
     args.fit_pf = True
 
-    logger = ActiveExperimentLogger.setup_experiment_directory(args)
+    if len(args.exp_path) > 0:
+        print('Continuing fitting...')
+        logger = ActiveExperimentLogger.get_experiments_logger(args.exp_path, args)
+        args = logger.args
+    else:
+        logger = ActiveExperimentLogger.setup_experiment_directory(args)
 
     # ----- Load the block set -----
     print('Loading objects:', args.objects_fname)
@@ -778,6 +792,8 @@ if __name__ == '__main__':
     parser.add_argument('--prop-stds', nargs='+', help='stdevs of ind. normal to sample particles from', type=float,
                         default=[1.0, 1.0, 1.0, 1.0, 1.0])
     parser.add_argument('--prop-distribution', type=str, default='gaussian')
+    parser.add_argument('--exp-path', type=str, default='',
+                        help='If specified, will continue training.')
     
     args = parser.parse_args()
 
