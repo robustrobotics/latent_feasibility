@@ -3,6 +3,7 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import time
 import pickle
 import torch
 import matplotlib.cm as cm
@@ -129,6 +130,8 @@ def truncate_grasps(tensor_list, n_grasps):
 
 def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
     preds, labels, means, covars, entropy = [], [], [], [], []
+    total_inf_time = 0
+    
     dataset = CustomGNPGraspDataset(
         data=val_data,
         context_data=context_data,
@@ -142,23 +145,43 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
         shuffle=False
     )
     gnp.eval()
+
+    small_data = select_gnp_dataset_firstk(val_data, 1)
+    dl_start = time.process_time()
+    small_dataset = CustomGNPGraspDataset(
+        data=small_data,
+        context_data=context_data,
+        add_mesh_curvatures=False,
+        add_mesh_normals=False
+    )
+    _ = DataLoader(
+        dataset=small_dataset,
+        collate_fn=lambda items: custom_collate_fn(items, rand_grasp_num=False),
+        batch_size=16,
+        shuffle=False
+    )
+    total_inf_time += time.process_time() - dl_start
     for (context_data, target_data, object_data) in dataloader:
         t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces, t_labels = \
             check_to_cuda(truncate_grasps(target_data, 200))
+        cu_start = time.process_time()
         c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels = check_to_cuda(
             context_data)
         meshes, object_properties = check_to_cuda(object_data)
 
         c_sizes = torch.ones_like(c_forces) * c_forces.shape[1] / 50
         t_labels = t_labels.squeeze(dim=-1)
+        total_inf_time += time.process_time() - cu_start
 
         pred, q_z, inf_time = gnp.forward(
             (c_grasp_geoms, c_grasp_points, c_curvatures, c_normals, c_midpoints, c_forces, c_labels, c_sizes),
             (t_grasp_geoms, t_grasp_points, t_curvatures, t_normals, t_midpoints, t_forces),
             (meshes, object_properties),
             return_inf_time=True,
-            use_mean=True
+            use_mean=True,
+            monte_carlo_samples=128
         )
+        total_inf_time += inf_time
         pred = pred.squeeze(dim=-1).cpu().detach()
 
         preds.append(pred)
@@ -169,7 +192,7 @@ def get_gnp_contextualized_gnp_predictions(gnp, context_data, val_data):
 
     return torch.cat(preds, dim=0).cpu(), torch.cat(labels, dim=0).cpu(), \
         torch.cat(means, dim=0).cpu(), torch.cat(covars, dim=0).cpu(), \
-        torch.cat(entropy, dim=0).cpu(), inf_time
+        torch.cat(entropy, dim=0).cpu(), total_inf_time
 
 
 def get_predictions_with_particles(particles, grasp_data, ensemble, n_particle_samples=10):
@@ -393,6 +416,7 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
     successes05 = []
 
     eval_range = range(0, logger.args.max_acquisitions, 1)
+    inf_times = []
     for tx in eval_range:
         print('Eval timestep, ', tx)
 
@@ -422,11 +446,12 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
             if torch.cuda.is_available():
                 gnp = gnp.cuda()
             # Write function to get predictions given a set of context data.
-            probs, labels, _, _, _, _ = get_gnp_contextualized_gnp_predictions(
+            probs, labels, _, _, _, inf_time = get_gnp_contextualized_gnp_predictions(
                 gnp,
                 context_data,
                 val_grasp_data
             )
+            inf_times.append(inf_time)
             probs = probs.squeeze().cpu().numpy()
             labels = labels.squeeze().cpu().numpy()
 
@@ -482,10 +507,10 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
                 print(
                     f'Max Reward: {max_reward}\tReward: {max_achieved_reward}\tRegret: {regret}\tRange: {valid_force_range}')
 
-                with open(logger.get_figure_path(f'regrets_{neg_reward}.pkl'), 'wb') as handle:
+                with open(logger.get_figure_path(f'regrets_{neg_reward}_mc.pkl'), 'wb') as handle:
                     pickle.dump(regrets_record, handle)
 
-                with open(logger.get_figure_path(f'regret_success_{neg_reward}.pkl'), 'wb') as handle:
+                with open(logger.get_figure_path(f'regret_success_{neg_reward}_mc.pkl'), 'wb') as handle:
                     pickle.dump(regret_successes_record, handle)
 
         elif task == 'likely-grasp':
@@ -509,14 +534,22 @@ def get_pf_task_performance(logger, fname, use_progressive_priors, task='min-for
                 else:
                     success_record.append(np.NaN)
 
-                with open(logger.get_figure_path(f'success{threshold:02}.pkl'), 'wb') as handle:
-                    pickle.dump(success_record, handle)
+                # with open(logger.get_figure_path(f'success{threshold:02}_mc.pkl'), 'wb') as handle:
+                #     pickle.dump(success_record, handle)
 
         else:
             raise NotImplementedError('Unrecognized task. Options: likely-grasp, min-force.')
 
-        
+    if os.path.exists('inf_times.pkl'):
+        with open('inf_times.pkl', 'rb') as handle:
+            all_inf_times = pickle.load(handle)
+    else:
+        all_inf_times = []
+    all_inf_times += inf_times[1:]
+    with open('inf_times.pkl', 'wb') as handle:
+        pickle.dump(all_inf_times, handle)
 
+    import ipdb; ipdb.set_trace() 
 
 def get_pf_validation_accuracy(logger, fname, amortize, use_progressive_priors, vis=False):
     accs, precisions, recalls, f1s, balanced_accs, av_precs = [], [], [], [], [], []
