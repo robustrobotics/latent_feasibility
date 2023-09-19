@@ -21,7 +21,8 @@ from pddlstream.utils import INF
 from pybullet_utils import transformation
 from tamp.misc import setup_panda_world, get_pddl_block_lookup, \
                       get_pddlstream_info, print_planning_problem, \
-                      ExecuteActions, ExecutionFailure
+                      ExecuteActions, ExecutionFailure, get_ik_stream
+from scipy.spatial.transform import Rotation as R
 
 
 class PandaAgent:
@@ -50,6 +51,7 @@ class PandaAgent:
         self.use_platform = use_platform
         self.use_action_server = use_action_server
         self.use_learning_server = use_learning_server
+        self.rs = None
 
         self.Q_VIEW = [0.00906281211377156, -0.6235522351178657, -0.7049609841296547, -2.688986561330677, 0.16884370372653495, 2.34366196881325, -0.8102285046842361]
 
@@ -742,6 +744,97 @@ class PandaAgent:
         resp.success = success
         resp.stable = stable
         return resp
+    
+    def _plan_object_scan(self, n_inspect_poses=3, view_dist=0.4, view_angle_deg=60):
+        self._add_text('Planning scan action')
+        self.robot.arm.hand.Open()
+        saved_world = pb_robot.utils.WorldSaver()
+
+        self.plan()
+        start = time.time()
+
+        # Get planning helper functions (streams)
+        stream_map = self.pddl_info[-1]
+        plan_free_motion_fn = stream_map['plan-free-motion']
+        plan_holding_motion_fn = stream_map['plan-holding-motion']
+        fixed = [f for f in self.fixed if f is not None]
+        plan_ik_fn = get_ik_stream(self.robot, fixed)
+
+        # move_to_look = next(plan_free_motion_fn(q_init, q_view))[0]
+
+        # (1) First find look poses with valid IK.
+        object_pos = [0.4, 0.0, 0.0]  # Look pose
+        start_inspect_angle = np.deg2rad(135)
+        view_angle = np.deg2rad(view_angle_deg)
+        plane_dist = view_dist * np.cos(view_angle)
+
+        inspect_poses = []
+        inspect_confs = []
+        for px in range(n_inspect_poses):
+            plane_angle = start_inspect_angle - np.pi*2./n_inspect_poses*px
+            x, y = object_pos[0] + plane_dist * np.cos(plane_angle), object_pos[1] + plane_dist * np.sin(plane_angle)
+            z = object_pos[2] + view_dist * np.sin(view_angle)
+
+            # Define uvw as the frame pointing at the object.
+            w = np.array(object_pos) - np.array([x, y, z])
+            w /= np.linalg.norm(w)
+            v = np.cross(w, np.array([0., 0., 1.]))
+            v /= np.linalg.norm(v)
+            u = np.cross(v, w).reshape((3, 1))
+            u /= np.linalg.norm(u)
+            # T = np.hstack([-u.reshape((3, 1)), v.reshape((3, 1)), w.reshape((3, 1))])
+            T = np.hstack([u.reshape((3, 1)), v.reshape((3, 1)), w.reshape((3, 1))])
+            q = R.from_matrix(T).as_quat()
+
+            # Draw transforms.
+            # How do I visualize these frames using draw_pose?
+            #draw_pose(((x, y, z), q), client=client)
+            inspect_pose = BodyPose(self.robot, ((x, y, z), q))
+
+            # Do IK on each pose. Keep where valid.
+            conf = plan_ik_fn(inspect_pose)
+            if not conf is None:
+                inspect_poses.append(inspect_pose)
+                inspect_confs.append(conf[0])
+            else:
+                print('IK not found')
+
+        # (2) Plan motion between each valid config.
+        plan = []
+        q_init = pb_robot.vobj.BodyConf(self.robot, self.robot.arm.GetJointValues())
+        for qx, q_inspect in enumerate(inspect_confs):
+            traj = next(plan_free_motion_fn(q_init, q_inspect))[0]
+            # TODO: Add realsense vobj action.
+            plan.append(('move_free', traj))
+            cam = ([pb_robot.vobj.CaptureImage(self.rs, '')],)
+            plan.append(('take_photo', cam))
+            q_init = q_inspect
+
+        duration = time.time() - start
+        saved_world.restore()
+        return plan
+
+    def simulate_object_scan(self, real=False):
+        if real:
+            from tamp.rs_utils import CaptureRS
+            import pyrealsense2 as rs
+            serial_numbers = []
+            for device in rs.context().devices:
+                serial_no = device.get_info(rs.camera_info.serial_number)
+                serial_numbers.append(serial_no)
+            self.rs = CaptureRS(serial_number=serial_numbers[0])
+
+        scan_plan = self._plan_object_scan()
+
+        self.execute()
+        ExecuteActions(scan_plan, real=real, pause=False, wait=True, obstacles=[f for f in self.fixed if f is not None])
+        self.plan()
+        ExecuteActions(scan_plan, real=False, pause=False, wait=False, obstacles=[f for f in self.fixed if f is not None])
+
+        self.rs.close()
+
+    def plan_and_execute_scan(self, ros_req):
+        self.simulate_object_scan(real=self.real)
 
     def plan_and_execute_grasp(self, ros_req):
         """ Service callback function to plan and execute a grasp """
@@ -774,8 +867,7 @@ class PandaAgent:
             ))
 
         return fluents
-
-
+    
     def _plan_look(self):
         self._add_text('Planning look action')
         self.robot.arm.hand.Open()
@@ -1331,18 +1423,20 @@ if __name__ == '__main__':
     )
     assert block_set is not None, 'Block not found'
 
-    # agent = PandaAgent(
-    #     blocks=block_set,
-    #     block_init_xy_poses=[
-    #         Pose(
-    #             Position(0.4, 0.0, 0.0),
-    #             Quaternion(0.0, 0.0, 0.0, 1.0)
-    #         )
-    #     ]
-    # )
-    agent = PandaClientAgent()
-    pose = agent.get_pose()
-    print(f'New Pose: {pose}')
+    agent = PandaAgent(
+        blocks=block_set,
+        block_init_xy_poses=[
+            Pose(
+                Position(0.4, 0.0, 0.0),
+                Quaternion(0.0, 0.0, 0.0, 1.0)
+            )
+        ]
+    )
+    agent.simulate_object_scan()
+    sys.exit()
+    # agent = PandaClientAgent()
+    # pose = agent.get_pose()
+    # print(f'New Pose: {pose}')
     
     object_name = f'Primitive::Box_{block_id}'
     object_properties = np.array([0.0, 0.0, 0.0, 0.1, 0.1])

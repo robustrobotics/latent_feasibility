@@ -126,6 +126,24 @@ def get_stable_gen_block(fixed=[]):
     return fn
 
 
+def get_scan_ik_fn(robot, fixed=[], num_attempts=4):
+    def fn(pose):
+        obstacles = fixed
+        ee_worldF = pb_robot.geometry.tform_from_pose(pose.pose)
+
+        for ax in range(num_attempts):
+            q_grasp = robot.arm.ComputeIK(ee_worldF)
+            if (q_grasp is None):
+                if DEBUG_FAILURE: input('No Grasp IK')
+                continue
+            if not robot.arm.IsCollisionFree(q_grasp, obstacles=obstacles, debug=DEBUG_FAILURE):
+                if DEBUG_FAILURE: input('Grasp collision')
+                continue
+
+            return (pb_robot.vobj.BodyConf(robot, q_grasp),)
+        return None
+    return fn
+
 def get_ik_fn(robot, fixed=[], num_attempts=4, approach_frame='gripper', backoff_frame='global', use_wrist_camera=False):
     def fn(body, pose, grasp, return_grasp_q=False, check_robust=False):
         obstacles = fixed + [body]
