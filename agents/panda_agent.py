@@ -4,6 +4,7 @@ import sys
 import time
 
 from copy import deepcopy
+import pickle
 
 import pyquaternion
 import pb_robot
@@ -745,7 +746,7 @@ class PandaAgent:
         resp.stable = stable
         return resp
     
-    def _plan_object_scan(self, n_inspect_poses=3, view_dist=0.4, view_angle_deg=60):
+    def _plan_object_scan(self, n_inspect_poses=7, view_dist=0.5, view_angle_deg=60):
         self._add_text('Planning scan action')
         self.robot.arm.hand.Open()
         saved_world = pb_robot.utils.WorldSaver()
@@ -809,6 +810,8 @@ class PandaAgent:
             cam = ([pb_robot.vobj.CaptureImage(self.rs, '')],)
             plan.append(('take_photo', cam))
             q_init = q_inspect
+            with open(f'tamp/depth_imgs/ee_pose_{qx}.pkl', 'wb') as handle:
+                pickle.dump(inspect_poses[qx].pose, handle)
 
         duration = time.time() - start
         saved_world.restore()
@@ -1432,19 +1435,19 @@ if __name__ == '__main__':
             )
         ]
     )
-    agent.simulate_object_scan()
-    sys.exit()
+    # agent.simulate_object_scan()
+    # sys.exit()
     # agent = PandaClientAgent()
     # pose = agent.get_pose()
     # print(f'New Pose: {pose}')
-    
+    pose = ((0.4, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
     object_name = f'Primitive::Box_{block_id}'
     object_properties = np.array([0.0, 0.0, 0.0, 0.1, 0.1])
 
     label = -1
     while label == -1:
         print('Attempting to plan grasp...')
-        mode = 'constrained'
+        mode = 'constrained'  # constrained/fixed
         if mode == 'constrained':
             sampling_agent = GraspingAgent(
                 object_name=object_name,
@@ -1467,5 +1470,5 @@ if __name__ == '__main__':
             grasp = sampler.sample_grasps(num_grasps=1, force_range=(20, 20))[0]
             grasp = grasp._replace(ee_relpose=((0.008233875036239624, 0.1209687739610672, 0.1020907312631607), (0.6761376857757568, -0.6475048065185547, 0.21328584849834442, 0.27943605184555054)))
 
-        label = agent.get_label(grasp)
+        label = agent.simulate_grasp(grasp)
         import ipdb; ipdb.set_trace()
