@@ -207,6 +207,8 @@ def setup_panda_world(robot, blocks, xy_poses=None, use_platform=True):
         pb_block_fname = create_pb_robot_urdf(block, block.name + '.urdf')
         pddl_block = pb_robot.body.createBody(pb_block_fname)
         pddl_blocks.append(pddl_block)
+        print(pddl_block)
+        print(block)
 
     table_x_offset = 0.2
     floor_path = 'latent_feasibility/tamp/models/panda_table.urdf'
