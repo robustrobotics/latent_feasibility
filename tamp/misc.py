@@ -209,19 +209,19 @@ def setup_panda_world(robot, blocks, xy_poses=None, use_platform=True):
         pddl_blocks.append(pddl_block)
 
     table_x_offset = 0.2
-    floor_path = 'tamp/models/panda_table.urdf'
+    floor_path = 'latent_feasibility/tamp/models/panda_table.urdf'
     shutil.copyfile(floor_path, 'pb_robot/models/panda_table.urdf')
     table_file = os.path.join('models', 'panda_table.urdf')
     pddl_table = pb_robot.body.createBody(table_file)
     pddl_table.set_point([table_x_offset, 0, 0])
 
-    frame_path = 'tamp/models/panda_frame.urdf'
+    frame_path = 'latent_feasibility/tamp/models/panda_frame.urdf'
     shutil.copyfile(frame_path, 'pb_robot/models/panda_frame.urdf')
     frame_file = os.path.join('models', 'panda_frame.urdf')
     pddl_frame = pb_robot.body.createBody(frame_file)
     pddl_frame.set_point([table_x_offset + 0.762 - 0.0127, 0 + 0.6096 - 0.0127, 0])
 
-    wall_path = 'tamp/models/walls.urdf'
+    wall_path = 'latent_feasibility/tamp/models/walls.urdf'
     shutil.copyfile(wall_path, 'pb_robot/models/walls.urdf')
     wall_file = os.path.join('models', 'walls.urdf')
     pddl_wall = pb_robot.body.createBody(wall_file)
