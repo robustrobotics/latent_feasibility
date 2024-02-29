@@ -520,7 +520,7 @@ def amortized_filter_loop(gnp, object_set, logger, strategy, args, override_sele
             print('[BALD] Sampling...')
             unlabeled_dataset = sample_unlabeled_gnp_data(args.n_samples, object_set, object_ix=args.eval_object_ix)
 
-            print('[BALD] Selecting...')
+            print('[BALD] Selecting... (with timing!)')
             info_gain, amortized_pred_time, ig_compute_time = compute_ig(gnp, context_data, unlabeled_dataset,
                                                                          n_samples_from_latent_dist=32,
                                                                          batching_size=32)
@@ -663,7 +663,7 @@ def particle_filter_loop(pf, object_set, logger, strategy, args,
             logger.save_ensemble(pf.likelihood, tx + 1, symlink_tx0=True)
         elif args.likelihood == 'gnp':
             logger.save_neural_process(pf.likelihood, tx + 1, symlink_tx0=True)
-        logger.save_acquisition_data(context_data, acquired_sampled_grasps, tx)
+        # logger.save_acquisition_data(context_data, acquired_sampled_grasps, tx) space saving measure.
         logger.save_particles(particles, tx + 1)
 
         particle_update_times.append(particle_update_time)
