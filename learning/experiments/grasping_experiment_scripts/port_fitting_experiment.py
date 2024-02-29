@@ -13,6 +13,7 @@ import itertools
 import pickle
 import os
 import time
+import glob
 
 from particle_belief import AmortizedGraspingDiscreteLikelihoodParticleBelief
 
@@ -20,7 +21,25 @@ DATA_ROOT = 'learning/data/grasping'
 LOG_ROOT = 'learning/experiments/logs'
 
 
-def copy_dir_and_rename(dir_to_copy, dir_new_name):
+def copy_dir_and_rename(dir_to_copy, dir_new_name, ignore_and_symlink=None):
+    # ignore_and_symlynk finds directories via glob.
+    _ignore = shutil.ignore_patterns(ignore_and_symlink)
+
+    def _ignore_and_symlink(path, names):
+        ignored_names = _ignore(path, names)
+        
+        for src_name in names:
+            src_path = Path(os.path.join(path, src_name))
+
+            # truncate out the bit starting with dir_to_copy and before
+            n_parts_copy_path = len(Path(dir_to_copy).parts)
+            rel_dir_to_symlink = Path(*src_path.parts[n_parts_copy_path:]) 
+            dest_path = os.path.join(dir_new_name, rel_dir_to_symlink)
+
+            os.symlink(src_path, dest_path)
+
+        return ignored_names
+
     dir_to_copy_path = Path(dir_to_copy)
     parent_dir = dir_to_copy_path.parent.absolute()
     copied_renamed_dir = shutil.copytree(dir_to_copy, os.path.join(parent_dir, dir_new_name))
@@ -98,9 +117,9 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
                     obj_ix, strategy, script_args.existing_exp_name))
                 continue
 
-            # copy the file over
+            # copy the file over (symlink large acquisition saves)
             ported_fit_name = f'grasp_{script_args.ported_exp_name}_fit_{strategy}_{geo_type}_object{obj_ix}'
-            ported_fit_dir = copy_dir_and_rename(existing_fit_dir, ported_fit_name + '-ported')
+            ported_fit_dir = copy_dir_and_rename(existing_fit_dir, ported_fit_name + '-ported', ignore_and_symlink="acquired_*.pkl")
 
             # modify the fitting args
             fitting_args_path = os.path.join(ported_fit_dir, 'args.pkl')
