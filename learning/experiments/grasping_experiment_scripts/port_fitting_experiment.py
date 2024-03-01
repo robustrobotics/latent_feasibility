@@ -42,7 +42,7 @@ def copy_dir_and_rename(dir_to_copy, dir_new_name, ignore_and_symlink=None):
 
     dir_to_copy_path = Path(dir_to_copy)
     parent_dir = dir_to_copy_path.parent.absolute()
-    copied_renamed_dir = shutil.copytree(dir_to_copy, os.path.join(parent_dir, dir_new_name))
+    copied_renamed_dir = shutil.copytree(dir_to_copy, os.path.join(parent_dir, dir_new_name), ignore=_ignore_and_symlink)
 
     return copied_renamed_dir
 
