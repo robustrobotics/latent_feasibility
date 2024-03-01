@@ -24,25 +24,35 @@ LOG_ROOT = 'learning/experiments/logs'
 def copy_dir_and_rename(dir_to_copy, dir_new_name, ignore_and_symlink=None):
     # ignore_and_symlynk finds directories via glob.
     _ignore = shutil.ignore_patterns(ignore_and_symlink)
-
+    dir_to_copy_path = Path(dir_to_copy)
+    parent_dir = dir_to_copy_path.parent.absolute()
     def _ignore_and_symlink(path, names):
-        ignored_names = _ignore(path, names)
         
-        for src_name in names:
+        ignored_names = _ignore(path, names)
+        for src_name in ignored_names:
             src_path = Path(os.path.join(path, src_name))
 
             # truncate out the bit starting with dir_to_copy and before
             n_parts_copy_path = len(Path(dir_to_copy).parts)
             rel_dir_to_symlink = Path(*src_path.parts[n_parts_copy_path:]) 
-            dest_path = os.path.join(dir_new_name, rel_dir_to_symlink)
-
-            os.symlink(src_path, dest_path)
+            dest_path = os.path.join(parent_dir, dir_new_name, rel_dir_to_symlink)
+            
+            rel_dir_to_symlink_dir = os.path.join(
+                parent_dir, dir_new_name,   
+                Path(*src_path.parts[n_parts_copy_path:-1]) 
+            )
+            os.makedirs(rel_dir_to_symlink_dir, exist_ok=True)  
+            os.symlink(
+                os.path.join(os.getcwd(), src_path),
+                dest_path
+            )
 
         return ignored_names
 
-    dir_to_copy_path = Path(dir_to_copy)
-    parent_dir = dir_to_copy_path.parent.absolute()
-    copied_renamed_dir = shutil.copytree(dir_to_copy, os.path.join(parent_dir, dir_new_name), ignore=_ignore_and_symlink)
+    if ignore_and_symlink is not None:
+        copied_renamed_dir = shutil.copytree(dir_to_copy, os.path.join(parent_dir, dir_new_name), ignore=_ignore_and_symlink, dirs_exist_ok=True)
+    else:
+        copied_renamed_dir = shutil.copytree(dir_to_copy, os.path.join(parent_dir, dir_new_name))
 
     return copied_renamed_dir
 
@@ -60,7 +70,18 @@ def sample_bad_until_five_and_then_max(scores, tx):
 def main(args):
     # find metadata folder and copy it to metadata with new name
     existing_exp_dir = os.path.join(EXPERIMENT_ROOT, args.existing_exp_name)
-    ported_exp_dir = copy_dir_and_rename(existing_exp_dir, args.ported_exp_name)
+    ported_exp_dir = os.path.join(EXPERIMENT_ROOT, args.ported_exp_name)
+    if not os.path.exists(ported_exp_dir):
+        ported_exp_dir = copy_dir_and_rename(existing_exp_dir, args.ported_exp_name)
+        with open(os.path.join(ported_exp_dir, 'logs_lookup.json'), 'r') as handle:
+            ported_logs_lookup = json.load(handle)
+
+        # delete fitting data content in ported json
+        for strategy in ported_logs_lookup['fitting_phase'].keys():
+            ported_logs_lookup['fitting_phase'][strategy] = {}
+    else:
+        with open(os.path.join(ported_exp_dir, 'logs_lookup.json'), 'r') as handle:
+            ported_logs_lookup = json.load(handle) 
 
     # replace exp name
     with open(os.path.join(ported_exp_dir, 'args.pkl'), 'rb') as handle:
@@ -75,22 +96,15 @@ def main(args):
     with open(os.path.join(existing_exp_dir, 'logs_lookup.json'), 'r') as handle:
         existing_logs_lookup = json.load(handle)
 
-    with open(os.path.join(ported_exp_dir, 'logs_lookup.json'), 'r') as handle:
-        ported_logs_lookup = json.load(handle)
-
-    # delete fitting data content in ported json
-    for strategy in ported_logs_lookup['fitting_phase'].keys():
-        ported_logs_lookup['fitting_phase'][strategy] = {}
-
     if not args.port_training_only:
-        port_objects(args, ported_exp_args, existing_logs_lookup, ported_logs_lookup, mode='train')
-        port_objects(args, ported_exp_args, existing_logs_lookup, ported_logs_lookup, mode='test')
+        # port_objects(args, ported_exp_args, existing_logs_lookup, ported_logs_lookup, ported_exp_dir, mode='train')
+        port_objects(args, ported_exp_args, existing_logs_lookup, ported_logs_lookup, ported_exp_dir, mode='test')
 
     with open(os.path.join(ported_exp_dir, 'logs_lookup.json'), 'w') as handle:
         json.dump(ported_logs_lookup, handle, indent=4)
 
 
-def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup, mode):
+def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup, ported_exp_dir, mode):
     # look up all the data in existing_log_json, copy files over, and store their paths in ported_logs_json
     # (for each strategy)
     if mode == 'train':
@@ -116,9 +130,12 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
                 print('[Info:] Did not find object %i in %s of exp %s' % (
                     obj_ix, strategy, script_args.existing_exp_name))
                 continue
-
+            
             # copy the file over (symlink large acquisition saves)
             ported_fit_name = f'grasp_{script_args.ported_exp_name}_fit_{strategy}_{geo_type}_object{obj_ix}'
+            if ported_fit_name in ported_logs_lookup['fitting_phase'][strategy]:
+                continue
+
             ported_fit_dir = copy_dir_and_rename(existing_fit_dir, ported_fit_name + '-ported', ignore_and_symlink="acquired_*.pkl")
 
             # modify the fitting args
@@ -145,7 +162,9 @@ def port_objects(script_args, exp_args, existing_logs_lookup, ported_logs_lookup
             )
             # store in ported_logs_lookup
             ported_logs_lookup['fitting_phase'][strategy][ported_fit_name] = ported_fit_dir
-
+            with open(os.path.join(ported_exp_dir, 'logs_lookup.json'), 'w') as handle:
+                json.dump(ported_logs_lookup, handle, indent=4)
+            
             # this is if we created an experiment and wanted to re-select data with a different selection criterion.
             # TODO: merge this in with elif branch below if they are doing super similar things
             if script_args.override_with is not None:
