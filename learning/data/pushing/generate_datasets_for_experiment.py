@@ -42,6 +42,18 @@ if __name__ == '__main__':
     # Consume object lists
     # parser.add_arguments...
 
+    parser.add_argument('--train-objects-fname', type=str, required=True)
+    parser.add_argument('--test-objects-fname', type=str, required=True)
+    parser.add_argument('--data-root-name', type=str, required=True)
+    parser.add_argument('--n-property-samples-train', type=int, required=True)
+    parser.add_argument('--n-property-samples-test', type=int, required=True)
+    parser.add_argument('--n-grasps-per-object', type=int, required=True)
+    parser.add_argument('--n-points-per-object', type=int, required=True)
+    parser.add_argument('--n-fit-grasps', type=int, required=True)
+    parser.add_argument('--grasp-noise', type=float, required=True)
+    parser.add_argument('--curvature-radii', type=float, nargs=3, required=True)  # we choose 3 for feature vector ease
+    parser.add_argument('--n-processes', type=int, default=1)
+    parser.add_argument('--merge', action='store_true', default=True)
     # parse command line arguments
     args = parser.parse_args()
 
