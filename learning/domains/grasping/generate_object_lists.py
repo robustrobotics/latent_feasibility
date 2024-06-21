@@ -133,10 +133,13 @@ def filter_by_ratio(object_list, volumes):
 
     return new_objects
 
-OBJECTS_LIST_DIR = 'learning/data/grasping/object_lists'
+OBJECTS_LIST_DIR = 'learning/data/pushing/object_lists'
 if __name__ == '__main__':
-    shapenet_root = os.environ['SHAPENET_ROOT']
-    primitive_parent_root = os.environ['PRIMITIVE_PARENT_ROOT']
+    # shapenet_root = os.environ['SHAPENET_ROOT']
+    # primitive_parent_root = os.environ['PRIMITIVE_PARENT_ROOT']
+    # Need to change these based on the machine running the code 
+    shapenet_root = '../object_models/shapenet-sem-v2/'
+    primitive_parent_root = '../object_models/'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--train-objects-fname', type=str, required=True)
