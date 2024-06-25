@@ -10,9 +10,10 @@ from learning.domains.pushing.find_contact_points import find_contact_point_and_
 import pb_robot
 from pb_robot.planners.antipodalGraspPlanner import GraspSimulationClient, GraspableBody, GraspableBodySampler
 import pybullet as p 
+import time
 
 # Don't know if these are correct for now, mostly filler
-PUSH_VELOCITY_RANGE = (0.1, 3)
+PUSH_VELOCITY_RANGE = (0.2, 0.3)
 MASS_RANGE = (0.1, 0.2)  
 FRICTION_RANGE = (0.1, 0.3)
 OFFSET_RANGE = (-0.02, 0.02)
@@ -114,25 +115,35 @@ def generate_object_parameters(args):
 
 
 def process_single_object(obj_data, args):
+    # print(obj_data)
+    # print("PROCESSING OBJECT ", obj_data['name'])
     total_success = 0
     total_fail = 0
+    # print(obj_data)
     body = GraspableBody(obj_data['name'], obj_data['com'], obj_data['mass'], obj_data['friction'])
     sim_client = GraspSimulationClient(body, False)
     urdf = sim_client._get_object_urdf(body)
     sim_client.disconnect()
 
+    data = []
     for _ in range(args.n_pushes_per_object):
         angle = np.random.uniform(0, 360)
         push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE)
         offset = [np.random.uniform(*OFFSET_RANGE), np.random.uniform(*OFFSET_RANGE), 0]
 
-        _, success, _ = find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset)
+        contact_point, success, logs = find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset, logging=True)
+        data.append(((angle, contact_point, body, push_velocity), (success, logs))) 
+        # exit()
+        # if success: 
+        #     find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset, gui=True)
+        #     exit()
+            # time.sleep(100)
         if success:
             total_success += 1
         else:
             total_fail += 1
 
-    return total_success, total_fail
+    return data
 
 def main(args):
     args = save_args(args) 
@@ -174,8 +185,9 @@ def main(args):
 
     # train objects 
     num_processes = multiprocessing.cpu_count()  # Use all available CPU cores
-    print(num_processes)
+    print("Num Processes: ", num_processes)
     pool = multiprocessing.Pool(processes=num_processes)
+    # pool = multiprocessing.Pool(processes=1)
 
     # Use partial to pass args to process_single_object
     process_func = partial(process_single_object, args=args)
@@ -186,13 +198,15 @@ def main(args):
     # Close the pool and wait for the work to finish
     pool.close()
     pool.join()
+    # for i in object_data_list: 
+    #     process_single_object(i, args)
 
     # Aggregate results
-    total_success = sum(result[0] for result in results)
-    total_fail = sum(result[1] for result in results)
+    # total_success = sum(result[0] for result in results)
+    # total_fail = sum(result[1] for result in results)
 
-    print(f"Total Success: {total_success}")
-    print(f"Total Fail: {total_fail}")
+    # print(f"Total Success: {total_success}")
+    # print(f"Total Fail: {total_fail}")
 
 
 

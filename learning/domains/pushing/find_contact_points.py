@@ -17,7 +17,7 @@ def find_contact_point_and_check_push(object_name, angle_degrees, push_velocity,
     p.setGravity(0, 0, -9.81)
 
     p.changeDynamics(cube_id, -1, mass=object_mass, lateralFriction=object_friction)
-    p.changeDynamics(sphere_id, -1, mass=object_mass, lateralFriction=object_friction)
+    # p.changeDynamics(sphere_id, -1, mass=object_mass, lateralFriction=object_friction)
 
     cube_pos, cube_orn = p.getBasePositionAndOrientation(cube_id)
     cube_pos = [cube_pos[0] + com_shift[0] + translation[0],
@@ -46,13 +46,16 @@ def find_contact_point_and_check_push(object_name, angle_degrees, push_velocity,
         p.resetBaseVelocity(sphere_id, linearVelocity=[push_velocity*force_x, push_velocity*force_y, 0])
         p.stepSimulation()
         
-        if logging:
+        if logging and step % 100 == 0:
             cube_pos, _ = p.getBasePositionAndOrientation(cube_id)
             positions.append(cube_pos)
         
         step_contacts = p.getContactPoints(bodyA=cube_id, bodyB=sphere_id)
         if step_contacts:
             contact_points.extend(step_contacts)
+
+        if gui: 
+            time.sleep(0.0001)
         
     final_distance = calculate_distance(cube_id, sphere_id)
     # print(f"Final Distance: {final_distance}")
