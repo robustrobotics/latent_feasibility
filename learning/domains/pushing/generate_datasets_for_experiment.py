@@ -183,35 +183,39 @@ def main(args):
 
     # load up train objects make the set
 
-    # train objects 
     num_processes = multiprocessing.cpu_count()  # Use all available CPU cores
     print("Num Processes: ", num_processes)
     pool = multiprocessing.Pool(processes=num_processes)
-    # pool = multiprocessing.Pool(processes=1)
-
-    # Use partial to pass args to process_single_object
     process_func = partial(process_single_object, args=args)
-
-    # Run the processing in parallel
     results = pool.map(process_func, object_data_list)
 
-    # Close the pool and wait for the work to finish
+    path = os.path.join(data_root_path, 'train_dataset.pkl')
+    with open(path, 'wb') as handle:
+        pickle.dump(results, handle)
+
+    object_data_list = []
+    for i in range(args.n_property_samples_test * len(test_objects)):
+        path = os.path.join(test_objects_path, f"{i}.pkl")
+        with open(path, 'rb') as handle:
+            object_data_list.append(pickle.load(handle))
+
+    results = pool.map(process_func, object_data_list)
+    path = os.path.join(data_root_path, 'test_dataset.pkl')
+    with open(path, 'wb') as handle:
+        pickle.dump(results, handle)
+    
+    object_data_list = []
+    for i in range(args.n_property_samples_test * len(train_objects)):
+        path = os.path.join(test_samegeo_objects_path, f"{i}.pkl")
+        with open(path, 'rb') as handle:
+            object_data_list.append(pickle.load(handle))
+
+    results = pool.map(process_func, object_data_list)
+    path = os.path.join(data_root_path, 'samegeo_test_dataset.pkl')
+    with open(path, 'wb') as handle:
+        pickle.dump(results, handle)
     pool.close()
     pool.join()
-    # for i in object_data_list: 
-    #     process_single_object(i, args)
-
-    # Aggregate results
-    # total_success = sum(result[0] for result in results)
-    # total_fail = sum(result[1] for result in results)
-
-    # print(f"Total Success: {total_success}")
-    # print(f"Total Fail: {total_fail}")
-
-
-
-
-    
     # store the set, likely as a huge .pkl
     # if it's __too__ large, then you can split the dataset up into grouped/individual objects.
 
