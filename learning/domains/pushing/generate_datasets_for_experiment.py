@@ -6,6 +6,7 @@ import os
 import pickle
 from types import SimpleNamespace
 import numpy as np 
+# from learning.domains.pushing.find_contact_points import find_contact_point_and_check_push
 from learning.domains.pushing.find_contact_points import find_contact_point_and_check_push
 import pb_robot
 from pb_robot.planners.antipodalGraspPlanner import GraspSimulationClient, GraspableBody, GraspableBodySampler

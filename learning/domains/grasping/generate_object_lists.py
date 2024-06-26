@@ -75,6 +75,7 @@ def select_objects(ycb_object_names, sn_object_names, pm_object_names, datasets,
     if len([zet for zet in datasets if zet not in ['Shapenet', 'YCB']]) > 0: # if there are any primitives
         all_objects += copy.deepcopy(pm_object_names)
 
+    print(n_objects, len(all_objects))
     chosen_objects = np.random.choice(all_objects, n_objects, replace=False)
 
     for obj in chosen_objects:
