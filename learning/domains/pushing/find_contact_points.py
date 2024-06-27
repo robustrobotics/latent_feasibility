@@ -47,8 +47,13 @@ def find_contact_point_and_check_push(object_name, angle_degrees, push_velocity,
         p.stepSimulation()
         
         if logging and step % 100 == 0:
-            cube_pos, _ = p.getBasePositionAndOrientation(cube_id)
-            positions.append(cube_pos)
+            cube_pos, cube_orientation = p.getBasePositionAndOrientation(cube_id)
+            cube_both = []
+            for x in cube_pos: 
+                cube_both.append(x)
+            for x in cube_orientation:
+                cube_both.append(x) 
+            positions.append(tuple(cube_both))
         
         step_contacts = p.getContactPoints(bodyA=cube_id, bodyB=sphere_id)
         if step_contacts:

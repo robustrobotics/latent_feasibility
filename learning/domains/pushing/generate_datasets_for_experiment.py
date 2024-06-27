@@ -1,3 +1,4 @@
+import tqdm 
 from functools import partial
 import trimesh
 import multiprocessing
@@ -132,7 +133,8 @@ def process_single_object(obj_data, args):
         push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE)
         offset = [np.random.uniform(*OFFSET_RANGE), np.random.uniform(*OFFSET_RANGE), 0]
 
-        contact_point, success, logs = find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset, logging=True)
+        contact_point, success, logs = find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset, logging=True, gui=True)
+        move_on = input('Move on!')
         data.append(((angle, contact_point, body, push_velocity), (success, logs))) 
         # exit()
         # if success: 
@@ -184,11 +186,17 @@ def main(args):
 
     # load up train objects make the set
 
-    num_processes = multiprocessing.cpu_count()  # Use all available CPU cores
+    # num_processes = multiprocessing.cpu_count()  # Use all available CPU cores
+    num_processes = 1 
     print("Num Processes: ", num_processes)
     pool = multiprocessing.Pool(processes=num_processes)
     process_func = partial(process_single_object, args=args)
-    results = pool.map(process_func, object_data_list)
+    # results = pool.map(process_func, object_data_list)
+    with tqdm.tqdm(total=len(object_data_list), desc="Processing objects") as pbar:
+        results = []
+        for result in pool.imap_unordered(process_func, object_data_list):
+            results.append(result)
+            pbar.update()
 
     path = os.path.join(data_root_path, 'train_dataset.pkl')
     with open(path, 'wb') as handle:
@@ -200,7 +208,12 @@ def main(args):
         with open(path, 'rb') as handle:
             object_data_list.append(pickle.load(handle))
 
-    results = pool.map(process_func, object_data_list)
+    # results = pool.map(process_func, object_data_list)
+    with tqdm.tqdm(total=len(object_data_list), desc="Processing objects") as pbar:
+        results = []
+        for result in pool.imap_unordered(process_func, object_data_list):
+            results.append(result)
+            pbar.update()
     path = os.path.join(data_root_path, 'test_dataset.pkl')
     with open(path, 'wb') as handle:
         pickle.dump(results, handle)
@@ -211,7 +224,12 @@ def main(args):
         with open(path, 'rb') as handle:
             object_data_list.append(pickle.load(handle))
 
-    results = pool.map(process_func, object_data_list)
+    # results = pool.map(process_func, object_data_list)
+    with tqdm.tqdm(total=len(object_data_list), desc="Processing objects") as pbar:
+        results = []
+        for result in pool.imap_unordered(process_func, object_data_list):
+            results.append(result)
+            pbar.update()
     path = os.path.join(data_root_path, 'samegeo_test_dataset.pkl')
     with open(path, 'wb') as handle:
         pickle.dump(results, handle)
