@@ -133,8 +133,8 @@ def process_single_object(obj_data, args):
         push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE)
         offset = [np.random.uniform(*OFFSET_RANGE), np.random.uniform(*OFFSET_RANGE), 0]
 
-        contact_point, success, logs = find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset, logging=True, gui=True)
-        move_on = input('Move on!')
+        contact_point, success, logs = find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset, logging=True)
+        # move_on = input('Move on!')
         data.append(((angle, contact_point, body, push_velocity), (success, logs))) 
         # exit()
         # if success: 

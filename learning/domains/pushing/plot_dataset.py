@@ -23,32 +23,42 @@ def extract_final_positions_and_orientations(dataset):
     return np.array(final_positions), np.array(final_orientations)
 
 def quaternion_to_euler(q):
-    # Convert quaternion to Euler angles
-    w, x, y, z = q
-    t0 = 2.0 * (w * x + y * z)
-    t1 = 1.0 - 2.0 * (x * x + y * y)
-    roll = np.arctan2(t0, t1)
+    """
+    Convert a quaternion into euler angles (roll, pitch, yaw)
+    roll is rotation around x in radians (counterclockwise)
+    pitch is rotation around y in radians (counterclockwise)
+    yaw is rotation around z in radians (counterclockwise)
+    """
+    x, y, z, w = q
+    # Roll (x-axis rotation)
+    t0 = +2.0 * (w * x + y * z)
+    t1 = +1.0 - 2.0 * (x * x + y * y)
+    roll_x = np.arctan2(t0, t1)
     
-    t2 = 2.0 * (w * y - z * x)
-    t2 = np.clip(t2, -1.0, 1.0)
-    pitch = np.arcsin(t2)
+    # Pitch (y-axis rotation)
+    t2 = +2.0 * (w * y - z * x)
+    t2 = +1.0 if t2 > +1.0 else t2
+    t2 = -1.0 if t2 < -1.0 else t2
+    pitch_y = np.arcsin(t2)
     
-    t3 = 2.0 * (w * z + x * y)
-    t4 = 1.0 - 2.0 * (y * y + z * z)
-    yaw = np.arctan2(t3, t4)
+    # Yaw (z-axis rotation)
+    t3 = +2.0 * (w * z + x * y)
+    t4 = +1.0 - 2.0 * (y * y + z * z)
+    yaw_z = np.arctan2(t3, t4)
     
-    return np.degrees(roll), np.degrees(pitch), np.degrees(yaw)
+    return np.degrees(roll_x), np.degrees(pitch_y), np.degrees(yaw_z)
+
 
 def plot_final_positions_and_orientations(positions, orientations, title, output_dir):
     # Convert quaternions to Euler angles in degrees
     euler_angles = np.array([quaternion_to_euler(q) for q in orientations])
-    yaw_degrees = euler_angles[:, 2]  # Extract yaw (rotation about z-axis)
+    roll_degrees, pitch_degrees, yaw_degrees = euler_angles[:, 0], euler_angles[:, 1], euler_angles[:, 2]
 
     # Plot positions and orientations
-    fig = plt.figure(figsize=(20, 15))
+    fig = plt.figure(figsize=(20, 20))
     
     # 2D position plot
-    ax1 = fig.add_subplot(221)
+    ax1 = fig.add_subplot(331)
     scatter = ax1.scatter(positions[:, 0], positions[:, 1], c=yaw_degrees, cmap='hsv', alpha=0.5)
     ax1.set_title(f'{title}: Final Positions')
     ax1.set_xlabel('X Position')
@@ -58,7 +68,7 @@ def plot_final_positions_and_orientations(positions, orientations, title, output
     plt.colorbar(scatter, ax=ax1, label='Yaw Angle (degrees)')
 
     # 3D position and orientation plot
-    ax2 = fig.add_subplot(222, projection='3d')
+    ax2 = fig.add_subplot(332, projection='3d')
     scatter3d = ax2.scatter(positions[:, 0], positions[:, 1], positions[:, 2], c=yaw_degrees, cmap='hsv', alpha=0.5)
     ax2.set_title(f'{title}: 3D Positions and Orientations')
     ax2.set_xlabel('X Position')
@@ -66,28 +76,64 @@ def plot_final_positions_and_orientations(positions, orientations, title, output
     ax2.set_zlabel('Z Position')
     plt.colorbar(scatter3d, ax=ax2, label='Yaw Angle (degrees)')
 
-    # Yaw angle distribution plot
-    ax3 = fig.add_subplot(223)
-    ax3.hist(yaw_degrees, bins=36, range=(-180, 180), edgecolor='black')
-    ax3.set_title(f'{title}: Distribution of Yaw Angles')
-    ax3.set_xlabel('Yaw Angle (degrees)')
+    # Roll angle distribution plot
+    ax3 = fig.add_subplot(334)
+    ax3.hist(roll_degrees, bins=36, range=(-180, 180), edgecolor='black')
+    ax3.set_title(f'{title}: Distribution of Roll Angles')
+    ax3.set_xlabel('Roll Angle (degrees)')
     ax3.set_ylabel('Frequency')
     ax3.set_xlim(-180, 180)
     ax3.grid(True)
 
+    # Pitch angle distribution plot
+    ax4 = fig.add_subplot(335)
+    ax4.hist(pitch_degrees, bins=36, range=(-180, 180), edgecolor='black')
+    ax4.set_title(f'{title}: Distribution of Pitch Angles')
+    ax4.set_xlabel('Pitch Angle (degrees)')
+    ax4.set_ylabel('Frequency')
+    ax4.set_xlim(-180, 180)
+    ax4.grid(True)
+
+    # Yaw angle distribution plot
+    ax5 = fig.add_subplot(336)
+    ax5.hist(yaw_degrees, bins=36, range=(-180, 180), edgecolor='black')
+    ax5.set_title(f'{title}: Distribution of Yaw Angles')
+    ax5.set_xlabel('Yaw Angle (degrees)')
+    ax5.set_ylabel('Frequency')
+    ax5.set_xlim(-180, 180)
+    ax5.grid(True)
+
+    # Polar plot of roll angles
+    ax6 = fig.add_subplot(337, projection='polar')
+    ax6.hist(np.radians(roll_degrees), bins=36, range=(-np.pi, np.pi))
+    ax6.set_title(f'{title}: Polar Distribution of Roll Angles')
+    ax6.set_theta_zero_location('N')
+    ax6.set_theta_direction(-1)
+    ax6.set_thetagrids(np.arange(0, 360, 30))
+    ax6.set_ylim(0, ax6.get_ylim()[1])
+
+    # Polar plot of pitch angles
+    ax7 = fig.add_subplot(338, projection='polar')
+    ax7.hist(np.radians(pitch_degrees), bins=36, range=(-np.pi, np.pi))
+    ax7.set_title(f'{title}: Polar Distribution of Pitch Angles')
+    ax7.set_theta_zero_location('N')
+    ax7.set_theta_direction(-1)
+    ax7.set_thetagrids(np.arange(0, 360, 30))
+    ax7.set_ylim(0, ax7.get_ylim()[1])
+
     # Polar plot of yaw angles
-    ax4 = fig.add_subplot(224, projection='polar')
-    ax4.hist(np.radians(yaw_degrees), bins=36, range=(-np.pi, np.pi))
-    ax4.set_title(f'{title}: Polar Distribution of Yaw Angles')
-    ax4.set_theta_zero_location('N')
-    ax4.set_theta_direction(-1)
-    ax4.set_thetagrids(np.arange(0, 360, 30))
-    ax4.set_ylim(0, ax4.get_ylim()[1])  # Set radial limit to start from 0
+    ax8 = fig.add_subplot(339, projection='polar')
+    ax8.hist(np.radians(yaw_degrees), bins=36, range=(-np.pi, np.pi))
+    ax8.set_title(f'{title}: Polar Distribution of Yaw Angles')
+    ax8.set_theta_zero_location('N')
+    ax8.set_theta_direction(-1)
+    ax8.set_thetagrids(np.arange(0, 360, 30))
+    ax8.set_ylim(0, ax8.get_ylim()[1])
 
     # Adjust layout and save the plot
     plt.tight_layout()
     output_path = os.path.join(output_dir, f"{title.replace(' ', '_')}.png")
-    plt.savefig(output_path)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Plot saved to {output_path}")
 
