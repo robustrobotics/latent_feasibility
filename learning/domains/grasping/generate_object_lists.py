@@ -134,7 +134,7 @@ def filter_by_ratio(object_list, volumes):
 
     return new_objects
 
-OBJECTS_LIST_DIR = 'learning/data/pushing/object_lists'
+OBJECTS_LIST_DIR = 'learning/data/pushing/shapenet_only'
 if __name__ == '__main__':
     # shapenet_root = os.environ['SHAPENET_ROOT']
     # primitive_parent_root = os.environ['PRIMITIVE_PARENT_ROOT']
