@@ -12,14 +12,12 @@ import numpy as np
 from learning.domains.pushing.find_contact_points import (
     find_contact_point_and_check_push,
 )
-import pb_robot
 from pb_robot.planners.antipodalGraspPlanner import (
     GraspSimulationClient,
     GraspableBody,
     GraspableBodySampler,
 )
 import pybullet as p
-import time
 
 # Don't know if these are correct for now, mostly filler
 PUSH_VELOCITY_RANGE = (0.2, 0.3)
