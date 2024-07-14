@@ -37,6 +37,7 @@ class PushNPDataset(Dataset):
         trajectory_data = []
         push_velocity_data = []
         normal_data = []
+        contact_point_data = []
 
         for object_data in tqdm(data):
             body = object_data[0][0][2]  # Get the body
@@ -46,10 +47,10 @@ class PushNPDataset(Dataset):
             points, indices = mesh.sample(
                 n_samples * len(object_data), return_index=True
             )
-            points = np.array(points, dtype="float32").reshape(len(object_data), -1, 3)
+            points = np.array(points).reshape(-1, 3)
             normals = np.array(
-                sim_client.mesh.face_normals[indices, :], dtype="float32"
-            ).reshape(len(object_data), -1, 3)
+                sim_client.mesh.face_normals[indices, :]
+            ).reshape(-1, 3)
 
             sim_client.disconnect()
             bad = False
@@ -57,6 +58,7 @@ class PushNPDataset(Dataset):
             final_positions = []
             trajectories = []
             push_velocities = []
+            contact_points = []
             for push_data in object_data:
                 input_params, (success, logs) = push_data
                 angle, contact_point, body, push_velocity = input_params
@@ -66,10 +68,12 @@ class PushNPDataset(Dataset):
                 if contact_point is None:
                     bad = True
                     break
+                contact_points.append(contact_point)
                 angles.append(angle)
 
             if bad:
                 continue
+            contact_point_data.append(contact_points)
             push_velocity_data.append(push_velocities)
             angle_data.append(angles)
             mesh_data.append(points)
@@ -91,11 +95,21 @@ class PushNPDataset(Dataset):
         new_data["trajectory_data"] = np.array(trajectory_data)
         new_data["push_velocities"] = np.array(push_velocity_data)
         new_data["normals"] = np.array(normal_data)
+        new_data["contact_points"] = np.array(contact_point_data)
 
         # Standardizing the data
         self.data = {}
         scaler = StandardScaler()
         min_max_scaler = MinMaxScaler()
+
+        contact_point_shape = new_data["contact_points"].shape
+        contact_point_flat = new_data["contact_points"].reshape(-1, 3)
+        for i in range(3):
+            contact_point_flat[:, i] = min_max_scaler.fit_transform(
+                contact_point_flat[:, i].reshape(-1, 1)
+            ).flatten()
+        self.data["contact_points"] = contact_point_flat.reshape(contact_point_shape)
+        print(f"shape of contact_points: {self.data['contact_points'].shape}")
 
         # Normalize angles, friction, mass, final positions, trajectory data, and push velocities
         for key in ["angle", "friction", "mass", "push_velocities"]:
@@ -105,7 +119,6 @@ class PushNPDataset(Dataset):
             )
             self.data[key] = standardized_value
             print(f"shape of {key}: {self.data[key].shape}")
-            # print(self.data[key])
 
         # Normalize mesh data by scaling each dimension (x, y, z) separately
         mesh_shape = new_data["mesh"].shape
@@ -128,8 +141,7 @@ class PushNPDataset(Dataset):
         print(f"shape of com: {self.data['com'].shape}")
 
         # Normalize normals to unit vectors
-        norms = np.linalg.norm(new_data["normals"], axis=3, keepdims=True)
-        # print(norms)
+        norms = np.linalg.norm(new_data["normals"], axis=2, keepdims=True)
         normalized_normals = new_data["normals"] / norms
         self.data["normals"] = normalized_normals
         print(f"shape of normals: {self.data['normals'].shape}")
@@ -152,13 +164,14 @@ class PushNPDataset(Dataset):
             trajectories_flat[:, i] = min_max_scaler.fit_transform(
                 trajectories_flat[:, i].reshape(-1, 1)
             ).flatten()
-        self.data['trajectory_data'] = trajectories_flat.reshape(trajectories_shape)
+        self.data["trajectory_data"] = trajectories_flat.reshape(trajectories_shape)
         print(f"shape of trajectories: {self.data['trajectory_data'].shape}")
+
 
 
     def __getitem__(self, idx):
         item = {}
-        for key, value in self.data.items():  #
+        for key, value in self.data.items():
             item[key] = value[idx]
         return item
 
@@ -167,17 +180,18 @@ class PushNPDataset(Dataset):
 
 
 def collate_fn(items):
+    # print(len(np.array(items)))
     total_dict = {}
     for item in items:
         for key in item.keys():
             total_dict[key] = []
         break
     for item in items:
-        for key, value in item.keys():
+        for key, value in item.items():
             total_dict[key].append(value)
-    for key, value in total_dict:
-        value = torch.tensor(value)
-    print(total_dict)
+    for key, value in total_dict.items():
+        total_dict[key] = torch.tensor(value)
+    # print(total_dict)
     return total_dict
 
 
@@ -188,7 +202,7 @@ def main(args):
 
     # file_name = os.path.join("learning", "data", "pushing", "shapenet_only", "train_dataset.pkl")
     # print(file_name)
-    dataset = PushNPDataset(file_name, args.n_samples)
+    train_dataset = PushNPDataset(file_name, args.n_samples)
 
 
 if __name__ == "__main__":

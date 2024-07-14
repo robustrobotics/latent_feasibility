@@ -89,7 +89,6 @@ class STNkd(nn.Module):
         x = torch.linalg.qr(x)[0]  # Make sure X is a valid rotation matrix.
         return x
 
-
 class PointNetEncoder(nn.Module):
     def __init__(self, global_feat=True, feature_transform=True, num_geom_features=1,
                  channel=3, n_out=1024, use_batch_norm=False, use_stn=True):
