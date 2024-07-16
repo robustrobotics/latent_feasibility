@@ -44,13 +44,9 @@ class PushNPDataset(Dataset):
             name, com, mass, friction = body
             sim_client = GraspSimulationClient(body, False)
             mesh = sim_client.mesh
-            points, indices = mesh.sample(
-                n_samples * len(object_data), return_index=True
-            )
+            points, indices = mesh.sample(n_samples, return_index=True)
             points = np.array(points).reshape(-1, 3)
-            normals = np.array(
-                sim_client.mesh.face_normals[indices, :]
-            ).reshape(-1, 3)
+            normals = np.array(sim_client.mesh.face_normals[indices, :]).reshape(-1, 3)
 
             sim_client.disconnect()
             bad = False
@@ -166,8 +162,6 @@ class PushNPDataset(Dataset):
             ).flatten()
         self.data["trajectory_data"] = trajectories_flat.reshape(trajectories_shape)
         print(f"shape of trajectories: {self.data['trajectory_data'].shape}")
-
-
 
     def __getitem__(self, idx):
         item = {}
