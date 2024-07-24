@@ -22,6 +22,8 @@ def find_contact_point_and_check_push(
     A push being successful is based on whether the object and the push were close in distance.
     """
 
+    # print("ANGLE DEGREES: ", angle_degrees)
+
     angle_radians = math.radians(angle_degrees)
 
     p.connect(p.GUI if gui else p.DIRECT)
@@ -32,13 +34,15 @@ def find_contact_point_and_check_push(
     sphere_id = p.loadURDF(
         "sphere_small.urdf",
         [2 * math.cos(angle_radians), 2 * math.sin(angle_radians), 1],
-        globalScaling=1,
+        globalScaling=1.5,
     )
 
     p.setGravity(0, 0, -9.81)
 
     p.changeDynamics(cube_id, -1, mass=object_mass, lateralFriction=object_friction)
+    # p.changeDynamics(cube_id, -1, mass=object_mass, lateralFriction=object_friction)
     # p.changeDynamics(sphere_id, -1, mass=object_mass, lateralFriction=object_friction)
+    p.changeDynamics(sphere_id, -1, lateralFriction=object_friction, mass=object_mass*10, spinningFriction=0.3, rollingFriction=0.3)
 
     cube_pos, cube_orn = p.getBasePositionAndOrientation(cube_id)
     cube_pos = [
@@ -51,20 +55,25 @@ def find_contact_point_and_check_push(
 
     initial_distance = calculate_distance(cube_id, sphere_id)
     # print(f"Initial Distance: {initial_distance}")
+    if gui:
+        p.resetDebugVisualizerCamera( cameraDistance=3, cameraYaw=30, cameraPitch=52, cameraTargetPosition=[0,0,0])
 
     force_magnitude = 1
     force_x = -force_magnitude * math.cos(angle_radians)
     force_y = -force_magnitude * math.sin(angle_radians)
 
     SETTLING_STEPS = 1000
-    SIMULATION_STEPS = 5000
+    SIMULATION_STEPS = 25000
     SUCCESS_DISTANCE_THRESHOLD = 0.5  # Maximum distance to consider push successful
 
     for _ in range(SETTLING_STEPS):
         p.stepSimulation()
 
+    # push_velocity /= 2.5
     contact_points = []
+    contact_normals = [] 
     positions = []
+    first = True 
     for step in range(SIMULATION_STEPS):
         p.resetBaseVelocity(
             sphere_id,
@@ -72,7 +81,7 @@ def find_contact_point_and_check_push(
         )
         p.stepSimulation()
 
-        if logging and step % 100 == 0:
+        if logging and step % 1000 == 0:
             cube_pos, cube_orientation = p.getBasePositionAndOrientation(cube_id)
             cube_both = []
             for x in cube_pos:
@@ -82,11 +91,27 @@ def find_contact_point_and_check_push(
             positions.append(tuple(cube_both))
 
         step_contacts = p.getContactPoints(bodyA=cube_id, bodyB=sphere_id)
-        if step_contacts:
-            contact_points.extend(step_contacts)
+        if step_contacts and first:
+            cube_pos, cube_orn = p.getBasePositionAndOrientation(cube_id)
+            cube_inv_pos, cube_inv_orn = p.invertTransform(cube_pos, cube_orn)
+            for contact in step_contacts:
+                world_pos = contact[5]
+
+                world_normal = contact[7] 
+                local_normal = p.multiplyTransforms([0,0,0], cube_inv_orn, world_normal, [1, 0, 0, 1])[0]
+                contact_normals.append(local_normal)   
+
+                local_pos = p.multiplyTransforms(cube_inv_pos, cube_inv_orn, world_pos, [0, 0, 0, 1])[0]
+                # print(local_pos)
+                contact_points.append(local_pos)
+            first = False
 
         if gui:
             time.sleep(0.0001)
+
+    if gui: 
+        time.sleep(3) 
+
 
     final_distance = calculate_distance(cube_id, sphere_id)
     # print(f"Final Distance: {final_distance}")
@@ -95,14 +120,18 @@ def find_contact_point_and_check_push(
 
     push_successful = final_distance <= SUCCESS_DISTANCE_THRESHOLD
 
+    # print(contact_points)
     if contact_points:
         # Average contact point
         avg_contact_point = [
-            sum(c[5][i] for c in contact_points) / len(contact_points) for i in range(3)
+            sum(c[i] for c in contact_points) / len(contact_points) for i in range(3)
         ]
-        return avg_contact_point, push_successful, positions if logging else None
+        sum_normals = [
+            sum(c[i] for c in contact_normals) for i in range(3)
+        ]
+        return avg_contact_point, sum_normals, push_successful, positions if logging else None
     else:
-        return None, push_successful, positions if logging else None
+        return None, None, push_successful, positions if logging else None
 
 
 def calculate_distance(bodyA, bodyB):

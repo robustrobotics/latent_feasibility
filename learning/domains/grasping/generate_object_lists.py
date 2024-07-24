@@ -134,7 +134,7 @@ def filter_by_ratio(object_list, volumes):
 
     return new_objects
 
-OBJECTS_LIST_DIR = 'learning/data/pushing/shapenet_only'
+OBJECTS_LIST_DIR = 'learning/data/pushing/test_box_dataset'
 if __name__ == '__main__':
     # shapenet_root = os.environ['SHAPENET_ROOT']
     # primitive_parent_root = os.environ['PRIMITIVE_PARENT_ROOT']
@@ -152,6 +152,9 @@ if __name__ == '__main__':
     parser.add_argument('--n-processes', type=int, default=1)
     args = parser.parse_args()
     print(args)
+
+    if not os.path.exists(OBJECTS_LIST_DIR):
+        os.makedirs(OBJECTS_LIST_DIR)
 
     assert len(args.train_objects_datasets) > 0
     assert len(args.test_objects_datasets) > 0

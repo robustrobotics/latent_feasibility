@@ -38,9 +38,12 @@ class PushNPDataset(Dataset):
         push_velocity_data = []
         normal_data = []
         contact_point_data = []
+        normal_vector_data = []
 
         for object_data in tqdm(data):
-            body = object_data[0][0][2]  # Get the body
+            # print(object_data)
+            body = object_data[0][0][3]  # Get the body
+            # print(body) 
             name, com, mass, friction = body
             sim_client = GraspSimulationClient(body, False)
             mesh = sim_client.mesh
@@ -55,12 +58,15 @@ class PushNPDataset(Dataset):
             trajectories = []
             push_velocities = []
             contact_points = []
+            normal_vectors = []
             for push_data in object_data:
                 input_params, (success, logs) = push_data
-                angle, contact_point, body, push_velocity = input_params
+                angle, contact_point, normal_vector, body, push_velocity = input_params
+                # print(push_data)
                 push_velocities.append(push_velocity)
                 final_positions.append(logs[-1])
                 trajectories.append(logs)
+                normal_vectors.append(normal_vector)
                 if contact_point is None:
                     bad = True
                     break
@@ -69,6 +75,7 @@ class PushNPDataset(Dataset):
 
             if bad:
                 continue
+            normal_vector_data.append(normal_vectors)
             contact_point_data.append(contact_points)
             push_velocity_data.append(push_velocities)
             angle_data.append(angles)
@@ -92,18 +99,25 @@ class PushNPDataset(Dataset):
         new_data["push_velocities"] = np.array(push_velocity_data)
         new_data["normals"] = np.array(normal_data)
         new_data["contact_points"] = np.array(contact_point_data)
+        new_data["normal_vector"] = np.array(normal_vector_data) 
+
 
         # Standardizing the data
         self.data = {}
         scaler = StandardScaler()
-        min_max_scaler = MinMaxScaler()
 
         contact_point_shape = new_data["contact_points"].shape
         contact_point_flat = new_data["contact_points"].reshape(-1, 3)
+        self.data["contact_points_min"] = np.zeros(3)
+        self.data["contact_points_max"] = np.zeros(3)
         for i in range(3):
+            min_max_scaler = MinMaxScaler()
             contact_point_flat[:, i] = min_max_scaler.fit_transform(
                 contact_point_flat[:, i].reshape(-1, 1)
             ).flatten()
+            self.data["contact_points_min"][i] = min_max_scaler.data_min_ 
+            self.data["contact_points_max"][i] = min_max_scaler.data_max_ 
+
         self.data["contact_points"] = contact_point_flat.reshape(contact_point_shape)
         print(f"shape of contact_points: {self.data['contact_points'].shape}")
 
@@ -119,20 +133,30 @@ class PushNPDataset(Dataset):
         # Normalize mesh data by scaling each dimension (x, y, z) separately
         mesh_shape = new_data["mesh"].shape
         mesh_flat = new_data["mesh"].reshape(-1, 3)
+        self.data["mesh_min"] = np.zeros(3)
+        self.data["mesh_max"] = np.zeros(3)
         for i in range(3):
+            min_max_scaler = MinMaxScaler()
             mesh_flat[:, i] = min_max_scaler.fit_transform(
                 mesh_flat[:, i].reshape(-1, 1)
             ).flatten()
+            self.data["mesh_min"][i] = min_max_scaler.data_min_
+            self.data["mesh_max"][i] = min_max_scaler.data_max_ 
         self.data["mesh"] = mesh_flat.reshape(mesh_shape)
         print(f"shape of mesh: {self.data['mesh'].shape}")
 
         # Normalize center of mass (com) by scaling each dimension (x, y, z) separately
         com_shape = new_data["com"].shape
         com_flat = new_data["com"].reshape(-1, 3)
+        self.data["com_min"] = np.zeros(3)
+        self.data["com_max"] = np.zeros(3)   
         for i in range(3):
+            min_max_scaler = MinMaxScaler()
             com_flat[:, i] = min_max_scaler.fit_transform(
                 com_flat[:, i].reshape(-1, 1)
             ).flatten()
+            self.data["com_min"][i] = min_max_scaler.data_min_
+            self.data["com_max"][i] = min_max_scaler.data_max_
         self.data["com"] = com_flat.reshape(com_shape)
         print(f"shape of com: {self.data['com'].shape}")
 
@@ -144,10 +168,15 @@ class PushNPDataset(Dataset):
 
         final_positions_shape = new_data["final_position"].shape
         final_positions_flat = new_data["final_position"].reshape(-1, 7)
+        self.data["final_position_min"] = np.zeros(7)
+        self.data["final_position_max"] = np.zeros(7)
         for i in range(7):
+            min_max_scaler = MinMaxScaler()
             final_positions_flat[:, i] = min_max_scaler.fit_transform(
                 final_positions_flat[:, i].reshape(-1, 1)
             ).flatten()
+            self.data["final_position_min"][i] = min_max_scaler.data_min_
+            self.data["final_position_max"][i] = min_max_scaler.data_max_ 
         self.data["final_position"] = final_positions_flat.reshape(
             final_positions_shape
         )
@@ -155,18 +184,28 @@ class PushNPDataset(Dataset):
 
         trajectories_shape = new_data["trajectory_data"].shape
         trajectories_flat = new_data["trajectory_data"].reshape(-1, 7)
-
+        self.data["trajectory_data_min"] = np.zeros(7)
+        self.data["trajectory_data_max"] = np.zeros(7) 
         for i in range(7):
+            min_max_scaler = MinMaxScaler()
             trajectories_flat[:, i] = min_max_scaler.fit_transform(
                 trajectories_flat[:, i].reshape(-1, 1)
             ).flatten()
+
+            self.data["trajectory_min"] = min_max_scaler.data_min_
+            self.data["trajectory_max"] = min_max_scaler.data_max_ 
         self.data["trajectory_data"] = trajectories_flat.reshape(trajectories_shape)
         print(f"shape of trajectories: {self.data['trajectory_data'].shape}")
+        self.data["normal_vector"] = new_data["normal_vector"] 
+        print(f"shape of normal_vector: {self.data['normal_vector'].shape}")
 
     def __getitem__(self, idx):
         item = {}
         for key, value in self.data.items():
-            item[key] = value[idx]
+            if key[-3:] != "min" and key[-3:] != "max":
+                item[key] = value[idx]
+            else: 
+                item[key] = value 
         return item
 
     def __len__(self):
@@ -179,10 +218,13 @@ def collate_fn(items):
     for item in items:
         for key in item.keys():
             total_dict[key] = []
+            if key[-3:] == "min" or key[-3:] == "max":
+                total_dict[key] = item[key]
         break
     for item in items:
         for key, value in item.items():
-            total_dict[key].append(value)
+            if key[-3:] != "min" and key[-3:] != "max":
+                total_dict[key].append(value)
     for key, value in total_dict.items():
         total_dict[key] = torch.tensor(value)
     # print(total_dict)

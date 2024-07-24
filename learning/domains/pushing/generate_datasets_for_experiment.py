@@ -20,9 +20,9 @@ from pb_robot.planners.antipodalGraspPlanner import (
 import pybullet as p
 
 # Don't know if these are correct for now, mostly filler
-PUSH_VELOCITY_RANGE = (0.2, 0.3)
+PUSH_VELOCITY_RANGE = (0.25 / 2.5, 0.3 / 2.5)
 MASS_RANGE = (0.1, 0.2)
-FRICTION_RANGE = (0.1, 0.3)
+FRICTION_RANGE = (8*0.1, 8*0.3)
 OFFSET_RANGE = (-0.02, 0.02)
 
 
@@ -145,7 +145,10 @@ def process_single_object(obj_data, args):
         push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE)
         offset = [np.random.uniform(*OFFSET_RANGE), np.random.uniform(*OFFSET_RANGE), 0]
 
-        contact_point, success, logs = find_contact_point_and_check_push(
+
+        # contact_point = None
+        # while contact_point is None: 
+        contact_point, normals, success, logs = find_contact_point_and_check_push(
             urdf,
             angle,
             push_velocity,
@@ -154,13 +157,16 @@ def process_single_object(obj_data, args):
             obj_data["com"],
             offset,
             logging=True,
+            gui=args.gui
         )
+            # print("?")
+        # print("DONE")
         # _, _, logs2 = find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset, logging=True)
         # for i in range(len(logs2)):
         #     if logs[i][0] - logs2[i][0] > 0.1:
         #         print("DIFFERENT")
         # move_on = input('Move on!')
-        data.append(((angle, contact_point, body, push_velocity), (success, logs)))
+        data.append(((angle, contact_point, normals, body, push_velocity), (success, logs)))
         # exit()
         # if success:
         #     find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset, gui=True)
@@ -213,61 +219,65 @@ def main(args):
         )
         generate_object_parameters(test_samegeo_args)
 
-    object_data_list = []
-    for i in range(args.n_property_samples_train * len(train_objects)):
-        path = os.path.join(train_objects_path, f"{i}.pkl")
-        with open(path, "rb") as handle:
-            object_data_list.append(pickle.load(handle))
-
-    # load up train objects make the set
-
-    # num_processes = multiprocessing.cpu_count()  # Use all available CPU cores
-    num_processes = 1
+    num_processes = 4 if not args.gui else 1 
+    # num_processes = 1
     print("Num Processes: ", num_processes)
     pool = multiprocessing.Pool(processes=num_processes)
     process_func = partial(process_single_object, args=args)
-    # results = pool.map(process_func, object_data_list)
-    with tqdm.tqdm(total=len(object_data_list), desc="Processing objects") as pbar:
-        results = []
-        for result in pool.imap_unordered(process_func, object_data_list):
-            results.append(result)
-            pbar.update()
-
-    path = os.path.join(data_root_path, "train_dataset.pkl")
-    with open(path, "wb") as handle:
-        pickle.dump(results, handle)
-
     object_data_list = []
-    for i in range(args.n_property_samples_test * len(test_objects)):
-        path = os.path.join(test_objects_path, f"{i}.pkl")
-        with open(path, "rb") as handle:
-            object_data_list.append(pickle.load(handle))
 
-    # results = pool.map(process_func, object_data_list)
-    with tqdm.tqdm(total=len(object_data_list), desc="Processing objects") as pbar:
-        results = []
-        for result in pool.imap_unordered(process_func, object_data_list):
-            results.append(result)
-            pbar.update()
-    path = os.path.join(data_root_path, "test_dataset.pkl")
-    with open(path, "wb") as handle:
-        pickle.dump(results, handle)
+    print(len(train_objects), len(test_objects))
 
-    object_data_list = []
-    for i in range(args.n_property_samples_test * len(train_objects)):
-        path = os.path.join(test_samegeo_objects_path, f"{i}.pkl")
-        with open(path, "rb") as handle:
-            object_data_list.append(pickle.load(handle))
+    if not os.path.exists(os.path.join(data_root_path, "train_dataset.pkl")):
+        for i in range(args.n_property_samples_train * len(train_objects)):
+            path = os.path.join(train_objects_path, f"{i}.pkl")
+            with open(path, "rb") as handle:
+                object_data_list.append(pickle.load(handle))
+        # load up train objects make the set
+        # num_processes = multiprocessing.cpu_count()  # Use all available CPU cores
+        # results = pool.map(process_func, object_data_list)
+        with tqdm.tqdm(total=len(object_data_list), desc="Processing objects") as pbar:
+            results = []
+            for result in pool.imap_unordered(process_func, object_data_list):
+                results.append(result)
+                pbar.update()
 
-    # results = pool.map(process_func, object_data_list)
-    with tqdm.tqdm(total=len(object_data_list), desc="Processing objects") as pbar:
-        results = []
-        for result in pool.imap_unordered(process_func, object_data_list):
-            results.append(result)
-            pbar.update()
-    path = os.path.join(data_root_path, "samegeo_test_dataset.pkl")
-    with open(path, "wb") as handle:
-        pickle.dump(results, handle)
+        path = os.path.join(data_root_path, "train_dataset.pkl")
+        with open(path, "wb") as handle:
+            pickle.dump(results, handle)
+    
+    if not os.path.exists(os.path.join(data_root_path, "samegeo_test_dataset.pkl")):
+        object_data_list = []
+        for i in range(args.n_property_samples_test * len(train_objects)):
+            path = os.path.join(test_samegeo_objects_path, f"{i}.pkl")
+            with open(path, "rb") as handle:
+                object_data_list.append(pickle.load(handle))
+
+        with tqdm.tqdm(total=len(object_data_list), desc="Processing objects") as pbar:
+            results = []
+            for result in pool.imap_unordered(process_func, object_data_list):
+                results.append(result)
+                pbar.update()
+        path = os.path.join(data_root_path, "samegeo_test_dataset.pkl")
+        with open(path, "wb") as handle:
+            pickle.dump(results, handle)
+
+    if not os.path.exists(os.path.join(data_root_path, "test_dataset.pkl")):
+        object_data_list = []
+        for i in range(args.n_property_samples_test * len(test_objects)):
+            path = os.path.join(test_objects_path, f"{i}.pkl")
+            with open(path, "rb") as handle:
+                object_data_list.append(pickle.load(handle))
+
+        with tqdm.tqdm(total=len(object_data_list), desc="Processing objects") as pbar:
+            results = []
+            for result in pool.imap_unordered(process_func, object_data_list):
+                results.append(result)
+                pbar.update()
+        path = os.path.join(data_root_path, "test_dataset.pkl")
+        with open(path, "wb") as handle:
+            pickle.dump(results, handle)
+
     pool.close()
     pool.join()
     # store the set, likely as a huge .pkl
@@ -289,6 +299,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-property-samples-train", type=int, required=True)
     parser.add_argument("--n-property-samples-test", type=int, required=True)
     parser.add_argument("--n-pushes-per-object", type=int, required=True)
+    parser.add_argument("--gui", action='store_true', default=False)
     # parser.add_argument('--n-points-per-object', type=int, required=True)
     # parser.add_argument('--n-fit-grasps', type=int, required=True)
     # parser.add_argument('--grasp-noise', type=float, required=True)

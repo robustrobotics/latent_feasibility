@@ -7,24 +7,31 @@ from torch.utils.data import DataLoader
 import wandb
 import torch.nn.functional as F
 import numpy as np
+import tracemalloc
+import gc 
 
 from learning.models.push_np.create_bar_plot import plot_probabilities
 from learning.models.push_np.dataset import PushNPDataset, collate_fn
 from learning.models.push_np.push_neural_process import PushNP
 
 
-def loss_fn(predictions, targets):
-    loss = 0
+def loss_fn(predictions, targets, q_z, q_z_partial):
+    batch_loss = 0
+    kld_loss = 0
     for i in range(targets.shape[0]):
         for j in range(targets.shape[1]):
-            loss += predictions[i][j].log_prob(targets[i][j][:3])
+            # batch_loss += F.mse_loss(predictions[i][j].mean, targets[i][j][:3]) 
 
-            if np.random.rand() < 0.01:
-                print(f"Prediction: {predictions[i][j].mean} Target: {targets[i][j][:3]}")
+            batch_loss += predictions[i][j].log_prob(targets[i][j][:3])
 
+            # if np.random.rand() < 0.01:
+            #     print(f"Prediction: {predictions[i][j].mean} Target: {targets[i][j][:3]}")
+        kld_loss += torch.distributions.kl_divergence(q_z[i], q_z_partial[i])
 
     # print(f"Loss2: {-loss} Loss: {-loss / (targets.shape[0] * targets.shape[1])}, Shape: {targets.shape[0] * targets.shape[1]}")
-    return -loss 
+    # print(q_z, q_z_partial)
+    # kld_loss = torch.distributions.kl_divergence(q_z, q_z_partial).sum()
+    return -batch_loss + kld_loss, -batch_loss, kld_loss
 
 
 def accuracy_fn(predictions, mu, targets, probabilities):
@@ -36,7 +43,9 @@ def accuracy_fn(predictions, mu, targets, probabilities):
             distance = torch.sqrt(
                 F.mse_loss(mu[i][j], targets[i][j][:3], reduction="sum")
             )
-            probabilities.append(torch.exp(predictions[i][j].log_prob(targets[i][j][:3])).item())  
+            probabilities.append(
+                torch.exp(predictions[i][j].log_prob(targets[i][j][:3])).item()
+            )
             total_distance += distance
             max_distance += torch.sqrt(
                 torch.tensor(3.0)
@@ -50,7 +59,7 @@ def accuracy_fn(predictions, mu, targets, probabilities):
 def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
     if "INSTANCE_NUMBER" not in os.environ:
         os.environ["INSTANCE_NUMBER"] = "0"
-    os.environ["INSTANCE_NUMBER"] = str(int(os.environ["INSTANCE_NUMBER"]) + 1) 
+    os.environ["INSTANCE_NUMBER"] = str(int(os.environ["INSTANCE_NUMBER"]) + 1)
     wandb.init(
         project="pushing-neural-process",
         config=args,
@@ -63,13 +72,18 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     best_loss = float("inf")
-    train_epoch_total_loss = 0
 
     for epoch in range(n_epochs):
         print(f"----Epoch {epoch}----")
 
         model.train()
+
+        train_epoch_kld_loss = 0
+        train_epoch_batch_loss = 0 
+        train_epoch_total_loss = 0 
+
         for data in tqdm(train_dataloader):
+            # break
             mesh_data = torch.cat((data["mesh"], data["normals"]), dim=2)
             if args.use_obj_properties:
                 obj_data = torch.stack((data["mass"], data["friction"]), dim=1)
@@ -78,7 +92,9 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
                 obj_data = (None, None, None)
 
             push_data = torch.stack((data["angle"], data["push_velocities"]), dim=2)
-            push_data = torch.cat((push_data, data["contact_points"]), dim=2)
+            push_data = torch.cat(
+                (push_data, data["contact_points"], data["normal_vector"]), dim=2
+            )
 
             if torch.cuda.is_available():
                 mesh_data = mesh_data.cuda().float()
@@ -92,25 +108,47 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
             n_pushes = torch.randint(low=1, high=max_pushes + 1, size=(1,))
             n_indices = torch.randperm(max_pushes)[:n_pushes]
             n_push_data = push_data[:, n_indices, :]
+            n_push_data = torch.cat(
+                [n_push_data, data["final_position"][:, n_indices, :]], dim=2
+            )
 
             model_data = (mesh_data, obj_data, push_data, n_push_data)
 
-            optimizer.zero_grad()
-            predictions, _ = model.forward(model_data)
-            loss = loss_fn(predictions, data["final_position"])
-            train_epoch_total_loss += loss
-            # print(f"Loss: {loss}")
-            wandb.log({"train/loss": loss})
+            total_model_data = (
+                mesh_data,
+                obj_data,
+                None,
+                torch.cat([push_data, data["final_position"]], dim=2),
+            )
 
+            optimizer.zero_grad()
+            predictions, _, q_z_partial = model.forward(model_data)
+            q_z = model.get_latent_space(total_model_data)
+
+            loss, batch_loss, kld_loss = loss_fn(predictions, data["final_position"], q_z, q_z_partial)
             loss.backward()
+
+            train_epoch_total_loss += loss.item() 
+            train_epoch_batch_loss += batch_loss.item()
+            train_epoch_kld_loss += kld_loss.item() 
+
             optimizer.step()
 
+            # print(loss.shape)
+            # print(f"Loss: {loss}")
+            # wandb.log({"train/loss": loss, "train/batch_loss": batch_loss, "train/kld_loss": kld_loss})
+            # del loss 
+
+        print("Total Training Loss: ", train_epoch_total_loss) 
+
         model.eval()
-        total_val_loss = 0
-        total_acc = []
         probabilities = []
+        val_epoch_total_loss = 0 
+        val_epoch_average_accuracy = 0 
+
         with torch.no_grad():
             for val_data in tqdm(test_dataloader):
+                # break
                 mesh_data = torch.cat((val_data["mesh"], val_data["normals"]), dim=2)
 
                 if args.use_obj_properties:
@@ -125,7 +163,10 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
                     (val_data["angle"], val_data["push_velocities"]), dim=2
                 )
                 # dimensions = val_data["angle"].shape
-                push_data = torch.cat((push_data, val_data["contact_points"]), dim=2)
+                push_data = torch.cat(
+                    (push_data, val_data["contact_points"], val_data["normal_vector"]),
+                    dim=2,
+                )
 
                 if torch.cuda.is_available():
                     mesh_data = mesh_data.cuda().float()
@@ -147,29 +188,55 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
                 context_pushes = perm[:n_pushes]
                 target_pushes = perm[n_pushes:]
                 context_push_data = push_data[:, context_pushes, :]
+                context_push_data = torch.cat(
+                    [
+                        context_push_data,
+                        val_data["final_position"][:, context_pushes, :],
+                    ],
+                    dim=2,
+                )
                 target_push_data = push_data[:, target_pushes, :]
 
                 model_data = (mesh_data, obj_data, target_push_data, context_push_data)
-                predictions, mu = model.forward(model_data)
-                loss = loss_fn(
-                    predictions, val_data["final_position"][:, target_pushes, :]
-                )
-                acc = accuracy_fn(predictions, mu, val_data["final_position"][:, target_pushes, :], probabilities)
+                predictions, mu, q_z_partial = model.forward(model_data)
 
-                # wandb.log({"val/loss": loss})
-                total_val_loss += loss
-                total_acc.append(acc)
+                q_z = model.get_latent_space(
+                    (
+                        mesh_data,
+                        obj_data,
+                        None,
+                        torch.cat([push_data, val_data["final_position"]], dim=2),
+                    )
+                )
+                loss, _, _ = loss_fn(
+                    predictions,
+                    val_data["final_position"][:, target_pushes, :],
+                    q_z,
+                    q_z_partial,
+                )
+
+                val_epoch_total_loss += loss.item() 
+
+                acc = accuracy_fn(
+                    predictions,
+                    mu,
+                    val_data["final_position"][:, target_pushes, :],
+                    probabilities,
+                )
 
         wandb.log(
             {
-                "val/total_loss": total_val_loss,
-                "val/total_acc": np.array(total_acc).mean(),
-                "train/total_loss": train_epoch_total_loss,
+                "val/total_loss": val_epoch_total_loss,
+                "train/kld_loss": train_epoch_kld_loss,
+                "train/batch_loss": train_epoch_batch_loss, 
+                "train/total_loss": train_epoch_total_loss, 
             }
         )
-        # wandb.log({"val/total_acc": np.array(total_acc).mean()})
-        if total_val_loss < best_loss:
-            best_loss = total_val_loss
+
+
+        print("Total Validation Loss: ", val_epoch_total_loss)
+        if val_epoch_total_loss < best_loss:
+            best_loss = val_epoch_total_loss 
             torch.save(
                 model.state_dict(),
                 os.path.join(
@@ -184,8 +251,29 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
 
             plot_probabilities(probabilities, args)
 
+        snapshot = tracemalloc.take_snapshot() 
+        top_stats = snapshot.statistics('lineno') 
+
+        gc.collect() 
+
+        # for stat in top_stats[:10]: 
+        #     print(stat) 
+        #     print("---------------------------------")
+
+        # for i in range(3): 
+        #     stat = top_stats[i]
+        #     print("%s memory blocks: %.1f KiB" % (stat.count, stat.size / 1024))
+        #     for line in stat.traceback.format():
+        #         print(line)
+
+
+
+
+
+
 
 def main(args):
+    tracemalloc.start()
     data_path = os.path.join("learning", "data", "pushing", args.file_name)
     train_data = os.path.join(data_path, "train_dataset.pkl")
     validation_data = os.path.join(data_path, "samegeo_test_dataset.pkl")
@@ -242,6 +330,7 @@ def main(args):
         "push_velocities",
         "normals",
         "contact_points",
+        "normal_vector",
     }
     if not args.use_obj_properties:
         features.remove("mass")

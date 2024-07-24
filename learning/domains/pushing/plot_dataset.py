@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 import os
 import numpy as np
 import argparse
-from mpl_toolkits.mplot3d import Axes3D
+import seaborn as sns 
+import pandas as pd 
 
 
 def load_dataset(file_path):
@@ -26,6 +27,20 @@ def extract_final_positions_and_orientations(dataset):
                 final_positions.append(final_position)
                 final_orientations.append(final_orientation)
     return np.array(final_positions), np.array(final_orientations)
+
+def extract_contact_points(dataset): 
+    contact_points = []
+    for object_data in dataset: 
+        for push_data in object_data: 
+            attributes, (success, logs) = push_data
+            contact_point = attributes[1] 
+            if contact_point is None: 
+                continue 
+            contact_points.append(contact_point)
+            # print(np.array(contact_point).shape) 
+
+
+    return np.array(contact_points)
 
 
 def quaternion_to_euler(q):
@@ -61,6 +76,24 @@ def plot_final_positions_and_orientations(positions, orientations, title, output
     There are multiple different plots that will be generated and saved in the directory specified in args.
     """
     # Convert quaternions to Euler angles in degrees
+
+    far = 0
+    total = 0
+    for x, y, z in positions: 
+        if x > 1.0 or x < -1.0 or y > 1.0 or y < -1.0 or z > 1.0 or z < -1.0:
+            far += 1 
+        total += 1
+    print(f"{far}/{total} are far away")
+
+    distances = np.linalg.norm(positions[:,:2], axis=1)
+    sns.set_theme(style="whitegrid")
+    df = pd.DataFrame(distances, columns=["Distance"]) 
+    sns.displot(df, x="Distance")
+
+    plot_path = os.path.join(output_dir, "distance_plot.png")
+    plt.savefig(plot_path)
+    plt.close()
+
     euler_angles = np.array([quaternion_to_euler(q) for q in orientations])
     roll_degrees, pitch_degrees, yaw_degrees = (
         euler_angles[:, 0],
@@ -153,6 +186,16 @@ def plot_final_positions_and_orientations(positions, orientations, title, output
     ax8.set_thetagrids(np.arange(0, 360, 30))
     ax8.set_ylim(0, ax8.get_ylim()[1])
 
+    # Heatmap of 2D positions
+    ax9 = fig.add_subplot(333)
+    heatmap, xedges, yedges = np.histogram2d(positions[:, 0], positions[:, 1], bins=50)
+    extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
+    cax = ax9.imshow(heatmap.T, extent=extent, origin='lower', cmap='hot', aspect='auto')
+    ax9.set_title(f"{title}: 2D Position Heatmap")
+    ax9.set_xlabel("X Position")
+    ax9.set_ylabel("Y Position")
+    fig.colorbar(cax, ax=ax9, label="Frequency")
+
     # Adjust layout and save the plot
     plt.tight_layout()
     output_path = os.path.join(output_dir, f"{title.replace(' ', '_')}.png")
@@ -160,6 +203,24 @@ def plot_final_positions_and_orientations(positions, orientations, title, output
     plt.close()
     print(f"Plot saved to {output_path}")
 
+def plot_contact_points(points, output_dir):
+    fig = plt.figure(figsize=(20, 20))
+    ax1 = fig.add_subplot(111)
+    scatter = ax1.scatter(
+        points[:, 0], points[:, 1], alpha=0.5
+    )
+    ax1.set_title(f"Contact Points")
+    ax1.set_xlabel("X Position")
+    ax1.set_ylabel("Y Position")
+    ax1.axis("equal")
+    ax1.grid(True)
+
+    # Adjust layout and save the plot
+    plt.tight_layout()
+    output_path = os.path.join(output_dir, f"contact_points.png")
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+    print(f"Plot saved to {output_path}")
 
 def main(args):
     data_root_path = os.path.join("learning", "data", "pushing", args.dataset_name)
@@ -170,7 +231,12 @@ def main(args):
 
     # Load and plot training data
     train_path = os.path.join(data_root_path, "train_dataset.pkl")
+
+
     train_data = load_dataset(train_path)
+    train_contact_points = extract_contact_points(train_data)
+    plot_contact_points(train_contact_points, output_dir)    
+
     train_positions, train_orientations = extract_final_positions_and_orientations(
         train_data
     )
