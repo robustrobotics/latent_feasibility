@@ -224,17 +224,24 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
                     probabilities,
                 )
 
+                val_epoch_average_accuracy += acc
+
+
+        val_epoch_average_accuracy /= len(test_dataloader)        
+
         wandb.log(
             {
                 "val/total_loss": val_epoch_total_loss,
                 "train/kld_loss": train_epoch_kld_loss,
                 "train/batch_loss": train_epoch_batch_loss, 
                 "train/total_loss": train_epoch_total_loss, 
+                "val/average_accuracy": val_epoch_average_accuracy,
             }
         )
 
 
         print("Total Validation Loss: ", val_epoch_total_loss)
+        print("Average Validation Accuracy: ", val_epoch_average_accuracy)
         if val_epoch_total_loss < best_loss:
             best_loss = val_epoch_total_loss 
             torch.save(
@@ -249,10 +256,13 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
                 ),
             )
 
-            plot_probabilities(probabilities, args)
+            # plot_probabilities(probabilities, args)
 
-        snapshot = tracemalloc.take_snapshot() 
-        top_stats = snapshot.statistics('lineno') 
+            histogram = np.histogram(probabilities)
+            wandb.log({"Probabilities": wandb.Histogram(np_histogram=histogram)})
+
+        # snapshot = tracemalloc.take_snapshot() 
+        # top_stats = snapshot.statistics('lineno') 
 
         gc.collect() 
 
@@ -273,7 +283,7 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
 
 
 def main(args):
-    tracemalloc.start()
+    # tracemalloc.start()
     data_path = os.path.join("learning", "data", "pushing", args.file_name)
     train_data = os.path.join(data_path, "train_dataset.pkl")
     validation_data = os.path.join(data_path, "samegeo_test_dataset.pkl")
@@ -297,7 +307,7 @@ def main(args):
     else:
         print(f"Instance {args.instance_name} already exists")
         with open(os.path.join(instance_path, "args.pkl"), "rb") as handle:
-            args = pickle.load(handle)
+            # args = pickle.load(handle)
             with open(os.path.join(instance_path, "train_dataset.pkl"), "rb") as handle:
                 train_dataset = pickle.load(handle)
             with open(
