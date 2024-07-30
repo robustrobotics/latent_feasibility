@@ -3,6 +3,7 @@ import torch.nn as nn
 from typing import List, Tuple, Optional
 from learning.models.pointnet import PointNetRegressor
 
+
 class PushNP(nn.Module):
     """
     Neural network model for predicting the final position of an object after a series of pushes.
@@ -35,12 +36,12 @@ class PushNP(nn.Module):
             self.N_PUSH_FEATURES + 7
         )  # 5 for the push data, 7 for the final_position
         self.N_OBJ_FEATURES = 5
+        self.POINT_NET_ENCODING_SIZE = 512
 
         # Layer sizes
         conv_sizes = [64, 256, 512]
-        point_net_output_sz = 512
         linear_sizes = [
-            conv_sizes[-1] + point_net_output_sz,
+            conv_sizes[-1] + self.POINT_NET_ENCODING_SIZE,
             256,
             128,
             d_latents * (d_latents + 1) // 2 + d_latents,
@@ -50,7 +51,7 @@ class PushNP(nn.Module):
         # Encoder layers
         self.point_net_encoder = PointNetRegressor(
             self.N_MESH_FEATURES,
-            point_net_output_sz,
+            self.POINT_NET_ENCODING_SIZE,
             n_geometric_features=self.N_GEOM_FEATURES,
         )
         self.conv_layers = nn.ModuleList(
@@ -68,10 +69,16 @@ class PushNP(nn.Module):
         )
 
         # Decoder layers
+        self.point_net_decoder = PointNetRegressor(
+            self.N_MESH_FEATURES,
+            self.POINT_NET_ENCODING_SIZE,
+            n_geometric_features=self.N_GEOM_FEATURES,
+        )
         decoder_input_size = (
             d_latents
             + self.N_PUSH_FEATURES
             + (self.N_OBJ_FEATURES if "com" in input_features else 0)
+            + self.POINT_NET_ENCODING_SIZE
         )
         self.decoder_layers = nn.ModuleList(
             [
@@ -86,7 +93,7 @@ class PushNP(nn.Module):
 
     def forward(
         self, x: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-    ) -> Tuple[List[List[torch.distributions.MultivariateNormal]], torch.Tensor]:
+    ):
         """
         Forward pass of the model.
 
@@ -96,8 +103,9 @@ class PushNP(nn.Module):
         Returns:
             Tuple[List[List[torch.distributions.MultivariateNormal]], torch.Tensor]: Predicted distributions and means.
         """
-        q_zs = self.get_latent_space(x)
+        q_zs, mesh_vector = self.get_latent_space(x)
         mesh_data, obj_data, push_data, _ = x
+
 
         # Simplified versions of the model for debugging:
         # result = [[torch.distributions.MultivariateNormal(torch.ones(self.d_output, device=mesh_data.device, requires_grad=True), torch.eye(self.d_output, device=mesh_data.device, requires_grad=True)) for j in range(push_data.shape[1])] for i in range(push_data.shape[0])], None, q_zs
@@ -112,8 +120,12 @@ class PushNP(nn.Module):
 
         zs = zs.unsqueeze(2).expand(-1, latent_size, push_data.shape[1])
         zs = zs.transpose(1, 2)
+        mesh_vector = mesh_vector.unsqueeze(2)
+        mesh_vector = mesh_vector.expand(zs.shape[0], mesh_vector.shape[-2], zs.shape[1]) 
+        mesh_vector = mesh_vector.transpose(1, 2)   
+        # print(mesh_vector.shape)
 
-        input_vector = torch.cat([push_data, zs], dim=2)
+        input_vector = torch.cat([push_data, zs, mesh_vector], dim=2)
         for i, layer in enumerate(self.decoder_layers):
             input_vector = layer(input_vector)
             if i < len(self.decoder_layers) - 1:
@@ -146,11 +158,11 @@ class PushNP(nn.Module):
             ]
             for i in range(mu.shape[0])
         ]
-        return result, mu, q_zs
+        return result, mu, output, q_zs
 
     def get_latent_space(
         self, x: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-    ) -> List[torch.distributions.MultivariateNormal]:
+    ):
         """
         Compute the latent space representation.
 
@@ -169,7 +181,9 @@ class PushNP(nn.Module):
         for conv_layer in self.conv_layers:
             push_vector = self.activation(conv_layer(push_vector))
         # push_vector = torch.max(push_vector, dim=2)[0]
-        push_vector = torch.sum(push_vector, dim=2)  # Try to aggregate with sum instead of max 
+        push_vector = torch.sum(
+            push_vector, dim=2
+        )  # Try to aggregate with sum instead of max
 
         input_vector = torch.cat([mesh_vector, push_vector], dim=1)
         for i, layer in enumerate(self.linear_layers):
@@ -194,7 +208,10 @@ class PushNP(nn.Module):
             output[:, range(self.d_latents), range(self.d_latents)]
         )
 
-        return [
-            torch.distributions.MultivariateNormal(mu[i], scale_tril=output[i])
-            for i in range(mu.shape[0])
-        ]
+        return (
+            [
+                torch.distributions.MultivariateNormal(mu[i], scale_tril=output[i])
+                for i in range(mu.shape[0])
+            ],
+            mesh_vector,
+        )

@@ -146,19 +146,19 @@ def process_single_object(obj_data, args):
         offset = [np.random.uniform(*OFFSET_RANGE), np.random.uniform(*OFFSET_RANGE), 0]
 
 
-        # contact_point = None
-        # while contact_point is None: 
-        contact_point, normals, success, logs = find_contact_point_and_check_push(
-            urdf,
-            angle,
-            push_velocity,
-            obj_data["mass"],
-            obj_data["friction"],
-            obj_data["com"],
-            offset,
-            logging=True,
-            gui=args.gui
-        )
+        contact_point = None
+        while contact_point is None: 
+            contact_point, normals, success, logs = find_contact_point_and_check_push(
+                urdf,
+                angle,
+                push_velocity,
+                obj_data["mass"],
+                obj_data["friction"],
+                obj_data["com"],
+                offset,
+                logging=True,
+                gui=args.gui
+            )
             # print("?")
         # print("DONE")
         # _, _, logs2 = find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset, logging=True)

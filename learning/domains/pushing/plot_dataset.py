@@ -87,9 +87,9 @@ def plot_final_positions_and_orientations(positions, orientations, title, output
 
     distances = np.linalg.norm(positions[:,:2], axis=1)
     sns.set_theme(style="whitegrid")
-    df = pd.DataFrame(distances, columns=["Distance"]) 
-    sns.displot(df, x="Distance")
-
+    df = pd.DataFrame(distances, columns=["Distance (m)"]) 
+    sns.displot(df, x="Distance (m)")
+ 
     plot_path = os.path.join(output_dir, "distance_plot.png")
     plt.savefig(plot_path)
     plt.close()
@@ -110,8 +110,8 @@ def plot_final_positions_and_orientations(positions, orientations, title, output
         positions[:, 0], positions[:, 1], c=yaw_degrees, cmap="hsv", alpha=0.5
     )
     ax1.set_title(f"{title}: Final Positions")
-    ax1.set_xlabel("X Position")
-    ax1.set_ylabel("Y Position")
+    ax1.set_xlabel("X Position (m)")
+    ax1.set_ylabel("Y Position (m)")
     ax1.axis("equal")
     ax1.grid(True)
     plt.colorbar(scatter, ax=ax1, label="Yaw Angle (degrees)")
@@ -192,8 +192,8 @@ def plot_final_positions_and_orientations(positions, orientations, title, output
     extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
     cax = ax9.imshow(heatmap.T, extent=extent, origin='lower', cmap='hot', aspect='auto')
     ax9.set_title(f"{title}: 2D Position Heatmap")
-    ax9.set_xlabel("X Position")
-    ax9.set_ylabel("Y Position")
+    ax9.set_xlabel("X Position (m)")
+    ax9.set_ylabel("Y Position (m)")
     fig.colorbar(cax, ax=ax9, label="Frequency")
 
     # Adjust layout and save the plot

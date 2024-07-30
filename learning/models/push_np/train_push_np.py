@@ -122,8 +122,8 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
             )
 
             optimizer.zero_grad()
-            predictions, _, q_z_partial = model.forward(model_data)
-            q_z = model.get_latent_space(total_model_data)
+            predictions, _, _, q_z_partial = model.forward(model_data)
+            q_z, _ = model.get_latent_space(total_model_data)
 
             loss, batch_loss, kld_loss = loss_fn(predictions, data["final_position"], q_z, q_z_partial)
             loss.backward()
@@ -198,9 +198,9 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
                 target_push_data = push_data[:, target_pushes, :]
 
                 model_data = (mesh_data, obj_data, target_push_data, context_push_data)
-                predictions, mu, q_z_partial = model.forward(model_data)
+                predictions, mu, _, q_z_partial = model.forward(model_data)
 
-                q_z = model.get_latent_space(
+                q_z, _ = model.get_latent_space(
                     (
                         mesh_data,
                         obj_data,
@@ -296,8 +296,8 @@ def main(args):
         with open(args_path, "wb") as handle:
             pickle.dump(args, handle)
 
-        train_dataset = PushNPDataset(train_data, args.n_samples)
-        validation_dataset = PushNPDataset(validation_data, args.n_samples)
+        train_dataset = PushNPDataset(train_data, args.n_samples, args.balance_dataset)
+        validation_dataset = PushNPDataset(validation_data, args.n_samples, args.balance_dataset)
         with open(os.path.join(instance_path, "train_dataset.pkl"), "wb") as handle:
             pickle.dump(train_dataset, handle)
         with open(
@@ -346,7 +346,7 @@ def main(args):
         features.remove("mass")
         features.remove("com")
         features.remove("friction")
-    model = PushNP(features, 3, d_latents=5)
+    model = PushNP(features, 3, d_latents=args.d_latents)
     train(model, train_dataloader, test_dataloader, args, args.n_epochs)
 
 
@@ -380,6 +380,13 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--instance-name", type=str, help="Name of the instance", required=True
+    )
+    parser.add_argument(
+        "--balance-dataset", action="store_true", help="Balance the dataset" 
+    )
+
+    parser.add_argument(
+        "--d-latents", type=int, help="Dimensionality of the latent space", default=5 
     )
 
     args = parser.parse_args()

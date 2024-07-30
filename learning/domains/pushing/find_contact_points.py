@@ -42,7 +42,7 @@ def find_contact_point_and_check_push(
     p.changeDynamics(cube_id, -1, mass=object_mass, lateralFriction=object_friction)
     # p.changeDynamics(cube_id, -1, mass=object_mass, lateralFriction=object_friction)
     # p.changeDynamics(sphere_id, -1, mass=object_mass, lateralFriction=object_friction)
-    p.changeDynamics(sphere_id, -1, lateralFriction=object_friction, mass=object_mass*10, spinningFriction=0.3, rollingFriction=0.3)
+    p.changeDynamics(sphere_id, -1, lateralFriction=1.6, mass=1.5, spinningFriction=0.3, rollingFriction=0.3)
 
     cube_pos, cube_orn = p.getBasePositionAndOrientation(cube_id)
     cube_pos = [
@@ -73,7 +73,6 @@ def find_contact_point_and_check_push(
     contact_points = []
     contact_normals = [] 
     positions = []
-    first = True 
     for step in range(SIMULATION_STEPS):
         p.resetBaseVelocity(
             sphere_id,
@@ -81,17 +80,8 @@ def find_contact_point_and_check_push(
         )
         p.stepSimulation()
 
-        if logging and step % 1000 == 0:
-            cube_pos, cube_orientation = p.getBasePositionAndOrientation(cube_id)
-            cube_both = []
-            for x in cube_pos:
-                cube_both.append(x)
-            for x in cube_orientation:
-                cube_both.append(x)
-            positions.append(tuple(cube_both))
-
         step_contacts = p.getContactPoints(bodyA=cube_id, bodyB=sphere_id)
-        if step_contacts and first:
+        if step_contacts:
             cube_pos, cube_orn = p.getBasePositionAndOrientation(cube_id)
             cube_inv_pos, cube_inv_orn = p.invertTransform(cube_pos, cube_orn)
             for contact in step_contacts:
@@ -104,10 +94,26 @@ def find_contact_point_and_check_push(
                 local_pos = p.multiplyTransforms(cube_inv_pos, cube_inv_orn, world_pos, [0, 0, 0, 1])[0]
                 # print(local_pos)
                 contact_points.append(local_pos)
-            first = False
+            break 
 
         if gui:
             time.sleep(0.0001)
+    
+    if contact_points == []: 
+        # print("No contact point found.")
+        return None, None, None, None 
+    
+    for step in range(SIMULATION_STEPS):
+        if logging and step % 1000 == 0: 
+            cube_pos, cube_orientation = p.getBasePositionAndOrientation(cube_id)
+            cube_both = []
+            for x in cube_pos: 
+                cube_both.append(x)
+            for x in cube_orientation: 
+                cube_both.append(x)
+            positions.append(tuple(cube_both))
+        p.resetBaseVelocity(sphere_id, linearVelocity=[push_velocity * force_x, push_velocity * force_y, 0]) 
+        p.stepSimulation() 
 
     if gui: 
         time.sleep(3) 

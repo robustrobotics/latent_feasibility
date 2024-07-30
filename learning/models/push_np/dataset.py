@@ -24,7 +24,7 @@ class PushNPDataset(Dataset):
     Specific dataset for the PushNP. You can choose to give trajectories as predictions or just the final point.
     """
 
-    def __init__(self, data_path, n_samples):
+    def __init__(self, data_path, n_samples, balance_dataset=False):
         with open(data_path, "rb") as f:
             data = pickle.load(f)
         angle_data = []
@@ -72,9 +72,29 @@ class PushNPDataset(Dataset):
                     break
                 contact_points.append(contact_point)
                 angles.append(angle)
-
             if bad:
                 continue
+            if balance_dataset: 
+                norms = np.linalg.norm(np.array(final_positions), axis=1)
+                # print(norms.shape)
+                tot = np.sum(norms)
+                n = len(object_data) 
+                probs = norms / tot   
+        
+
+                # print(n) 
+                # print(probs.shape)
+                
+                kept_indices = np.random.choice(np.arange(n), n // 4 * 3, p=probs, replace=False) 
+
+                angles = [angles[i] for i in kept_indices]
+                final_positions = [final_positions[i] for i in kept_indices]
+                trajectories = [trajectories[i] for i in kept_indices]
+                push_velocities = [push_velocities[i] for i in kept_indices]
+                contact_points = [contact_points[i] for i in kept_indices]
+                normal_vectors = [normal_vectors[i] for i in kept_indices]
+                
+                     
             normal_vector_data.append(normal_vectors)
             contact_point_data.append(contact_points)
             push_velocity_data.append(push_velocities)
