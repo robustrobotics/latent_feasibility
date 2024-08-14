@@ -96,6 +96,7 @@ class PointNetEncoder(nn.Module):
 
         self.num_geom_feats = num_geom_features
 
+        self.use_stn = use_stn
         if use_stn:
             self.stn = STN3d(channel)
 
@@ -126,19 +127,23 @@ class PointNetEncoder(nn.Module):
         # if we are co-opting a transform that has been produce in some other part of the process,
         # then use the one passed instead
         if override_transform is None:
-            trans = self.stn(x)
+            if self.use_stn: 
+                trans = self.stn(x)
+            else: 
+                trans = None 
         else:
             trans = override_transform
 
         x = x.transpose(2, 1)
-        if D > 3:
-            non_geometric_feats = x[:, :, self.num_geom_feats*3:]
-            geom_feats = []
-            for i in range(self.num_geom_feats):
-                geom_feats.append(torch.bmm(x[:, :, i * 3:(i + 1) * 3], trans))
-            x = torch.cat([*geom_feats, non_geometric_feats], dim=2)
-        else:
-            x = torch.bmm(x, trans)
+        if trans is not None:
+            if D > 3:
+                non_geometric_feats = x[:, :, self.num_geom_feats*3:]
+                geom_feats = []
+                for i in range(self.num_geom_feats):
+                    geom_feats.append(torch.bmm(x[:, :, i * 3:(i + 1) * 3], trans))
+                x = torch.cat([*geom_feats, non_geometric_feats], dim=2)
+            else:
+                x = torch.bmm(x, trans)
 
         x = x.transpose(2, 1)
         x = self.nonlin(self.bn1(self.conv1(x)))

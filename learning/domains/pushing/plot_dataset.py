@@ -5,6 +5,7 @@ import numpy as np
 import argparse
 import seaborn as sns 
 import pandas as pd 
+from scipy.spatial.transform import Rotation as R
 
 
 def load_dataset(file_path):
@@ -20,12 +21,11 @@ def extract_final_positions_and_orientations(dataset):
     final_orientations = []
     for object_data in dataset:
         for push_data in object_data:
-            _, (success, logs) = push_data
-            if logs:  # Check if logs exist
-                final_position = logs[-1][:3]  # Get the last logged position
-                final_orientation = logs[-1][3:]  # Get the last logged orientation
-                final_positions.append(final_position)
-                final_orientations.append(final_orientation)
+            _, (transformation, _) = push_data
+            final_position = transformation[:3, 3] 
+            final_orientation = R.from_matrix(transformation[:3, :3]).as_quat()
+            final_positions.append(final_position)
+            final_orientations.append(final_orientation)
     return np.array(final_positions), np.array(final_orientations)
 
 def extract_contact_points(dataset): 
@@ -102,7 +102,7 @@ def plot_final_positions_and_orientations(positions, orientations, title, output
     )
 
     # Plot positions and orientations
-    fig = plt.figure(figsize=(20, 20))
+    fig = plt.figure(figsize=(20, 25))
 
     # 2D position plot
     ax1 = fig.add_subplot(331)
@@ -195,7 +195,12 @@ def plot_final_positions_and_orientations(positions, orientations, title, output
     ax9.set_xlabel("X Position (m)")
     ax9.set_ylabel("Y Position (m)")
     fig.colorbar(cax, ax=ax9, label="Frequency")
-
+    ax10 = fig.add_subplot(3, 4, 10)
+    ax10.hist(positions[:, 2], bins=50, edgecolor='black')
+    ax10.set_title(f"{title}: Distribution of Z Values")
+    ax10.set_xlabel("Z Position (m)")
+    ax10.set_ylabel("Frequency")
+    ax10.grid(True)
     # Adjust layout and save the plot
     plt.tight_layout()
     output_path = os.path.join(output_dir, f"{title.replace(' ', '_')}.png")
@@ -235,7 +240,7 @@ def main(args):
 
     train_data = load_dataset(train_path)
     train_contact_points = extract_contact_points(train_data)
-    plot_contact_points(train_contact_points, output_dir)    
+    # plot_contact_points(train_contact_points, output_dir)    
 
     train_positions, train_orientations = extract_final_positions_and_orientations(
         train_data
