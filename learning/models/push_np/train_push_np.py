@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import numpy as np
 import tracemalloc
 import gc
+from torchinfo import summary
 
 from learning.models.push_np.create_bar_plot import plot_probabilities
 from learning.models.push_np.dataset import PushNPDataset, collate_fn
@@ -68,7 +69,8 @@ def train(model, train_dataloader, test_dataloader, args, n_epochs=10):
     torch.autograd.set_detect_anomaly(True)
     if torch.cuda.is_available():
         model = model.cuda()
-    optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=3e-3)
+    summary(model)
 
     best_loss = float("inf")
 

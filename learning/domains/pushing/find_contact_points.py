@@ -51,18 +51,30 @@ def get_relative_transform(object_transform, object_id_2):
     
     return ret
 
-def is_fallen(orientation_matrix , threshold=45): 
-    up_vector = orientation_matrix[:, 2] 
-    # print(up_vector)
-    angle = np.arccos(np.dot(up_vector, [0, 0, 1])) * 180 / np.pi 
-    return angle > threshold 
-
+def is_fallen(orientation_matrix, threshold=30): 
+    """
+    Check if the object has fallen based on the orientation matrix.
+    """
+    euler_angles = R.from_matrix(orientation_matrix).as_euler('xyz', degrees=True) 
+    if abs(euler_angles[0]) > threshold or abs(euler_angles[1]) > threshold: 
+        return True
+    return False
 
 def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, gui=False):
     """
     Description: Run a simulation of pushing an object with a robot arm.
-
-
+    @ Params:
+    - object_urdf: The URDF file of the object to push.
+    - push_angle: The angle at which to push the object (in radians). 
+    - object_angle: The angle at which the object is placed (in radians).
+    - push_velocity: The velocity at which to push the object. (Unsure if it's feasible to vary this.)
+    - offset: The offset angle to spawn the object. (Unsure if it's feasible to vary this.)
+    - gui: Whether to use the GUI for visualization.
+    @ Returns:
+    - The difference in transformation matrices between the initial and final states.
+    - The contact points between the object and the pusher.
+    - The initial transformation matrix.
+    - Whether the object has fallen. This might not be correctly implmented.
     """
     # print(object_urdf)
     time_per_step = 1.0 / 240 
@@ -74,7 +86,7 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
     robot = pb_robot.panda.Panda()
     floor = p.loadURDF("plane.urdf")
     controls = pb_robot.panda_controls.PandaControls(robot.arm)
-    Z = 0.11
+    Z = 0.11 # TODO: This should be lower, but null space resolution is needed. 
     start_radius = 0.3
     start_pose = [
         start_radius * np.cos(push_angle),
@@ -94,6 +106,7 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
     hand = robot.arm.hand
     hand.Close()
 
+    # Dynamics were basically those that were found for GraspNP. 
     p.changeDynamics(
         hand.id,
         1,
@@ -105,7 +118,7 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
         physicsClientId=ids,
     )
 
-    # Spawn the object at the given angle
+    # Spawn the object at the given angle, at a distance slightly larger than the robot's reach. 
     object_pose = [
         [0.6 * np.cos(push_angle + offset), 0.6 * np.sin(push_angle + offset), 0.5],
         [0, 0, np.sin(object_angle / 2), np.cos(object_angle / 2)],
@@ -129,6 +142,7 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
     push_object_id = p.loadURDF("cube_small.urdf", [0.41*np.cos(push_angle), 0.41*np.sin(push_angle), 0.1], [0, 0, np.sin(push_angle / 2), np.cos(push_angle / 2)], globalScaling=1.2)
     p.changeVisualShape(push_object_id, -1, rgbaColor=[0, 1, 0, 1])
 
+    # This basically magically grabs the object to perfection. 
     push_object_body = Body(push_object_id) 
     robot.arm.Grab(push_object_body, np.linalg.inv(get_relative_transform(robot.arm.GetEETransform(), push_object_id)))
     p.changeDynamics(push_object_id, -1, lateralFriction=1.0, spinningFriction=0.001, rollingFriction=0.001, mass=1.5)
@@ -150,6 +164,8 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
 
     start_position, start_orientation = p.getBasePositionAndOrientation(object_id)
 
+    # Essentally, do a form of P control on the arm to ensure that it follows the trajectory we want. 
+    # TODO: Might want to do some null space resolution to ensure the arm doesn't crash into the ground. 
     def do_iter(index):
         q = robot.arm.GetJointValues()
         # robot.arm.SetJointValues(q)
@@ -165,7 +181,6 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
         rotation_error = start_rot_matrix @ np.linalg.inv(rot_matrix)
         rotation_error_vector = R.from_matrix(rotation_error).as_rotvec()
 
-        # print(get_relative_transform(robot.id, push_object_id))
         push_force = push_velocity * np.cos(push_angle)
         push_force_y = push_velocity * np.sin(push_angle)
 
@@ -186,6 +201,9 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
                 rotation_error_vector[2] / time_per_step / 5,
             ]
         )
+        
+        # Should read Russ's notes to figure out how this actually works.
+        # Right now it is basically a black box, on Seiji's advice. 
         joint_velocity = inv_jacobian @ target_velocity
 
         for j in range(7):
@@ -205,43 +223,39 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
     for i in range(3 * 240):
         # Check for contact between the robot's hand and the object
         # print(push_object_body.get_pose())
-        contact_points = p.getContactPoints(bodyA=push_object_id, bodyB=object_id)
+        if i % 10:
+            contact_points = p.getContactPoints(bodyA=push_object_id, bodyB=object_id)
 
-        if contact_points: 
-            index_of_contact = i
-            cube_pos, cube_orn = p.getBasePositionAndOrientation(object_id)
-            cube_orn_at_contact = cube_orn
+            if contact_points: 
+                index_of_contact = i
+                cube_pos, cube_orn = p.getBasePositionAndOrientation(object_id)
+                cube_orn_at_contact = cube_orn
 
-            contact_normals = []
-            contact_pts = []
+                contact_normals = []
+                contact_pts = []
 
-            cube_inv_pos, cube_inv_orn = p.invertTransform(cube_pos, cube_orn)
-            for contact in contact_points:
-                world_pos = contact[5]
+                cube_inv_pos, cube_inv_orn = p.invertTransform(cube_pos, cube_orn)
+                for contact in contact_points:
+                    world_pos = contact[5]
 
-                world_normal = contact[7]
-                local_normal = p.multiplyTransforms(
-                    [0, 0, 0], cube_inv_orn, world_normal, [1, 0, 0, 1]
-                )[0]
-                contact_normals.append(local_normal)
+                    world_normal = contact[7]
+                    local_normal = p.multiplyTransforms(
+                        [0, 0, 0], cube_inv_orn, world_normal, [1, 0, 0, 1]
+                    )[0]
+                    contact_normals.append(local_normal)
 
-                local_pos = p.multiplyTransforms(
-                    cube_inv_pos, cube_inv_orn, world_pos, [0, 0, 0, 1]
-                )[0]
-                # print(local_pos)
-                contact_pts.append(local_pos)
-                # print(local_pos) 
+                    local_pos = p.multiplyTransforms(
+                        cube_inv_pos, cube_inv_orn, world_pos, [0, 0, 0, 1]
+                    )[0]
+                    contact_pts.append(local_pos)
 
-            first_contact = [contact_pts, contact_normals] 
-
-            break
+                first_contact = [np.mean(contact_pts, axis=0), np.sum(contact_normals, axis=0)] 
+                break
 
 
         do_iter(i)
 
-    # print(first_contact)
     if first_contact is None: 
-        # print(f"NO CONTACT FOUND, {object_urdf\n\n\n\n")
         p.disconnect()
         return None, None, None, None
     num_iters = 0 
@@ -273,8 +287,6 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
     fallen = is_fallen(final[:3, :3])
     difference = final @ np.linalg.inv(initial) 
 
-    # print(difference) 
-
     p.disconnect()
 
     return difference, first_contact, initial, fallen
@@ -292,9 +304,13 @@ def find_contact_point_and_check_push(
     logging=False,
 ):
     """
+    THIS IS OLD NOW. 
+
     Run the simulation given a specific amount of parameters.
     Returns the tuple with the contact point, whether the push was "successful", and the trajectory.
-    A push being successful is based on whether the object and the push were close in distance.
+
+    However, this uses a ball as a pusher, which isn't overwhelmingly realistic. 
+    Check "run_sim" for a more realistic simulation. 
     """
 
     # print("ANGLE DEGREES: ", angle_degrees)

@@ -22,6 +22,8 @@ def extract_final_positions_and_orientations(dataset):
     for object_data in dataset:
         for push_data in object_data:
             _, (transformation, _) = push_data
+            if transformation is None: 
+                continue
             final_position = transformation[:3, 3] 
             final_orientation = R.from_matrix(transformation[:3, :3]).as_quat()
             final_positions.append(final_position)
@@ -36,6 +38,9 @@ def extract_contact_points(dataset):
             contact_point = attributes[1] 
             if contact_point is None: 
                 continue 
+            contact_point = np.array(contact_point)
+            if (len(contact_point.shape) > 1):
+                contact_point = np.mean(contact_point, axis=0)
             contact_points.append(contact_point)
             # print(np.array(contact_point).shape) 
 
@@ -235,19 +240,20 @@ def main(args):
     os.makedirs(output_dir, exist_ok=True)
 
     # Load and plot training data
-    train_path = os.path.join(data_root_path, "train_dataset.pkl")
+    if os.path.exists(os.path.join(data_root_path, "train_dataset.pkl")):
+        train_path = os.path.join(data_root_path, "train_dataset.pkl")
 
 
-    train_data = load_dataset(train_path)
-    train_contact_points = extract_contact_points(train_data)
-    # plot_contact_points(train_contact_points, output_dir)    
+        train_data = load_dataset(train_path)
+        train_contact_points = extract_contact_points(train_data)
+        plot_contact_points(train_contact_points, output_dir)    
 
-    train_positions, train_orientations = extract_final_positions_and_orientations(
-        train_data
-    )
-    plot_final_positions_and_orientations(
-        train_positions, train_orientations, "Training Data", output_dir
-    )
+        train_positions, train_orientations = extract_final_positions_and_orientations(
+            train_data
+        )
+        plot_final_positions_and_orientations(
+            train_positions, train_orientations, "Training Data", output_dir
+        )
 
     # Load and plot test data
     test_path = os.path.join(data_root_path, "test_dataset.pkl")

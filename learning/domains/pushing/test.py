@@ -7,8 +7,11 @@ import rut
 import pybullet as p
 import time
 
-import pybullet_data
-import pb_robot.helper
+ 
+"""
+This entire file is pretty much useless. I used it to test out 
+and a couple of functions from pb_robot and verify correctness. 
+"""
 
 def testGrasping(robot):
     # pb_robot.helper.getDirectory()hjh

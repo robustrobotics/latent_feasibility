@@ -97,6 +97,9 @@ def generate_parameters(name):
     mass = np.random.uniform(*MASS_RANGE)
     friction = np.random.uniform(*FRICTION_RANGE)
 
+    mass = 0.2
+    friction = 0.07
+
     # This function is essentially a black-box for now
     com = GraspableBodySampler._sample_com(name)  # Taking this from GNP
     return {"name": name, "mass": mass, "friction": friction, "com": com}
@@ -156,7 +159,8 @@ def process_single_object(obj_data, args):
             offset = np.random.normal(loc=0, scale=OFFSET_STD_DEV)
             push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE) 
             # print("DEBUG MODE")
-            # push_angle = math.pi / 6 
+            # if _ == 0:
+            push_angle = 0
             object_angle = 0 
             offset = 0 
             push_velocity = 0.1 
@@ -170,13 +174,20 @@ def process_single_object(obj_data, args):
                     print("This case")
                     contact_points = None 
                     continue
+                transformation_ = R.from_matrix(transformation[:3,:3]).as_euler('xyz', degrees=False) 
+                if transformation_[0] < -0.4 or transformation_[0] > 0.4 or transformation_[1] < -0.4 or transformation_[1] > 0.4:
+                    print("Flipped over somehow.")
+                    contact_points = None 
+                    continue    
+
 
             # print(obj_data, transformation[:3, 3])
         # print(n_attempts)
 
         if contact_points is not None:
             # print(R.from_matrix(initial[:3,:3]).as_euler('xyz', degrees=False), object_angle)
-            data.append(((push_angle, contact_points[0], contact_points[1], body, push_velocity, initial), (transformation, fallen)))
+            # print(fallen)
+            data.append(((push_angle, contact_points[0], contact_points[1], body, push_velocity, initial, object_angle), (transformation, fallen)))
             num_fallen += fallen 
         else: 
             data.append(((None, None, None, None, None, None), (None, None))) 

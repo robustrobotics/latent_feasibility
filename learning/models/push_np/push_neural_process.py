@@ -65,13 +65,12 @@ class PushNP(nn.Module):
             self.N_MESH_FEATURES,
             self.POINT_NET_ENCODING_SIZE,
             n_geometric_features=self.N_GEOM_FEATURES,
-            use_stn=False
         )
-        # self.push_encoder = PointNetRegressor(
-        #     self.N_PUSH_FEATURES_LATENT, 
-        #     self.POINT_NET_ENCODING_SIZE, 
-        #     2
-        # )
+        self.push_encoder = PointNetRegressor(
+            self.N_PUSH_FEATURES_LATENT, 
+            self.POINT_NET_ENCODING_SIZE, 
+            2
+        )
         self.conv_layers = nn.ModuleList(
             [
                 nn.Conv1d(self.N_PUSH_FEATURES_LATENT, conv_sizes[0], 1),
@@ -126,10 +125,7 @@ class PushNP(nn.Module):
 
         latent_size = self.d_latents
         if "com" in self.input_features:
-            obj_data = obj_data.unsqueeze(2).expand(-1, latent_size, push_data.shape[1]) 
-            obj_data = obj_data.transpose(1, 2) 
-            # print(obj_data)
-            zs = torch.cat([zs, obj_data], dim=2)
+            zs = torch.cat([zs, obj_data], dim=1)
             latent_size += self.N_OBJ_FEATURES
 
         # print(zs[0])
@@ -243,12 +239,12 @@ class PushNP(nn.Module):
 
         push_vector = n_push_data.transpose(1, 2).float()
 
-        # push_vector, _ = self.push_encoder(push_vector) 
+        push_vector, _ = self.push_encoder(push_vector) 
 
         # print(push_vector.shape)
-        for conv_layer in self.conv_layers:
-            push_vector = self.activation(conv_layer(push_vector))
-        push_vector = torch.max(push_vector, dim=2)[0]
+        # for conv_layer in self.conv_layers:
+        #     push_vector = self.activation(conv_layer(push_vector))
+        # push_vector = torch.max(push_vector, dim=2)[0]
         # push_vector = torch.sum(
         #     push_vector, dim=2
         # )  # Try to aggregate with sum instead of max

@@ -13,7 +13,8 @@ import wandb
 
 def train(model, args, train_dataloader, val_dataloader): 
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3) 
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate) 
+    summary(model) 
     wandb.init(
         project="pushing-neural-process",
         config=args,
@@ -21,7 +22,7 @@ def train(model, args, train_dataloader, val_dataloader):
     )  # This is to visualize the training process in an easy way.
     if torch.cuda.is_available():
         model = model.cuda() 
-    print(summary(model))
+
 
     best_val_loss = float('inf') 
     for epoch in range(args.num_epochs): 
@@ -49,19 +50,15 @@ def train(model, args, train_dataloader, val_dataloader):
             n_context_pushes = torch.randint(1, max_context_pushes, (1,)).item()            
             perm = torch.randperm(max_context_pushes)[:n_context_pushes]
 
-            target_xs = torch.stack((data["angle"], data["push_velocities"]), dim=2)
+            target_xs = torch.stack((data["angle"], data["push_velocities"], data["initials"]), dim=2)
 
             target_xs = torch.cat((
                     target_xs,
                     data["contact_points"],
                     data["normal_vector"],
-                    data["orientation"],
                 ), dim=2,)
 
-            if args.use_full_trajectory: 
-                target_ys = torch.flatten(data["trajectory_data"], start_dim=2) 
-            else:  
-                target_ys = data["final_position"]
+            target_ys = torch.cat([data["final_position"], data["final_z_rotation"].unsqueeze(2)], dim=2) 
 
             context_xs = target_xs[:, perm] 
             context_ys = target_ys[:, perm] 
@@ -76,10 +73,10 @@ def train(model, args, train_dataloader, val_dataloader):
                     obj_data = obj_data.cuda().float()
 
             optimizer.zero_grad()
-            total_loss, bce_loss, kl_loss, mu, sigma, distance = model(context_xs, context_ys, target_xs, target_ys, mesh_data, obj_data) 
+            total_loss, bce_loss, kl_loss, mu, sigma, distance, entropy = model(context_xs, context_ys, target_xs, target_ys, mesh_data, obj_data, "train") 
             total_loss.backward() 
             optimizer.step() 
-            total_total_loss += total_loss.item()
+            # total_total_loss += total_loss.item()
             total_kld_loss += kl_loss.item()
             total_bce_loss += bce_loss.item()   
             total_train_dist += distance.item()
@@ -100,19 +97,15 @@ def train(model, args, train_dataloader, val_dataloader):
                 n_context_pushes = torch.randint(1, max_context_pushes, (1,)).item()            
                 perm = torch.randperm(max_context_pushes)[:n_context_pushes]
 
-                target_xs = torch.stack((data["angle"], data["push_velocities"]), dim=2)
+                target_xs = torch.stack((data["angle"], data["push_velocities"], data["initials"]), dim=2)
 
                 target_xs = torch.cat((
                         target_xs,
                         data["contact_points"],
                         data["normal_vector"],
-                        data["orientation"],
                     ), dim=2,)
 
-                if args.use_full_trajectory: 
-                    target_ys = torch.flatten(data["trajectory_data"], start_dim=2) 
-                else:  
-                    target_ys = data["final_position"]
+                target_ys = torch.cat([data["final_position"], data["final_z_rotation"].unsqueeze(2)], dim=2) 
 
                 context_xs = target_xs[:, perm] 
                 context_ys = target_ys[:, perm] 
@@ -126,10 +119,10 @@ def train(model, args, train_dataloader, val_dataloader):
                     if args.use_obj_prop:
                         obj_data = obj_data.cuda().float()
 
-                total_loss, bce_loss, kl_loss, mu, sigma, distance = model(context_xs, context_ys, target_xs, target_ys, mesh_data, obj_data, "validate") 
+                total_loss, bce_loss, kl_loss, mu, sigma, distance, entropy = model(context_xs, context_ys, target_xs, target_ys, mesh_data, obj_data, "validate") 
                 val_loss += bce_loss.item() 
                 val_avg_dist += distance.item()
-
+        total_total_loss = total_kld_loss + total_bce_loss 
 
         wandb.log({
             "train/total_loss": total_total_loss / len(train_dataloader),
@@ -169,8 +162,6 @@ def main(args):
     
     if os.path.exists(instance_path): 
         print(f'Instance {args.instance} found in dataset {args.dataset}.') 
-        with open(os.path.join(instance_path, 'args.pkl'), 'wb') as f: 
-            pickle.dump(args, f) 
         with open(os.path.join(instance_path, 'train_dataset.pkl'), 'rb') as f: 
             train_dataset = pickle.load(f) 
         with open(os.path.join(instance_path, 'validation_dataset.pkl'), 'rb') as f: 
@@ -185,6 +176,8 @@ def main(args):
         with open(os.path.join(instance_path, 'validation_dataset.pkl'), 'wb') as f:
             pickle.dump(validation_dataset, f)
 
+    with open(os.path.join(instance_path, 'args.pkl'), 'wb') as f: 
+        pickle.dump(args, f) 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn)   
     test_loader = DataLoader(validation_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn)   
 
@@ -203,6 +196,10 @@ if __name__ == '__main__':
     parser.add_argument('--num-points', type=int, default=1024)
     parser.add_argument('--batch-size', type=int, default=32) 
     parser.add_argument('--num-epochs', type=int, default=50)
+    parser.add_argument('--d_latents', type=int, default=5)
+    parser.add_argument('--dropout', type=float, default=0.0)
+    parser.add_argument('--attention-encoding', type=int, default=512)
+    parser.add_argument('--learning-rate', type=float, default=3e-3)
 
     args = parser.parse_args() 
     main(args) 

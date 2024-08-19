@@ -75,7 +75,10 @@ class OldPushNPDataset(Dataset):
             euler_angles = []
             for push_data in object_data:
                 input_params, (success, logs) = push_data
-                angle, contact_point, normal_vector, body, push_velocity, quaternion = input_params
+                if len(input_params) == 6:
+                    angle, contact_point, normal_vector, body, push_velocity, quaternion = input_params
+                else: 
+                    angle, contact_point, normal_vector, body, push_velocity, quaternion, _ = input_params
 
                 if contact_point is None:
                     bad = True
@@ -305,13 +308,10 @@ class PushNPDataset(Dataset):
         friction_data = []
         name_data = []
         final_position_data = []
-        trajectory_data = []
         push_velocity_data = []
         normal_data = []
         contact_point_data = []
         normal_vector_data = []
-        quaternion_data = [] 
-        euler_angle_data = []
         initial_data = []
         final_z_rotation_data = [] 
 
@@ -319,6 +319,8 @@ class PushNPDataset(Dataset):
         for object_data in tqdm(data):
             # print(object_data)
             body = object_data[0][0][3]  # Get the body
+            if body is None: 
+                continue
             # print(body) 
             name, com, mass, friction = body 
             # print(com, mass, friction) body
@@ -334,68 +336,34 @@ class PushNPDataset(Dataset):
             angles = []
             final_positions = []
             final_z_rotations = [] 
-            # trajectories = []
             push_velocities = []
             contact_points = []
             normal_vectors = []
-            # quaternions = []
-            # euler_angles = []
             initials = []
             for push_data in object_data:
                 # input_params, (success, logs) = push_data
-                ((angle, contact_point, normal_vector, body, push_velocity, initial), (transformation, fallen)) = push_data
-                # angle, contact_point, normal_vector, body, push_velocity, quaternion = input_params
+                if len(push_data[0]) == 6: 
+                    ((angle, contact_point, normal_vector, body, push_velocity, initial), (transformation, fallen)) = push_data
+                else: 
+                    ((angle, contact_point, normal_vector, body, push_velocity, initial, rotation_angle), (transformation, fallen)) = push_data
 
                 if contact_point is None or fallen:
                     bad = True
                     break
-                # print(push_data) 
-
-                # quaternion = np.array(quaternion) 
-                # norm = np.linalg.norm(quaternion)
-                # quaternion = quaternion / norm 
-                # if quaternion[0] < 0: 
-                #     quaternion = -quaternion 
-                # print(push_data)
-                # quaternions.append(quaternion) 
-
-
                 push_velocities.append(push_velocity)
                 final_positions.append(transformation[:3, 3])
                 final_z_rotations.append(R.from_matrix(transformation[:3, :3]).as_euler('xyz', degrees=False)[2]) 
                 initials.append(R.from_matrix(initial[:3, :3]).as_euler('xyz', degrees=False)[2])
 
-                contact_point = np.mean(np.array(contact_point), axis=0) 
-                normal_vector = np.mean(np.array(normal_vector), axis=0)
+                if len(np.array(contact_point).shape) > 1: 
+                    contact_point = np.mean(np.array(contact_point), axis=0) 
+                    normal_vector = np.mean(np.array(normal_vector), axis=0)
                 normal_vectors.append(normal_vector)
                 contact_points.append(contact_point)
-                # print(contact_point, normal_vector)
                 angles.append(angle)
             if bad:
                 continue
-            # if balance_dataset: 
-            #     norms = np.linalg.norm(np.array(final_positions), axis=1)
-            #     # print(norms.shape)
-            #     tot = np.sum(norms)
-            #     n = len(object_data) 
-            #     probs = norms / tot   
-        
 
-            #     # print(n) 
-            #     # print(probs.shape)
-                
-            #     kept_indices = np.random.choice(np.arange(n), n // 4 * 3, p=probs, replace=False) 
-
-            #     angles = [angles[i] for i in kept_indices]
-            #     final_positions = [final_positions[i] for i in kept_indices]
-            #     trajectories = [trajectories[i] for i in kept_indices]
-            #     push_velocities = [push_velocities[i] for i in kept_indices]
-            #     contact_points = [contact_points[i] for i in kept_indices]
-            #     normal_vectors = [normal_vectors[i] for i in kept_indices]
-            #     quaternion_data = [quaternion_data[i] for i in kept_indices] 
-    
-                
-                     
             normal_vector_data.append(normal_vectors)
             contact_point_data.append(contact_points)
             push_velocity_data.append(push_velocities)
@@ -434,7 +402,6 @@ class PushNPDataset(Dataset):
 
         # new_data["trajectory_data"] = np.array(trajectory_data)
 
-        print("BRUH ", new_data["contact_points"].shape)
         # Standardizing the data
         self.data = {}
         self.data["initials"] = new_data["initials"] 
