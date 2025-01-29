@@ -94,14 +94,22 @@ def generate_parameters(name):
     GraspableBodySampler.
     """
     # Sampled from the same distributions as grasping, might want to change
-    mass = np.random.uniform(*MASS_RANGE)
-    friction = np.random.uniform(*FRICTION_RANGE)
+    # mass = np.random.uniform(*MASS_RANGE)
+    # friction = np.random.uniform(*FRICTION_RANGE)
+
+    # mass = (MASS_RANGE[0] + MASS_RANGE[1]) / 2 
+    # friction = (FRICTION_RANGE[0] + FRICTION_RANGE[1]) / 2 
 
     mass = 0.2
     friction = 0.07
 
     # This function is essentially a black-box for now
     com = GraspableBodySampler._sample_com(name)  # Taking this from GNP
+
+    # Let's only change one dimension of the COM 
+    # com[1] = 0 
+    com[2] = 0 
+
     return {"name": name, "mass": mass, "friction": friction, "com": com}
 
 
@@ -156,12 +164,12 @@ def process_single_object(obj_data, args):
                 break
             push_angle = np.random.uniform(0, 2 * math.pi) 
             object_angle = np.random.uniform(0, 2 * math.pi) 
-            offset = np.random.normal(loc=0, scale=OFFSET_STD_DEV)
-            push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE) 
+            # offset = np.random.normal(loc=0, scale=OFFSET_STD_DEV)
+            # push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE) 
             # print("DEBUG MODE")
             # if _ == 0:
-            push_angle = 0
-            object_angle = 0 
+            # push_angle = 0
+            # object_angle = 0 
             offset = 0 
             push_velocity = 0.1 
 
@@ -176,7 +184,7 @@ def process_single_object(obj_data, args):
                     continue
                 transformation_ = R.from_matrix(transformation[:3,:3]).as_euler('xyz', degrees=False) 
                 if transformation_[0] < -0.4 or transformation_[0] > 0.4 or transformation_[1] < -0.4 or transformation_[1] > 0.4:
-                    print("Flipped over somehow.")
+                    # print("Flipped over somehow.")
                     contact_points = None 
                     continue    
 
@@ -212,7 +220,6 @@ def process_single_object_old(obj_data, args):
     body = GraspableBody(
         obj_data["name"], obj_data["com"], obj_data["mass"], obj_data["friction"]
     )
-    print(obj_data["com"]) 
 
     sim_client = GraspSimulationClient(body, False)
     urdf = sim_client._get_object_urdf(body)
@@ -241,10 +248,11 @@ def process_single_object_old(obj_data, args):
                 break
             angle = np.random.uniform(0, 360)
             push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE)
-            offset = [np.random.uniform(*OFFSET_RANGE), np.random.uniform(*OFFSET_RANGE), 0]
+            # offset = [np.random.uniform(*OFFSET_RANGE), np.random.uniform(*OFFSET_RANGE), 0]
+            offset = [0, 0, 0] 
             # print("???")
             # print(args.gui)
-            print(urdf)
+            # print(urdf)
             contact_point, normals, cube_orn_at_contact, success, logs = find_contact_point_and_check_push(
                 urdf,
                 angle,

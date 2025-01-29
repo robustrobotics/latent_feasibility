@@ -19,16 +19,21 @@ def extract_final_positions_and_orientations(dataset):
     """
     final_positions = []
     final_orientations = []
+    center_of_masses = []
     for object_data in dataset:
         for push_data in object_data:
             _, (transformation, _) = push_data
+            if push_data[0][3] is None:
+                continue
+            center_of_mass = push_data[0][3].com 
             if transformation is None: 
                 continue
             final_position = transformation[:3, 3] 
             final_orientation = R.from_matrix(transformation[:3, :3]).as_quat()
             final_positions.append(final_position)
             final_orientations.append(final_orientation)
-    return np.array(final_positions), np.array(final_orientations)
+            center_of_masses.append(center_of_mass)
+    return np.array(final_positions), np.array(final_orientations), np.array(center_of_masses)
 
 def extract_contact_points(dataset): 
     contact_points = []
@@ -248,7 +253,7 @@ def main(args):
         train_contact_points = extract_contact_points(train_data)
         plot_contact_points(train_contact_points, output_dir)    
 
-        train_positions, train_orientations = extract_final_positions_and_orientations(
+        train_positions, train_orientations, train_com = extract_final_positions_and_orientations(
             train_data
         )
         plot_final_positions_and_orientations(
@@ -258,7 +263,7 @@ def main(args):
     # Load and plot test data
     test_path = os.path.join(data_root_path, "test_dataset.pkl")
     test_data = load_dataset(test_path)
-    test_positions, test_orientations = extract_final_positions_and_orientations(
+    test_positions, test_orientations, test_com = extract_final_positions_and_orientations(
         test_data
     )
     plot_final_positions_and_orientations(
@@ -268,7 +273,7 @@ def main(args):
     # Load and plot same geometry test data
     samegeo_test_path = os.path.join(data_root_path, "samegeo_test_dataset.pkl")
     samegeo_test_data = load_dataset(samegeo_test_path)
-    samegeo_test_positions, samegeo_test_orientations = (
+    samegeo_test_positions, samegeo_test_orientations, samegeo_test_com = (
         extract_final_positions_and_orientations(samegeo_test_data)
     )
     plot_final_positions_and_orientations(
@@ -278,13 +283,44 @@ def main(args):
         output_dir,
     )
 
+    # Plot center of mass against positions
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.scatter(train_positions[:, 0], train_positions[:, 1], c=train_com[:, 0], cmap='viridis')
+    ax.set_title("Training Data: Center of Mass vs. Positions")
+    ax.set_xlabel("X Position (m)")
+    ax.set_ylabel("Y Position (m)")
+    ax.set_aspect('equal')
+    ax.grid(True)
+    fig.colorbar(ax.scatter(train_positions[:, 0], train_positions[:, 1], c=train_com[:, 0], cmap='viridis'), ax=ax, label="Center of Mass X")
+    output_path = os.path.join(output_dir, f"com_vs_positions.png")
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+    print(f"Plot saved to {output_path}")
+
+
+    # Plot center of mass against positions, zoomed in
+    fig, ax = plt.subplots(figsize=(10, 10))
+    mask = (train_positions[:, 0] <= 0.07) & (train_positions[:, 1] >= -0.06)
+    ax.scatter(train_positions[mask, 0], train_positions[mask, 1], c=train_com[mask, 0], cmap='viridis')
+    ax.set_title("Training Data (zoomed in): Center of Mass vs. Positions")
+    ax.set_xlabel("X Position (m)")
+    ax.set_ylabel("Y Position (m)")
+    ax.set_aspect('equal')
+    ax.set_xlim(0.05, 0.07)
+    ax.set_ylim(-0.06, -0.04)
+    ax.grid(True)
+    fig.colorbar(ax.scatter(train_positions[mask, 0], train_positions[mask, 1], c=train_com[mask, 0], cmap='viridis'), ax=ax, label="Center of Mass X")
+    output_path = os.path.join(output_dir, f"com_vs_positions_zoomed_in.png")
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+    print(f"Plot saved to {output_path}")
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Visualize final positions and orientations of sliders from pushing data."
     )
-    parser.add_argument(
-        "dataset_name", type=str, help="Name of the dataset root directory"
-    )
+    parser.add_argument("dataset_name", type=str, help="Name of the dataset root directory")
     args = parser.parse_args()
     main(args)

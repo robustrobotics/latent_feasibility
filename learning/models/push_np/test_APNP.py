@@ -94,14 +94,14 @@ def main(args):
     model.load_state_dict(torch.load(os.path.join(instance_path, 'best_model.pth')))
 
 
-    if args.use_test_dataset:
-        validation_dataset = PushNPDataset(os.path.join(dataset_path, "test_dataset.pkl"), training_args.num_points)
-    else:
-        with open(os.path.join(instance_path, "validation_dataset.pkl"), "rb") as handle:
-            validation_dataset = pickle.load(handle)
+    # if args.use_test_dataset:
+    #     validation_dataset = PushNPDataset(os.path.join(dataset_path, "test_dataset.pkl"), training_args.num_points)
+    # else:
+    #     with open(os.path.join(instance_path, "validation_dataset.pkl"), "rb") as handle:
+    #         validation_dataset = pickle.load(handle)
 
-    # with open(os.path.join(instance_path, "train_dataset.pkl"), "rb") as handle: 
-    #     validation_dataset = pickle.load(handle) 
+    with open(os.path.join(instance_path, "train_dataset.pkl"), "rb") as handle: 
+        validation_dataset = pickle.load(handle) 
 
     data_loader = DataLoader(
         validation_dataset,
@@ -121,8 +121,8 @@ def main(args):
     model.eval() 
     with torch.no_grad(): 
         for i, data in tqdm(enumerate(data_loader)): 
-            if args.num_points != -1 and args.num_points < 100 and i > 10:
-                break
+            # if args.num_points != -1 and args.num_points < 100 and i > 10:
+            #     break
             mesh_data = torch.cat((data["mesh"], data["normals"]), dim=2)
             if training_args.use_obj_prop: 
                 obj_data = torch.stack((data["mass"], data["friction"]), dim=1)
@@ -188,9 +188,9 @@ def main(args):
     all_mu = np.concatenate(all_mu, axis=0)
     all_sigma = np.concatenate(all_sigma, axis=0)
     all_final_positions = np.concatenate(all_final_positions, axis=0)
-    print(all_pushes_x[0:10])
+    # print(all_pushes_x[0:10])
 
-    find_similar(all_pushes_x, all_pushes_y, all_mu, instance_path, all_sigma)    
+    # find_similar(all_pushes_x, all_pushes_y, all_mu, instance_path, all_sigma)    
 
     average_entropy = np.mean(all_entropy) 
     print(f"Average entropy: {average_entropy}") 
@@ -292,9 +292,10 @@ def main(args):
                     color=colors[i], linestyle='--', alpha=0.5)
             
             # Add covariance ellipse
-            cov = np.array([[all_sigma[i, 0, 0], all_sigma[i, 0, 1]],
-                            [all_sigma[i, 1, 0], all_sigma[i, 1, 1]]])
-            confidence_ellipse(df['pred_x'].iloc[i], df['pred_y'].iloc[i], cov, plt.gca(), n_std=2.0, edgecolor=colors[i], alpha=0.3)
+            if not training_args.regression:
+                cov = np.array([[all_sigma[i, 0, 0], all_sigma[i, 0, 1]],
+                                [all_sigma[i, 1, 0], all_sigma[i, 1, 1]]])
+                confidence_ellipse(df['pred_x'].iloc[i], df['pred_y'].iloc[i], cov, plt.gca(), n_std=2.0, edgecolor=colors[i], alpha=0.3)
 
         plt.xlabel('X (m)')
         plt.ylabel('Y (m)')
@@ -338,10 +339,11 @@ def main(args):
                     color='gray', linestyle='--', alpha=0.5)
             
             # Add 2 standard deviation bars for each prediction
-            plt.plot([i, i], 
-                    [df['pred_orientation'].iloc[i] - 2*orientation_std[i], 
-                    df['pred_orientation'].iloc[i] + 2*orientation_std[i]],
-                    color='red', alpha=0.5)
+            if not training_args.regression:
+                plt.plot([i, i], 
+                        [df['pred_orientation'].iloc[i] - 2*orientation_std[i], 
+                        df['pred_orientation'].iloc[i] + 2*orientation_std[i]],
+                        color='red', alpha=0.5)
 
         plt.xlabel('Sample Index')
         plt.ylabel('Orientation (radians)')

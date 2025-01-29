@@ -33,3 +33,4 @@ wandb/
 *.jpeg
 *.jpg 
 *.pth
+learning/data/

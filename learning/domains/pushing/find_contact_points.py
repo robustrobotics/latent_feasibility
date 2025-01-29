@@ -29,7 +29,6 @@ def get_relative_transform(object_transform, object_id_2):
     pos1 = object_transform[:3, 3]
     orn1 = R.from_matrix(object_transform[:3, :3]).as_quat() 
 
-    
     # Get the world position and orientation of the second object
     pos2, orn2 = p.getBasePositionAndOrientation(object_id_2)
     
@@ -102,6 +101,9 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
     start_matrix[:3, 3] = start_pose
 
     newq = robot.arm.ComputeIK(start_matrix)
+    # I don't really understand why this case is even neccesary. 
+    if newq is None: 
+        return None, None, None, None 
     robot.arm.SetJointValues(newq)
     hand = robot.arm.hand
     hand.Close()
@@ -220,7 +222,7 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
 
     first_contact = None 
     index_of_contact = None
-    for i in range(3 * 240):
+    for i in range(int(3 * 240)):
         # Check for contact between the robot's hand and the object
         # print(push_object_body.get_pose())
         if i % 10:
@@ -260,7 +262,7 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
         return None, None, None, None
     num_iters = 0 
 
-    for i in range(3 * 240): 
+    for i in range(int(3 * 240)): 
         if i % 10 == 0:
             contact_points = p.getContactPoints(bodyA=push_object_id, bodyB=object_id)
             if not contact_points:

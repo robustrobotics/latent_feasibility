@@ -58,13 +58,16 @@ def evaluate_model(model, data_loader, context_num, training_args):
     return np.array(all_distances), np.array(all_entropies)
 
 def main(args):
+    print(args)
     dataset_path = os.path.join('learning', 'data', 'pushing', args.dataset)
     instance_path = os.path.join(dataset_path, args.instance)
     training_args_path = os.path.join(instance_path, 'args.pkl')
+    # print(training_args_path)
 
     with open(training_args_path, 'rb') as f:
         training_args = pickle.load(f)
 
+    # training_args.no_deterministic = False
     print(training_args)
     model = AttentionPushNP(training_args)
     model.load_state_dict(torch.load(os.path.join(instance_path, 'best_model.pth')))
@@ -124,7 +127,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='pushing')
     parser.add_argument('--instance', type=str, default='default')
-    parser.add_argument('--max_context', type=int, default=10, help='Maximum number of contexts to evaluate')
+    parser.add_argument('--max-context', type=int, default=10, help='Maximum number of contexts to evaluate')
 
     args = parser.parse_args()
     main(args)

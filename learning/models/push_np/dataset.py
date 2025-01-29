@@ -323,6 +323,8 @@ class PushNPDataset(Dataset):
                 continue
             # print(body) 
             name, com, mass, friction = body 
+
+            # name.urdf
             # print(com, mass, friction) body
             sim_client = GraspSimulationClient(body, False)
             # print(sim_client._get_object_urdf(body))
@@ -347,7 +349,12 @@ class PushNPDataset(Dataset):
                 else: 
                     ((angle, contact_point, normal_vector, body, push_velocity, initial, rotation_angle), (transformation, fallen)) = push_data
 
-                if contact_point is None or fallen:
+                if contact_point is None or fallen: 
+                    bad = True 
+                    break 
+                final_x = transformation[0, 3] 
+                final_y = transformation[1, 3] 
+                if (final_x ** 2 + final_y ** 2) > 1.21:
                     bad = True
                     break
                 push_velocities.append(push_velocity)
@@ -409,10 +416,11 @@ class PushNPDataset(Dataset):
         self.data["final_z_rotation"] = new_data["final_z_rotation"] 
         print(f"shape of final_z_rotation: {self.data['final_z_rotation'].shape}")
 
-        scaler = StandardScaler()
 
         # self.data["orientation"] = new_data["orientation"]
 
+
+        # Normalizes on each dimension 
         contact_point_shape = new_data["contact_points"].shape
         contact_point_flat = new_data["contact_points"].reshape(-1, 3)
         self.data["contact_points_min"] = np.zeros(3)
@@ -430,6 +438,7 @@ class PushNPDataset(Dataset):
 
         # Normalize angles, friction, mass, final positions, trajectory data, and push velocities
         for key in ["angle", "friction", "mass", "push_velocities"]:
+            scaler = StandardScaler()
             flat_value = new_data[key].reshape(-1, 1)
             standardized_value = scaler.fit_transform(flat_value).reshape(
                 new_data[key].shape
@@ -438,6 +447,7 @@ class PushNPDataset(Dataset):
             print(f"shape of {key}: {self.data[key].shape}")
 
         # Normalize mesh data by scaling each dimension (x, y, z) separately
+
         mesh_shape = new_data["mesh"].shape
         mesh_flat = new_data["mesh"].reshape(-1, 3)
         self.data["mesh_min"] = np.zeros(3)
