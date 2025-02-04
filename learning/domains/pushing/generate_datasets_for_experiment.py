@@ -204,7 +204,18 @@ def process_single_object(obj_data, args):
     # if num_fallen == 0:
     #     print("No fallen objects for ", obj_data)
     # print(num_fallen, "/", args.n_pushes_per_object)
+    print(f'num pybullet instances: {count_num_pybullet_instances(1000)}')
     return data 
+
+
+def count_num_pybullet_instances(max_counter):
+
+    n_connected_instances = 0
+
+    for _c in range(max_counter):
+        n_connected_instances += p.getConnectionInfo(_c)
+
+    return n_connected_instances
 
 def process_single_object_old(obj_data, args):
     """
@@ -332,7 +343,7 @@ def main(args):
         )
         generate_object_parameters(test_samegeo_args)
 
-    num_processes = 4 if not args.gui else 1 
+    num_processes = 1 if not args.gui else 1 
     # num_processes = 1
     print("Num Processes: ", num_processes)
     pool = multiprocessing.Pool(processes=num_processes, initializer=init_pool)
