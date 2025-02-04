@@ -235,14 +235,16 @@ class APNPEncoderLatent(nn.Module):
         self.POINT_NET_ENCODING_SIZE = point_net_encoding_size
         if args.use_full_trajectory:
             self.PUSH_DIMENSION = (
-                5 + 3 + 4 + 7 * 50 + self.POINT_NET_ENCODING_SIZE
+                5 + 3 + 4 + 7 * 50 + self.POINT_NET_ENCODING_SIZE 
             )  # defunct case
         else:
-            self.PUSH_DIMENSION = 9 + 4 + self.POINT_NET_ENCODING_SIZE
+            self.PUSH_DIMENSION = 9 + 4 + self.POINT_NET_ENCODING_SIZE # QUESTION (sageshoyu): interpretation of dimension sum?
+
         self.EMBED_DIMENSION = embed_dimension
         self.HEADS = h
 
-        self.first = nn.Linear(self.PUSH_DIMENSION, self.EMBED_DIMENSION)
+        self.first = nn.Linear(self.PUSH_DIMENSION, self.EMBED_DIMENSION) # QUESTION (sageshoyu): missing a ReLu layer? 
+                                                                          # could _probably_ a deeper MLP here (paper has one)
         self.multihead = nn.ModuleList(
             nn.MultiheadAttention(
                 embed_dim=self.EMBED_DIMENSION,
@@ -253,10 +255,10 @@ class APNPEncoderLatent(nn.Module):
             for _ in range(2)
         )
         self.penultimate = nn.Sequential(
-            nn.Linear(self.EMBED_DIMENSION, self.EMBED_DIMENSION), nn.ReLU()
+            nn.Linear(self.EMBED_DIMENSION, self.EMBED_DIMENSION), nn.ReLU() 
         )
         self.mean = nn.Linear(self.EMBED_DIMENSION, d_latents)
-        self.log_var = nn.Linear(self.EMBED_DIMENSION, d_latents)
+        self.log_var = nn.Linear(self.EMBED_DIMENSION, d_latents) 
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, context_x, context_y, mesh_encoding):
