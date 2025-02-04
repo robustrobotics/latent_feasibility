@@ -213,7 +213,7 @@ def count_num_pybullet_instances(max_counter):
     n_connected_instances = 0
 
     for _c in range(max_counter):
-        n_connected_instances += p.getConnectionInfo(_c)
+        n_connected_instances += p.getConnectionInfo(_c)['isConnected']
 
     return n_connected_instances
 
@@ -343,7 +343,7 @@ def main(args):
         )
         generate_object_parameters(test_samegeo_args)
 
-    num_processes = 1 if not args.gui else 1 
+    num_processes = 2 if not args.gui else 1 
     # num_processes = 1
     print("Num Processes: ", num_processes)
     pool = multiprocessing.Pool(processes=num_processes, initializer=init_pool)
