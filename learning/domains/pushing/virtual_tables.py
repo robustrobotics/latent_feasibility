@@ -6,14 +6,11 @@ from typing import Callable, List
 from datetime import datetime
 import copy
 
+from matplotlib.collections import PatchCollection
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import numpy as np
 
-# What's left to do:
-# - [x] Assign color regions to specific contour fills
-# - [ ] Visualize box along trajectory to track orientation (change color for resting poses)
-# - [ ] Visualize COM.
-# - [x] Create specific table instances.
 
 
 class SimulatedTable(object):
@@ -24,11 +21,16 @@ class SimulatedTable(object):
     """
 
     def __init__(self,
+                 block_width: float,
+                 block_length: float,
                  block_com_relative_to_centroid: np.ndarray,
                  is_on_table: Callable[[np.ndarray], float],
                  start_pose: np.ndarray,
                  start_ori: float,
                  goal_pos: np.ndarray):
+
+        self.block_width = block_width
+        self.block_length = block_length
         self.block_com = block_com_relative_to_centroid
         self.is_on_table_fn = is_on_table
         self.init_pose = np.array([
@@ -43,6 +45,8 @@ class SimulatedTable(object):
         self.full_traj = []
         self.rest_poses = []
 
+        self.fallen = False
+
     def apply_push_trajectory(self, pose_traj: List[np.ndarray]) -> bool:
         """
             traj (List[np.ndarray]): a timestepped sequence of object centroid _not_ COM, relative to the starting pose
@@ -55,6 +59,9 @@ class SimulatedTable(object):
             Returns (bool): Whether or not the block had fallen over the course of the trajectory.
         """
 
+        if self.fallen:
+            return True
+
         # first, compute what would be the trajectory of the block
         sim_pose_traj = np.array([self.pose @ _Tp for _Tp in pose_traj])
 
@@ -64,7 +71,10 @@ class SimulatedTable(object):
         for _Tp in sim_pose_traj:
             self.full_traj.append(_Tp)
 
-            if self.is_on_table_fn(_Tp[:2, 2] + self.block_com) < 0.0:
+            _com_pos = (_Tp @ np.array([self.block_com[0], self.block_com[1], 1.0]))[:2]
+            if self.is_on_table_fn(_com_pos) < 0.0:
+                self.pose = _Tp
+                self.fallen = True
                 return True  # return True, since the block fell
 
         # Block has not fallen, update pose and return False
@@ -78,6 +88,7 @@ class SimulatedTable(object):
         self.pose = copy.deepcopy(self.init_pose)
         self.full_traj = []
         self.rest_poses = []
+        self.fallen = False
 
     def visualize(self, show: bool = False, min_x=0.0, max_x=5.0, min_y=0.0, max_y=5.0, res=0.01):
         """
@@ -101,18 +112,52 @@ class SimulatedTable(object):
         # plot the full trajectory taken by the block
         if len(self.full_traj) > 0:
             _full_traj = np.array(self.full_traj)
-            full_traj_x = _full_traj[:, 0, 2]
-            full_traj_y = _full_traj[:, 1, 2]
-            ax.plot(full_traj_x, full_traj_y,
-                    color='b', linewidth=2.5, zorder=1)
+
+            # plot com
+            coms = _full_traj @ np.array([self.block_com[0], self.block_com[1], 1.0])
+            ax.scatter(coms[:, 0], coms[:, 1], color='black', s=8, zorder=1)
+
+            # plot block
+            block_plots = []
+
+            for _Tp in _full_traj:
+                _pos = _Tp[:2, 2]
+                _ang = np.rad2deg(np.arctan2(_Tp[1, 0], _Tp[0, 0]))
+
+                _patch = patches.Rectangle(_pos - np.array([self.block_length / 2, self.block_width / 2]),
+                                           self.block_length,
+                                           self.block_width,
+                                           angle=_ang,
+                                           rotation_point='center')
+                block_plots.append(_patch)
+
+            ax.add_collection(
+                PatchCollection(block_plots, fc='none', ec='black', zorder=1)
+            )
 
         # plot the resting positions of the block
         if len(self.rest_poses) > 0:
             _rest_poses = np.array(self.rest_poses)
-            rest_pos_x = _rest_poses[:, 0, 2]
-            rest_pos_y = _rest_poses[:, 1, 2]
-            ax.scatter(rest_pos_x, rest_pos_y, color='r', s=8, zorder=2)
 
+            # plot com
+            coms = _rest_poses @ np.array([self.block_com[0], self.block_com[1], 1.0])
+            ax.scatter(coms[:, 0], coms[:, 1], color='red', s=5, zorder=1)
+
+            block_plots = []
+            for _Tp in _rest_poses:
+                _pos = _Tp[:2, 2]
+                _ang = np.rad2deg(np.arctan2(_Tp[1, 0], _Tp[0, 0]))
+
+                _patch = patches.Rectangle(_pos - np.array([self.block_length / 2, self.block_width / 2]),
+                                           self.block_length,
+                                           self.block_width,
+                                           angle=_ang,
+                                           rotation_point='center')
+                block_plots.append(_patch)
+
+        ax.add_collection(
+            PatchCollection(block_plots, fc='none', ec='red', zorder=1)
+        )
         ax.scatter([self.goal_pos[0]], [self.goal_pos[1]], color='g', zorder=1)
 
         ax.set_aspect('equal', adjustable='box')
@@ -131,6 +176,8 @@ class SimulatedTable(object):
 
 class BoxTable(SimulatedTable):
     def __init__(self,
+                 block_width: float,
+                 block_length: float,
                  block_com_relative_to_centroid,
                  table_length=5.0,
                  table_width=2.5
@@ -142,7 +189,9 @@ class BoxTable(SimulatedTable):
         def is_on_table(xy):
             return np.min(table_center - np.abs(table_center - xy), axis=-1)
 
-        super().__init__(block_com_relative_to_centroid,
+        super().__init__(block_width,
+                         block_length,
+                         block_com_relative_to_centroid,
                          is_on_table,
                          start_pos,
                          0.0,
@@ -151,9 +200,11 @@ class BoxTable(SimulatedTable):
 
 class BeamTable(SimulatedTable):
     def __init__(self,
+                 block_width: float,
+                 block_length: float,
                  block_com_relative_to_centroid,
                  table_length=4.0,
-                 narrow_width = 0.5,
+                 narrow_width=0.5,
                  platform_rad=0.5):
 
         table_center = np.array(
@@ -171,12 +222,14 @@ class BeamTable(SimulatedTable):
 
             return np.maximum(on_narrow, np.maximum(on_start_platform, on_goal_platform))
 
-        super().__init__(block_com_relative_to_centroid,
+        super().__init__(block_width, block_length, block_com_relative_to_centroid,
                          is_on_table, start_pos, 0.0, goal_pos)
 
 
 class RingTable(SimulatedTable):
     def __init__(self,
+                 block_width: float,
+                 block_length: float,
                  block_com_relative_to_centroid,
                  ring_center=np.ones(2) * 2.5,
                  outer_rad=2.0,
@@ -209,7 +262,9 @@ class RingTable(SimulatedTable):
                 goal_platform
             )
 
-        super().__init__(block_com_relative_to_centroid,
+        super().__init__(block_width,
+                         block_length,
+                         block_com_relative_to_centroid,
                          is_on_table,
                          start_pos,
                          start_ori=0.0,
@@ -218,18 +273,41 @@ class RingTable(SimulatedTable):
 
 if __name__ == '__main__':
 
-    traj = [np.eye(3) for _ in range(0, 10)]
-    for i in range(len(traj)):
-        traj[i][0, 2] += 0.3 * i
+    traj1 = [np.eye(3) for _ in range(0, 10)]
+    turn_rate = np.pi / 3 
+    for i in range(len(traj1)):
+        traj1[i][0, 2] += 0.3 * i
+        traj1[i][:2, :2] = np.array([[np.cos(i * turn_rate), -np.sin(i * turn_rate)], 
+                                 [np.sin(i * turn_rate),  np.cos(i * turn_rate)]])
+        
 
-    bxt = BoxTable(np.zeros(2))
-    print(bxt.apply_push_trajectory(traj))
+    traj2 = [np.eye(3) for _ in range(0, 10)]
+    for i in range(len(traj1)):
+        traj2[i][1, 2] += 0.3 * i
+        # traj2[i][:2, :2] = np.array([[np.cos(i * turn_rate), -np.sin(i * turn_rate)], 
+        #                          [np.sin(i * turn_rate),  np.cos(i * turn_rate)]])
+
+
+    bxt = BoxTable(0.3, 0.5, np.ones(2) * 0.1)
+    print(f'off table after push1: {bxt.apply_push_trajectory(traj1)}')
+    print(f'off table after push2: {bxt.apply_push_trajectory(traj2)}')
     bxt.visualize(show=True)
 
-    bmt = BeamTable(np.zeros(2))
-    print(bmt.apply_push_trajectory(traj))
+    bmt = BeamTable(0.3, 0.5, np.ones(2) * 0.1)
+    print(f'off table after push1: {bmt.apply_push_trajectory(traj1)}')
+    print(f'off table after push2: {bmt.apply_push_trajectory(traj2)}')
     bmt.visualize(show=True)
 
-    rt = RingTable(np.zeros(2))
-    print(rt.apply_push_trajectory(traj))
+    rt = RingTable(0.3, 0.5, np.ones(2) * 0.1)
+    print(f'off table after push1: {rt.apply_push_trajectory(traj1)}')
+    print(f'off table after push2: {rt.apply_push_trajectory(traj2)}')
     rt.visualize(show=True)
+
+    # can reset for a new run too:
+    rt.reset()
+    print(f'off table after push2: {rt.apply_push_trajectory(traj2)}')
+    print(f'off table after push1: {rt.apply_push_trajectory(traj1)}')
+    rt.visualize(show=True)
+
+    # can query distance to goal:
+    print(f'distance to goal on ringtable: {rt.get_distance_to_goal()}m')
