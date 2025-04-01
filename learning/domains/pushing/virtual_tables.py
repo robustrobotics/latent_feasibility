@@ -10,9 +10,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # What's left to do:
+# - [x] Assign color regions to specific contour fills
 # - [ ] Visualize box along trajectory to track orientation (change color for resting poses)
 # - [ ] Visualize COM.
-# - [ ] Create specific table instances.
+# - [x] Create specific table instances.
 
 
 class SimulatedTable(object):
@@ -78,7 +79,7 @@ class SimulatedTable(object):
         self.full_traj = []
         self.rest_poses = []
 
-    def visualize(self, show: bool = False, min_x=0.0, max_x=2.0, min_y=0.0, max_y=2.0, res=0.01):
+    def visualize(self, show: bool = False, min_x=0.0, max_x=5.0, min_y=0.0, max_y=5.0, res=0.01):
         """
             show (bool): whether to use `maptolitlib.pyplot.show`. If se to `False` (default), then
                          save an instance of the figure in the current directory 
@@ -94,14 +95,16 @@ class SimulatedTable(object):
 
         # plot a filled contour that visualizes table
         Z_on_table = self.is_on_table_fn(XY)
-        ax.contourf(X, Y, Z_on_table, [0.0, 1.0], zorder=-1)
+        ax.contourf(X, Y, Z_on_table, [-100.0, 0.0, 100.0],
+                    colors=['w', 'gray', 'gray'], zorder=-1)
 
         # plot the full trajectory taken by the block
         if len(self.full_traj) > 0:
             _full_traj = np.array(self.full_traj)
             full_traj_x = _full_traj[:, 0, 2]
             full_traj_y = _full_traj[:, 1, 2]
-            ax.plot(full_traj_x, full_traj_y, color='b', linewidth=2.5, zorder=1)
+            ax.plot(full_traj_x, full_traj_y,
+                    color='b', linewidth=2.5, zorder=1)
 
         # plot the resting positions of the block
         if len(self.rest_poses) > 0:
@@ -112,7 +115,6 @@ class SimulatedTable(object):
 
         ax.scatter([self.goal_pos[0]], [self.goal_pos[1]], color='g', zorder=1)
 
-
         ax.set_aspect('equal', adjustable='box')
 
         if show:
@@ -122,29 +124,112 @@ class SimulatedTable(object):
         uid = datetime.now().strftime("%m-%d-%y_%H-%M-%S")
         plt.savefig(f'table_{uid}.png')
 
+# use SDF-like tricks to represent the table surface (faster than messing with explicit geom)
+# handy cheatsheet: https://iquilezles.org/articles/distfunctions/
+# NOTE: everything in cheatsheet above has been flipped by a _sign_
+
+
+class BoxTable(SimulatedTable):
+    def __init__(self,
+                 block_com_relative_to_centroid,
+                 table_length=5.0,
+                 table_width=2.5
+                 ):
+        table_center = np.array([table_length / 2, table_width / 2])
+        start_pos = np.array([table_length / 4, table_width / 2])
+        goal_pos = np.array([3 * table_length / 4, table_width / 2])
+
+        def is_on_table(xy):
+            return np.min(table_center - np.abs(table_center - xy), axis=-1)
+
+        super().__init__(block_com_relative_to_centroid,
+                         is_on_table,
+                         start_pos,
+                         0.0,
+                         goal_pos)
+
+
+class BeamTable(SimulatedTable):
+    def __init__(self,
+                 block_com_relative_to_centroid,
+                 table_length=4.0,
+                 narrow_width = 0.5,
+                 platform_rad=0.5):
+
+        table_center = np.array(
+            [table_length / 2 + platform_rad, platform_rad])
+        start_pos = np.array([platform_rad, platform_rad])
+        goal_pos = np.array([platform_rad + table_length, platform_rad])
+
+        def is_on_table(xy):
+            on_narrow = np.min(
+                np.array([table_length / 2, narrow_width / 2]) - np.abs(table_center - xy), axis=-1)
+            on_start_platform = platform_rad - \
+                np.linalg.norm(start_pos - xy, ord=np.inf, axis=-1)
+            on_goal_platform = platform_rad - \
+                np.linalg.norm(goal_pos - xy, ord=np.inf, axis=-1)
+
+            return np.maximum(on_narrow, np.maximum(on_start_platform, on_goal_platform))
+
+        super().__init__(block_com_relative_to_centroid,
+                         is_on_table, start_pos, 0.0, goal_pos)
+
 
 class RingTable(SimulatedTable):
     def __init__(self,
                  block_com_relative_to_centroid,
-                 start_pose,
-                 start_ori,
-                 goal_pos):
+                 ring_center=np.ones(2) * 2.5,
+                 outer_rad=2.0,
+                 inner_rad=1.5,
+                 platform_rad=0.5,
+                 ):
+
+        track_middle_rad_disp = np.array([(outer_rad + inner_rad) / 2, 0.0])
+        start_pos = ring_center - track_middle_rad_disp
+        goal_pos = ring_center + track_middle_rad_disp
 
         def is_on_table(xy):
-            # if there is a batching dimension...
-            return 1.0 - np.linalg.norm(np.ones(2) - xy, axis=-1) 
+            # the ring-like tables
+            dist_from_center = np.linalg.norm(ring_center - xy, axis=-1)
+            outer_ring = outer_rad - dist_from_center
+            inner_ring = inner_rad - dist_from_center
+
+            # the squares placed at the beginning/end
+            dist_from_start = np.linalg.norm(
+                start_pos - xy, ord=np.inf, axis=-1)
+            dist_from_goal = np.linalg.norm(
+                goal_pos - xy, ord=np.inf, axis=-1)
+
+            start_platform = platform_rad - dist_from_start
+            goal_platform = platform_rad - dist_from_goal
+
+            return np.maximum(np.maximum(
+                np.minimum(outer_ring, -inner_ring),
+                start_platform),
+                goal_platform
+            )
 
         super().__init__(block_com_relative_to_centroid,
-                         is_on_table, start_pose, start_ori, goal_pos)
+                         is_on_table,
+                         start_pos,
+                         start_ori=0.0,
+                         goal_pos=goal_pos)
 
 
 if __name__ == '__main__':
-    rt = RingTable(np.zeros(2), np.ones(2), 0.0, np.zeros(2))
-    rt.visualize(show=True)
 
     traj = [np.eye(3) for _ in range(0, 10)]
     for i in range(len(traj)):
-        traj[i][0, 2] += 0.1 * i
+        traj[i][0, 2] += 0.3 * i
 
-    rt.apply_push_trajectory(traj)
+    bxt = BoxTable(np.zeros(2))
+    print(bxt.apply_push_trajectory(traj))
+    bxt.visualize(show=True)
+
+    bmt = BeamTable(np.zeros(2))
+    print(bmt.apply_push_trajectory(traj))
+    bmt.visualize(show=True)
+
+    rt = RingTable(np.zeros(2))
+    print(rt.apply_push_trajectory(traj))
     rt.visualize(show=True)
