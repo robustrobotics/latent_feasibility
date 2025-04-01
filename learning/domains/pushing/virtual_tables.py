@@ -287,7 +287,8 @@ if __name__ == '__main__':
         # traj2[i][:2, :2] = np.array([[np.cos(i * turn_rate), -np.sin(i * turn_rate)], 
         #                          [np.sin(i * turn_rate),  np.cos(i * turn_rate)]])
 
-
+    # there are optional keywords that specify geometric params of each of the tables 
+    # (see classes above)
     bxt = BoxTable(0.3, 0.5, np.ones(2) * 0.1)
     print(f'off table after push1: {bxt.apply_push_trajectory(traj1)}')
     print(f'off table after push2: {bxt.apply_push_trajectory(traj2)}')
