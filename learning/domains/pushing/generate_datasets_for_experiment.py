@@ -181,7 +181,7 @@ def main(args):
         )
         generate_object_parameters(test_samegeo_args)
 
-    num_processes = 4 if not args.gui else 1 
+    num_processes = 2 if not args.gui else 1 
     # num_processes = 1
     # print("Num Processes: ", num_processes)
     pool = multiprocessing.Pool(processes=num_processes, initializer=init_pool)
