@@ -2,6 +2,8 @@ import numpy as np
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
+import os
+import pickle
 
 
 from learning.models.pointnet import PointNetRegressor
@@ -50,6 +52,19 @@ class AttentionPushNP(nn.Module):
         )
         self.args = args
 
+        print("Args", args)
+
+        if hasattr(self.args, 'use_regression_model') and self.args.use_regression_model: 
+            path = os.path.join("learning", "data", "pushing", args.dataset, args.regression_model)
+            weights = torch.load(os.path.join(path, "best_model.pth"))
+            regression_args = pickle.load(open(os.path.join(path, "args.pkl"), "rb"))
+            regression_args.use_regression_model = False
+            regression_model = AttentionPushNP(regression_args)
+            regression_model.load_state_dict(weights) 
+            self.regression_model = regression_model 
+            for param in self.regression_model.parameters(): 
+                param.requires_grad = False # freeze all the weights
+
     def forward(
         self, context_x, context_y, target_x, target_y, mesh, obj, mode="train"
     ):
@@ -95,12 +110,27 @@ class AttentionPushNP(nn.Module):
             )
             bce_loss = self.bce_loss_mixture(distributions, target_y, mix)
             distance = self.average_distance(distributions, target_y, mix)
-        else:
+        elif not hasattr(self.args, 'use_regression_model') or not self.args.use_regression_model:
             distributions, mu, sigma = self.decoder(
                 target_x, deterministic, qzs, mesh_vector, obj
             )
             bce_loss = self.bce_loss_fn(distributions, target_y, mu)
             distance = self.average_distance(distributions, target_y)
+        else: 
+            distributions, mu, sigma = self.decoder(
+                target_x, deterministic, qzs, mesh_vector, obj
+            )
+            mu_regression = self.regression_model(
+                context_x, context_y, target_x, target_y, mesh, obj, mode=mode
+            )[3] 
+            # print(mu_regression.shape, mu.shape, sigma.shape)
+            # exit() 
+            bce_loss, distributions = self.only_train_distrib(mu_regression, sigma, target_y) 
+            distance = self.average_distance(distributions, target_y)
+
+            mu = mu_regression
+
+
         kl_loss = None
         entropy = None
         total_loss = bce_loss
@@ -173,10 +203,44 @@ class AttentionPushNP(nn.Module):
             return loss / target_y.shape[0] 
 
     def kl_loss_fn(self, qzs, qz_contexts):
+        if self.args.no_kl: 
+            return torch.zeros(1).cuda()
         loss = 0
         for i in range(len(qzs)):
             loss += torch.distributions.kl_divergence(qzs[i], qz_contexts[i]) # O(batch size)
         return loss / len(qzs)
+
+    def only_train_distrib(self, regression_mu, sigma, target_y):
+        """
+        Uses the mean from the regression model and the covariance from the current model
+        to calculate the BCE loss.
+        
+        Args:
+            regression_mu: Mean from the regression model
+            sigma: Covariance matrix from the current model
+            target_y: Target outputs
+            
+        Returns:
+            BCE loss calculated using the combined distribution
+        """
+        B, N = regression_mu.shape[0], regression_mu.shape[1]
+        
+        # Create distributions using the regression model's mean and current model's covariance
+        distributions = [
+            [
+                torch.distributions.MultivariateNormal(
+                    regression_mu[b][j], 
+                    covariance_matrix=sigma[b][j]
+                )
+                for j in range(N)
+            ]
+            for b in range(B)
+        ]
+        
+        # Calculate BCE loss with the new distributions
+        bce_loss = self.bce_loss_fn(distributions, target_y, regression_mu)
+        
+        return bce_loss, distributions
 
     def average_distance(self, distributions, target_y, mixture=None):
         distance = 0
@@ -285,12 +349,22 @@ class APNPEncoderLatent(nn.Module):
 
         # print(mean)
 
-        return [
-            torch.distributions.MultivariateNormal(
-                mean[i], covariance_matrix=torch.diag(var[i])
+        
+        res =  []
+        has_invalid = not torch.all(torch.isfinite(mean)) or not torch.all(torch.isfinite(var)) 
+        if has_invalid:
+            print(mean, var) 
+
+
+        for i in range(B): 
+            # print(mean[i], var[i])
+            res.append(
+                torch.distributions.MultivariateNormal(
+                    mean[i], covariance_matrix=torch.diag(var[i])
+                )
             )
-            for i in range(B)
-        ]
+        return res
+        
 
 
 class APNPEncoderDeterministic(nn.Module):

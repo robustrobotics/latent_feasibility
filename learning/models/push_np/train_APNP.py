@@ -60,6 +60,8 @@ def train(model, args, train_dataloader, val_dataloader):
                 ), dim=2,)
 
             target_ys = torch.cat([data["final_position"], data["final_z_rotation"].unsqueeze(2)], dim=2) 
+            # print("Target xs", target_xs[0]) 
+            # print("obj data", obj_data) 
 
             context_xs = target_xs[:, perm] 
             context_ys = target_ys[:, perm] 
@@ -209,7 +211,7 @@ if __name__ == '__main__':
     parser.add_argument('--use-full-trajectory', action='store_true') 
     parser.add_argument('--num-points', type=int, default=1024)
     parser.add_argument('--batch-size', type=int, default=32) 
-    parser.add_argument('--num-epochs', type=int, default=50)
+    parser.add_argument('--num-epochs', type=int, default=300)
     parser.add_argument('--d-latents', type=int, default=5)
     parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--attention-encoding', type=int, default=512)
@@ -220,7 +222,17 @@ if __name__ == '__main__':
     parser.add_argument('--latent-samp', type=int, default=-1) 
     parser.add_argument('--guess-obj',action='store_true')
     parser.add_argument('--no-contact', action='store_true')
+    parser.add_argument('--no-kl', action='store_true')
+    parser.add_argument('--use-regression-model', action='store_true') 
+    parser.add_argument('--regression-model', type=str, default="")
+
+        
+
     
     args = parser.parse_args() 
     args.point_cloud = False
+
+    if args.use_regression_model: 
+        if args.regression_model == "": 
+            raise ValueError("Regression model must be specified when using regression model") 
     main(args) 

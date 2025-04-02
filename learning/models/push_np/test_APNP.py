@@ -95,13 +95,13 @@ def main(args):
 
 
     # if args.use_test_dataset:
-    #     validation_dataset = PushNPDataset(os.path.join(dataset_path, "test_dataset.pkl"), training_args.num_points)
+        # validation_dataset = PushNPDataset(os.path.join(dataset_path, "test_dataset.pkl"), training_args.num_points)
     # else:
-    #     with open(os.path.join(instance_path, "validation_dataset.pkl"), "rb") as handle:
-    #         validation_dataset = pickle.load(handle)
+    with open(os.path.join(instance_path, "validation_dataset.pkl"), "rb") as handle:
+        validation_dataset = pickle.load(handle)
 
-    with open(os.path.join(instance_path, "train_dataset.pkl"), "rb") as handle: 
-        validation_dataset = pickle.load(handle) 
+    # with open(os.path.join(instance_path, "train_dataset.pkl"), "rb") as handle: 
+    #     validation_dataset = pickle.load(handle) 
 
     data_loader = DataLoader(
         validation_dataset,
@@ -121,8 +121,8 @@ def main(args):
     model.eval() 
     with torch.no_grad(): 
         for i, data in tqdm(enumerate(data_loader)): 
-            # if args.num_points != -1 and args.num_points < 100 and i > 10:
-            #     break
+            if args.num_points != -1 and args.num_points < 100 and i > 10:
+                break
             mesh_data = torch.cat((data["mesh"], data["normals"]), dim=2)
             if training_args.use_obj_prop: 
                 obj_data = torch.stack((data["mass"], data["friction"]), dim=1)
@@ -205,9 +205,10 @@ def main(args):
     test_array = np.zeros(shape=(1)) 
     pos_min = np.concatenate([validation_dataset.data["final_position_min"][: all_mu.shape[-1] - 1], test_array], axis=0)
 
-    all_mu = (pos_max - pos_min) * all_mu + pos_min  
-    all_sigma = all_sigma * (pos_max - pos_min) ** 2
-    all_final_positions = all_final_positions * (pos_max - pos_min) + pos_min
+    print("POS ", pos_max, pos_min) 
+    # all_mu = (pos_max - pos_min) * all_mu + pos_min  
+    # all_sigma = all_sigma * (pos_max - pos_min) ** 2
+    # all_final_positions = all_final_positions * (pos_max - pos_min) + pos_min
 # 
     perm = np.random.permutation(len(all_mu))[:num_points]
     all_mu = all_mu[perm]

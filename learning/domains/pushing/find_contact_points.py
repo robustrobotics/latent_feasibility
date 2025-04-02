@@ -103,6 +103,7 @@ def run_sim(object_urdf, push_angle, object_angle, push_velocity=0.1, offset=0, 
     newq = robot.arm.ComputeIK(start_matrix)
     # I don't really understand why this case is even neccesary. 
     if newq is None: 
+        p.disconnect()
         return None, None, None, None 
     robot.arm.SetJointValues(newq)
     hand = robot.arm.hand

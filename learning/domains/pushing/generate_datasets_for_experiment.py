@@ -9,6 +9,9 @@ import pickle
 from types import SimpleNamespace
 import numpy as np
 from scipy.spatial.transform import Rotation as R 
+from learning.domains.pushing.process_single_object import (
+    process_single_object,
+)
 
 from learning.domains.pushing.find_contact_points import (
     find_contact_point_and_check_push,
@@ -20,6 +23,7 @@ from pb_robot.planners.antipodalGraspPlanner import (
     GraspableBodySampler,
 
 )
+import tracemalloc
 
 import pb_robot 
 import pybullet as p
@@ -94,14 +98,16 @@ def generate_parameters(name):
     GraspableBodySampler.
     """
     # Sampled from the same distributions as grasping, might want to change
-    # mass = np.random.uniform(*MASS_RANGE)
-    # friction = np.random.uniform(*FRICTION_RANGE)
+    mass = np.random.uniform(*MASS_RANGE)
+    friction = np.random.uniform(*FRICTION_RANGE)
 
     # mass = (MASS_RANGE[0] + MASS_RANGE[1]) / 2 
     # friction = (FRICTION_RANGE[0] + FRICTION_RANGE[1]) / 2 
 
-    mass = 0.2
-    friction = 0.07
+    # mass = 0.2
+    # friction = 0.07
+    # print("WTF ", mass, friction) 
+
 
     # This function is essentially a black-box for now
     com = GraspableBodySampler._sample_com(name)  # Taking this from GNP
@@ -131,163 +137,6 @@ def generate_object_parameters(args):
     print("Done generating", args.directory_name)
 
 
-def process_single_object(obj_data, args):
-    """
-    A new way of simulating the pushing action that uses the robot. 
-    This is designed to create a simulation that will have more varied results, 
-    as well as being more realistic. 
-    Args: 
-        obj_data: The data for the object that is being simulated.
-        args: The arguments for the simulatio, which is inputted into the file.
-    Returns:
-        data: The data for the object that was simulated.
-    """
-    body = GraspableBody(
-        obj_data["name"], obj_data["com"], obj_data["mass"], obj_data["friction"]
-    )
-
-    sim_client = GraspSimulationClient(body, False)
-    urdf = sim_client._get_object_urdf(body)
-    sim_client.disconnect() 
-
-    data = [] 
-    # TODO: Fix cases where the robot acts weirdly 
-    # TODO: Check if offset is reasonable
-    num_fallen = 0
-    for _ in range(args.n_pushes_per_object):
-        contact_points = None 
-        n_attempts = 0
-        while contact_points is None: 
-            n_attempts += 1
-            if n_attempts > 5:
-                # transformation, contact_points, initial = run_sim(urdf, push_angle, object_angle, push_velocity, offset, gui=True) 
-                break
-            push_angle = np.random.uniform(0, 2 * math.pi) 
-            object_angle = np.random.uniform(0, 2 * math.pi) 
-            # offset = np.random.normal(loc=0, scale=OFFSET_STD_DEV)
-            # push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE) 
-            # print("DEBUG MODE")
-            # if _ == 0:
-            # push_angle = 0
-            # object_angle = 0 
-            offset = 0 
-            push_velocity = 0.1 
-
-            # print(push_angle, object_angle, push_velocity, offset)
-            
-            transformation, contact_points, initial, fallen = run_sim(urdf, push_angle, object_angle, push_velocity, offset, gui=args.gui) 
-            if contact_points is not None: 
-                initial_euler_angles = R.from_matrix(initial[:3,:3]).as_euler('xyz', degrees=False)
-                if initial_euler_angles[0] < -0.4 or initial_euler_angles[0] > 0.4 or initial_euler_angles[1] < -0.4 or initial_euler_angles[1] > 0.4:
-                    print("This case")
-                    contact_points = None 
-                    continue
-                transformation_ = R.from_matrix(transformation[:3,:3]).as_euler('xyz', degrees=False) 
-                if transformation_[0] < -0.4 or transformation_[0] > 0.4 or transformation_[1] < -0.4 or transformation_[1] > 0.4:
-                    # print("Flipped over somehow.")
-                    contact_points = None 
-                    continue    
-
-
-            # print(obj_data, transformation[:3, 3])
-        # print(n_attempts)
-
-        if contact_points is not None:
-            # print(R.from_matrix(initial[:3,:3]).as_euler('xyz', degrees=False), object_angle)
-            # print(fallen)
-            data.append(((push_angle, contact_points[0], contact_points[1], body, push_velocity, initial, object_angle), (transformation, fallen)))
-            num_fallen += fallen 
-        else: 
-            data.append(((None, None, None, None, None, None), (None, None))) 
-            num_fallen += 1
-
-    # if num_fallen == 0:
-    #     print("No fallen objects for ", obj_data)
-    # print(num_fallen, "/", args.n_pushes_per_object)
-    return data 
-
-def process_single_object_old(obj_data, args):
-    """
-    Generate the pushing actions for a singular object. This uses a simple pushing action and this function allows
-    easy use of multiprocessing for helping the data generation process speed up.
-
-    WARNING: This is old and should no longer really be used.
-    """
-    # print("????")
-    total_success = 0
-    total_fail = 0
-    # print(obj_data)
-    body = GraspableBody(
-        obj_data["name"], obj_data["com"], obj_data["mass"], obj_data["friction"]
-    )
-
-    sim_client = GraspSimulationClient(body, False)
-    urdf = sim_client._get_object_urdf(body)
-    
-
-    # run_sim(urdf) 
-
-    # print(urdf)) 
-
-    # sim_client.disconnect()
-    # run_sim(urdf, np.random.uniform(2*math.pi), np.random.uniform(2*math.pi))
-    # return
-
-    data = []
-    for _ in range(args.n_pushes_per_object):
-        angle = np.random.uniform(0, 360)
-        push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE)
-        offset = [np.random.uniform(*OFFSET_RANGE), np.random.uniform(*OFFSET_RANGE), 0]
-
-
-        contact_point = None
-        amount = 0
-        while contact_point is None: 
-            amount += 1 
-            if amount > 10:
-                break
-            angle = np.random.uniform(0, 360)
-            push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE)
-            # offset = [np.random.uniform(*OFFSET_RANGE), np.random.uniform(*OFFSET_RANGE), 0]
-            offset = [0, 0, 0] 
-            # print("???")
-            # print(args.gui)
-            # print(urdf)
-            contact_point, normals, cube_orn_at_contact, success, logs = find_contact_point_and_check_push(
-                urdf,
-                angle,
-                push_velocity,
-                obj_data["mass"],
-                obj_data["friction"],
-                obj_data["com"],
-                offset,
-                logging=True,
-                gui=args.gui
-            )
-        # if contact_point is None: 
-        #     print("NO CONTACT POINT") 
-        #     print(obj_data) 
-        #     find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data["mass"], obj_data["friction"], obj_data["com"], offset, gui=True)
-        #     print("?")
-
-        # print("DONE")
-        # _, _, logs2 = find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset, logging=True)
-        # for i in range(len(logs2)):
-        #     if logs[i][0] - logs2[i][0] > 0.1:
-        #         print("DIFFERENT")
-        # move_on = input('Move on!')
-        data.append(((angle, contact_point, normals, body, push_velocity, cube_orn_at_contact), (success, logs)))
-        # exit()
-        # if success:
-        #     find_contact_point_and_check_push(urdf, angle, push_velocity, obj_data['mass'], obj_data['friction'], obj_data['com'], offset, gui=True)
-        #     exit()
-        # time.sleep(100)
-        if success:
-            total_success += 1
-        else:
-            total_fail += 1
-
-    return data
 
 def init_pool(): 
     np.random.seed() 
@@ -334,13 +183,27 @@ def main(args):
 
     num_processes = 4 if not args.gui else 1 
     # num_processes = 1
-    print("Num Processes: ", num_processes)
+    # print("Num Processes: ", num_processes)
     pool = multiprocessing.Pool(processes=num_processes, initializer=init_pool)
     process_func = partial(process_single_object, args=args)
     object_data_list = []
 
     print(len(train_objects), len(test_objects))
 
+    # if not os.path.exists(os.path.join(data_root_path, "train_dataset.pkl")):
+    #     for i in range(args.n_property_samples_train * len(train_objects)):
+    #         path = os.path.join(train_objects_path, f"{i}.pkl")
+    #         with open(path, "rb") as handle:
+    #             object_data_list.append(pickle.load(handle))
+
+    #     results = []
+    #     for data in tqdm.tqdm(object_data_list):
+    #         results.append(process_func(data))
+
+    #     path = os.path.join(data_root_path, "train_dataset.pkl")
+    #     with open(path, "wb") as handle:
+    #         pickle.dump(results, handle)
+        
     if not os.path.exists(os.path.join(data_root_path, "train_dataset.pkl")):
         for i in range(args.n_property_samples_train * len(train_objects)):
             path = os.path.join(train_objects_path, f"{i}.pkl")
@@ -351,9 +214,17 @@ def main(args):
         # results = pool.map(process_func, object_data_list)
         with tqdm.tqdm(total=len(object_data_list), desc="Processing objects") as pbar:
             results = []
-            for result in pool.imap_unordered(process_func, object_data_list):
+            for idx, result in enumerate(pool.imap_unordered(process_func, object_data_list)):
                 results.append(result)
                 pbar.update()
+
+                # if idx % 100 == 0: 
+                #     snapshot = tracemalloc.take_snapshot()
+                #     top_stats = snapshot.statistics('lineno')
+
+                #     print("[ Top 10 ]")
+                #     for stat in top_stats[:10]:
+                #         print(stat)
 
         path = os.path.join(data_root_path, "train_dataset.pkl")
         with open(path, "wb") as handle:

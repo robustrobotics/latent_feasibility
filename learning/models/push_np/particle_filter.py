@@ -876,6 +876,10 @@ def get_model(args):
         collate_fn=collate_fn
     ) 
 
+    # if os.path.exists(os.path.join(instance_path, 'best_model.pth')): 
+    #     model = APNPDecoder(args) 
+    #     model = torch.load(os.path.join(instance_path, 'best_model.pth')) 
+    #     return model 
     return train_decoder(args, train_loader, test_loader) 
     
 def main(args):
