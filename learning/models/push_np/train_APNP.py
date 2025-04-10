@@ -52,7 +52,7 @@ def train(model, args, train_dataloader, val_dataloader):
             perm = torch.randperm(max_context_pushes)[:n_context_pushes]
 
             target_xs = torch.stack((data["angle"], data["push_velocities"], data["initials"]), dim=2)
-
+            # print(data['angle'])
             target_xs = torch.cat((
                     target_xs,
                     data["contact_points"],
@@ -209,12 +209,12 @@ if __name__ == '__main__':
     parser.add_argument('--instance', type=str, required=True)
     parser.add_argument('--use-obj-prop', action='store_true') 
     parser.add_argument('--use-full-trajectory', action='store_true') 
-    parser.add_argument('--num-points', type=int, default=1024)
+    parser.add_argument('--num-points', type=int, default=4)
     parser.add_argument('--batch-size', type=int, default=32) 
     parser.add_argument('--num-epochs', type=int, default=300)
     parser.add_argument('--d-latents', type=int, default=5)
     parser.add_argument('--dropout', type=float, default=0.0)
-    parser.add_argument('--attention-encoding', type=int, default=512)
+    parser.add_argument('--attention-encoding', type=int, default=128)
     parser.add_argument('--learning-rate', type=float, default=1e-3)
     parser.add_argument('--use-mixture' , action='store_true')
     parser.add_argument('--regression', action='store_true')
@@ -225,9 +225,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-kl', action='store_true')
     parser.add_argument('--use-regression-model', action='store_true') 
     parser.add_argument('--regression-model', type=str, default="")
-
-        
-
+    parser.add_argument('--no-pointnet', action='store_true', help='Turn off PointNetRegressor')
     
     args = parser.parse_args() 
     args.point_cloud = False

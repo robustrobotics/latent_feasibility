@@ -138,6 +138,7 @@ class SimulatedTable(object):
         # plot the resting positions of the block
         if len(self.rest_poses) > 0:
             _rest_poses = np.array(self.rest_poses)
+            # print(_rest_poses)
 
             # plot com
             coms = _rest_poses @ np.array([self.block_com[0], self.block_com[1], 1.0])
@@ -179,12 +180,18 @@ class BoxTable(SimulatedTable):
                  block_width: float,
                  block_length: float,
                  block_com_relative_to_centroid,
+                 goal_loc_x,
+                 goal_loc_y,
                  table_length=5.0,
                  table_width=2.5
                  ):
         table_center = np.array([table_length / 2, table_width / 2])
-        start_pos = np.array([table_length / 4, table_width / 2])
-        goal_pos = np.array([3 * table_length / 4, table_width / 2])
+        start_pos = np.array([1, 1])
+        goal_pos = np.array([goal_loc_x, goal_loc_y])
+
+        # Store table dimensions as class attributes
+        self.table_length = table_length
+        self.table_width = table_width
 
         def is_on_table(xy):
             return np.min(table_center - np.abs(table_center - xy), axis=-1)

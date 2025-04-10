@@ -627,35 +627,35 @@ def calc_loss(distribs, target_ys):
     Calculates the negative log-likelihood loss between the predicted distributions and target values.
 
     Args:
-        distribs (list or torch.distributions.Distribution): Predicted distributions.
+        distribs (torch.distributions.MultivariateNormal): Batched predicted distribution.
         target_ys (torch.Tensor): Ground truth target values.
 
     Returns:
         torch.Tensor: Calculated loss.
     """
-    loss = 0
-    for i in range(target_ys.shape[0]):
-        for j in range(target_ys.shape[1]):
-            loss -= distribs[i][j].log_prob(target_ys[i][j]) 
-    return loss 
+    # For batched MultivariateNormal, we can compute log_prob directly
+    # distribs is now a single batched distribution, not a list of lists
+    return -distribs.log_prob(target_ys).mean()
 
 def compute_distance(distribs, target_ys):
     """
     Computes the average Euclidean distance between the predicted means and the ground truth final positions.
 
     Args:
-        distribs (list or torch.distributions.Distribution): Predicted distributions.
+        distribs (torch.distributions.MultivariateNormal): Batched predicted distribution.
         target_ys (torch.Tensor): Ground truth target values.
 
     Returns:
         float: Average distance.
     """
-    dist = 0 
-    for i in range(target_ys.shape[0]):
-        for j in range(target_ys.shape[1]):
-            # Compute the L2 distance between predicted mean and target
-            dist += torch.norm(distribs[i][j].mean[:2] - target_ys[i][j][:2], p=2).item()
-    return dist
+    # For batched MultivariateNormal, we can compute distances directly
+    # distribs is now a single batched distribution, not a list of lists
+    # Get the mean of the distribution and target_ys, then compute L2 norm
+    # We only care about the first two dimensions (x,y) for distance
+    pred_means = distribs.mean[:, :2]  # shape: (batch_size, 2)
+    target_xy = target_ys[:, :2]       # shape: (batch_size, 2)
+    distances = torch.norm(pred_means - target_xy, p=2, dim=1)  # shape: (batch_size,)
+    return distances.mean().item()
 
 def train_decoder(args, train_loader, test_loader): 
     """
@@ -843,7 +843,7 @@ def get_model(args):
     train_data = os.path.join(dataset_path, "train_dataset.pkl")
     validation_data = os.path.join(dataset_path, "samegeo_test_dataset.pkl")
     
-    if os.path.exists(instance_path) and os.path.exists(os.path.join(instance_path, 'best_model.pth')): 
+    if os.path.exists(instance_path) and os.path.exists(os.path.join(instance_path, 'train_dataset.pkl')): 
         print(f'Instance {args.instance} found in dataset {args.dataset}.') 
         with open(os.path.join(instance_path, 'train_dataset.pkl'), 'rb') as f: 
             train_dataset = pickle.load(f) 
