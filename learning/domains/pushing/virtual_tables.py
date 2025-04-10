@@ -9,6 +9,7 @@ import copy
 from matplotlib.collections import PatchCollection
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 import numpy as np
@@ -129,7 +130,7 @@ class SimulatedTable(object):
                          save an instance of the figure in the current directory 
                          (named with current timestamp).
         """
-        _, ax = plt.subplots()
+        fig, ax = plt.subplots()
 
         # first, create a plot of the table
         x = np.arange(min_x, max_x + res, res)
@@ -190,11 +191,19 @@ class SimulatedTable(object):
                                            rotation_point='center')
                 block_plots.append(_patch)
 
+        n_rest = len(self.rest_poses)
+        cmap = mpl.colormaps['viridis'].resampled(n_rest)
+        norm = mpl.colors.BoundaryNorm(boundaries=[_i for _i in range(n_rest + 1)],
+                                       ncolors=256)
+        ecs = [cmap(norm(_np + 1)) for _np in range(n_rest)]
+
         ax.add_collection(
-            PatchCollection(block_plots, fc='none', ec='red', zorder=1)
+            PatchCollection(block_plots, fc='none', ec=ecs, zorder=1)
         )
         ax.scatter([self.goal_pos[0]], [self.goal_pos[1]], color='g', zorder=1)
 
+        fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap),
+                     ax=ax, orientation='vertical', label='# pushes')
         ax.set_aspect('equal', adjustable='box')
 
         if show:
