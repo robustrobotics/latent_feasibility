@@ -7,8 +7,8 @@ from datetime import datetime
 import copy
 
 from matplotlib.collections import PatchCollection
-import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 import numpy as np
@@ -85,15 +85,19 @@ class SimulatedTable(object):
             else:
                 _Tpm1 = sim_pose_traj[_idx - 1]
                 _pm1, _angtm1 = self.se2_to_xytheta(_Tpm1)
-                _rtm1 = R.from_rotvec(np.array([0.0, 0.0, _angtm1]))
 
                 _p, _ang = self.se2_to_xytheta(_Tp)
-                _r = R.from_rotvec(np.array([0.0, 0.0, _ang]))
-                # an easier way to interpolate the 'right way' around
-                _rot_interpolator = Slerp([0, 1], [_rtm1, _r])
 
-                _ps = np.linspace(
-                    0.0, 1.0, num=number_interp_points) * (_p - _pm1) + _pm1
+                # an easier way to interpolate the 'right way' around
+                _rtm1_r = R.from_rotvec(np.array([[0.0, 0.0, _angtm1],
+                                                 [0.0, 0.0, _ang]]))
+                _rot_interpolator = Slerp([0, 1], _rtm1_r)
+
+                _ps = np.array([
+                    (_p - _pm1) * _t
+                    for _t in np.linspace(0.0, 1.0, num=number_interp_points)
+                ]) + _pm1
+
                 _rs = _rot_interpolator(np.linspace(
                     0.0, 1.0, num=number_interp_points)).as_rotvec()[:, 2]
 
