@@ -7,10 +7,12 @@ from datetime import datetime
 import copy
 
 from matplotlib.collections import PatchCollection
-import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Slerp
 import numpy as np
-
 
 
 class SimulatedTable(object):
@@ -47,7 +49,7 @@ class SimulatedTable(object):
 
         self.fallen = False
 
-    def apply_push_trajectory(self, pose_traj: List[np.ndarray]) -> bool:
+    def apply_push_trajectory(self, pose_traj: List[np.ndarray], number_interp_points=10) -> bool:
         """
             traj (List[np.ndarray]): a timestepped sequence of object centroid _not_ COM, relative to the starting pose
                                     of the block. Pose is represnted by 3x3 SE(2) matrices.
@@ -55,6 +57,9 @@ class SimulatedTable(object):
                                     The internal state of the block will be updated to travel along this trajectory,
                                      relative to the present pose of the block.
                                      We assume a linear interpolation between provided trajectory points.
+
+            number_interp_points (int): number of (linear) interpolation points to place in between timesteps
+                                        to check for falling.
 
             Returns (bool): Whether or not the block had fallen over the course of the trajectory.
         """
@@ -68,14 +73,43 @@ class SimulatedTable(object):
         self.rest_poses.append(sim_pose_traj[0])
 
         # add to full recorded trajectory and check for block falls
-        for _Tp in sim_pose_traj:
+        for _idx, _Tp in enumerate(sim_pose_traj):
             self.full_traj.append(_Tp)
 
-            _com_pos = (_Tp @ np.array([self.block_com[0], self.block_com[1], 1.0]))[:2]
-            if self.is_on_table_fn(_com_pos) < 0.0:
-                self.pose = _Tp
-                self.fallen = True
-                return True  # return True, since the block fell
+            if _idx == 0:
+                _com_pos = (
+                    _Tp @ np.array([self.block_com[0], self.block_com[1], 1.0]))[:2]
+                if self.is_on_table_fn(_com_pos) < 0.0:
+                    self.pose = _Tp
+                    self.fallen = True
+                    return True  # return True, since the block fell
+            else:
+                _Tpm1 = sim_pose_traj[_idx - 1]
+                _pm1, _angtm1 = self.se2_to_xytheta(_Tpm1)
+
+                _p, _ang = self.se2_to_xytheta(_Tp)
+
+                # an easier way to interpolate the 'right way' around
+                _rtm1_r = R.from_rotvec(np.array([[0.0, 0.0, _angtm1],
+                                                 [0.0, 0.0, _ang]]))
+                _rot_interpolator = Slerp([0, 1], _rtm1_r)
+
+                _ps = np.array([
+                    (_p - _pm1) * _t
+                    for _t in np.linspace(0.0, 1.0, num=number_interp_points)
+                ]) + _pm1
+
+                _rs = _rot_interpolator(np.linspace(
+                    0.0, 1.0, num=number_interp_points)).as_rotvec()[:, 2]
+
+                for _ip, _ir in zip(_ps, _rs):
+                    _T = self.xytheta_to_se2(_ip, _ir)
+                    _com_pos = (
+                        _T @ np.array([self.block_com[0], self.block_com[1], 1.0]))[:2]
+                    if self.is_on_table_fn(_com_pos) < 0.0:
+                        self.pose = _Tp
+                        self.fallen = True
+                        return True  # return True, since the block fell
 
         # Block has not fallen, update pose and return False
         self.pose = sim_pose_traj[-1]
@@ -92,11 +126,11 @@ class SimulatedTable(object):
 
     def visualize(self, show: bool = False, min_x=0.0, max_x=5.0, min_y=0.0, max_y=5.0, res=0.01):
         """
-            show (bool): whether to use `maptolitlib.pyplot.show`. If se to `False` (default), then
+            show (bool): whether to use `maptolitlib.pyplot.show`. If set to `False` (default), then
                          save an instance of the figure in the current directory 
                          (named with current timestamp).
         """
-        _, ax = plt.subplots()
+        fig, ax = plt.subplots()
 
         # first, create a plot of the table
         x = np.arange(min_x, max_x + res, res)
@@ -114,15 +148,16 @@ class SimulatedTable(object):
             _full_traj = np.array(self.full_traj)
 
             # plot com
-            coms = _full_traj @ np.array([self.block_com[0], self.block_com[1], 1.0])
+            coms = _full_traj @ np.array([self.block_com[0],
+                                         self.block_com[1], 1.0])
             ax.scatter(coms[:, 0], coms[:, 1], color='black', s=8, zorder=1)
 
             # plot block
             block_plots = []
 
             for _Tp in _full_traj:
-                _pos = _Tp[:2, 2]
-                _ang = np.rad2deg(np.arctan2(_Tp[1, 0], _Tp[0, 0]))
+                _pos, _ang = self.se2_to_xytheta(_Tp)
+                _ang = np.rad2deg(_ang)
 
                 _patch = patches.Rectangle(_pos - np.array([self.block_length / 2, self.block_width / 2]),
                                            self.block_length,
@@ -141,13 +176,14 @@ class SimulatedTable(object):
             # print(_rest_poses)
 
             # plot com
-            coms = _rest_poses @ np.array([self.block_com[0], self.block_com[1], 1.0])
+            coms = _rest_poses @ np.array([self.block_com[0],
+                                          self.block_com[1], 1.0])
             ax.scatter(coms[:, 0], coms[:, 1], color='red', s=5, zorder=1)
 
             block_plots = []
             for _Tp in _rest_poses:
-                _pos = _Tp[:2, 2]
-                _ang = np.rad2deg(np.arctan2(_Tp[1, 0], _Tp[0, 0]))
+                _pos, _ang = self.se2_to_xytheta(_Tp)
+                _ang = np.rad2deg(_ang)
 
                 _patch = patches.Rectangle(_pos - np.array([self.block_length / 2, self.block_width / 2]),
                                            self.block_length,
@@ -156,11 +192,19 @@ class SimulatedTable(object):
                                            rotation_point='center')
                 block_plots.append(_patch)
 
+        n_rest = len(self.rest_poses)
+        cmap = mpl.colormaps['viridis'].resampled(n_rest)
+        norm = mpl.colors.BoundaryNorm(boundaries=[_i for _i in range(n_rest + 1)],
+                                       ncolors=256)
+        ecs = [cmap(norm(_np + 1)) for _np in range(n_rest)]
+
         ax.add_collection(
-            PatchCollection(block_plots, fc='none', ec='red', zorder=1)
+            PatchCollection(block_plots, fc='none', ec=ecs, zorder=1)
         )
         ax.scatter([self.goal_pos[0]], [self.goal_pos[1]], color='g', zorder=1)
 
+        fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap),
+                     ax=ax, orientation='vertical', label='# pushes')
         ax.set_aspect('equal', adjustable='box')
 
         if show:
@@ -169,6 +213,18 @@ class SimulatedTable(object):
 
         uid = datetime.now().strftime("%m-%d-%y_%H-%M-%S")
         plt.savefig(f'table_{uid}.png')
+
+    def se2_to_xytheta(self, _Tp):
+        _pos = _Tp[:2, 2]
+        _ang = np.arctan2(_Tp[1, 0], _Tp[0, 0])
+        return _pos, _ang
+
+    def xytheta_to_se2(self, p, r):
+        T = np.eye(3)
+        T[0:2, 2] = p
+        T[:2, :2] = np.array([[np.cos(i * r), -np.sin(i * r)],
+                              [np.sin(i * r),  np.cos(i * r)]])
+        return T
 
 # use SDF-like tricks to represent the table surface (faster than messing with explicit geom)
 # handy cheatsheet: https://iquilezles.org/articles/distfunctions/
@@ -281,20 +337,19 @@ class RingTable(SimulatedTable):
 if __name__ == '__main__':
 
     traj1 = [np.eye(3) for _ in range(0, 10)]
-    turn_rate = np.pi / 3 
+    turn_rate = np.pi / 3
     for i in range(len(traj1)):
         traj1[i][0, 2] += 0.3 * i
-        traj1[i][:2, :2] = np.array([[np.cos(i * turn_rate), -np.sin(i * turn_rate)], 
-                                 [np.sin(i * turn_rate),  np.cos(i * turn_rate)]])
-        
+        traj1[i][:2, :2] = np.array([[np.cos(i * turn_rate), -np.sin(i * turn_rate)],
+                                     [np.sin(i * turn_rate),  np.cos(i * turn_rate)]])
 
     traj2 = [np.eye(3) for _ in range(0, 10)]
     for i in range(len(traj1)):
         traj2[i][1, 2] += 0.3 * i
-        # traj2[i][:2, :2] = np.array([[np.cos(i * turn_rate), -np.sin(i * turn_rate)], 
+        # traj2[i][:2, :2] = np.array([[np.cos(i * turn_rate), -np.sin(i * turn_rate)],
         #                          [np.sin(i * turn_rate),  np.cos(i * turn_rate)]])
 
-    # there are optional keywords that specify geometric params of each of the tables 
+    # there are optional keywords that specify geometric params of each of the tables
     # (see classes above)
     bxt = BoxTable(0.3, 0.5, np.ones(2) * 0.1)
     print(f'off table after push1: {bxt.apply_push_trajectory(traj1)}')
