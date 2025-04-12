@@ -142,6 +142,9 @@ def init_pool():
     np.random.seed() 
 
 def main(args):
+    # if not os.path.exists("learning", "data", "pushing", args.data_root_name):
+    #     os.makedirs("learning", "data", "pushing", args.data_root_name)
+    #     os. 
     args = save_args(args)
     print(args)
     train_objects, test_objects = get_object_lists(args)
@@ -171,15 +174,16 @@ def main(args):
         )
         generate_object_parameters(test_args)
 
-    test_samegeo_objects_path = os.path.join(data_root_path, "test_samegeo_data")
-    if not os.path.exists(test_samegeo_objects_path):
-        os.mkdir(test_samegeo_objects_path)
-        test_samegeo_args = SimpleNamespace(
-            directory_name=test_samegeo_objects_path,
-            objects=train_objects,
-            number_of_trials=args.n_property_samples_test,
-        )
-        generate_object_parameters(test_samegeo_args)
+    if not args.no_samegeo:
+        test_samegeo_objects_path = os.path.join(data_root_path, "test_samegeo_data")
+        if not os.path.exists(test_samegeo_objects_path):
+            os.mkdir(test_samegeo_objects_path)
+            test_samegeo_args = SimpleNamespace(
+                directory_name=test_samegeo_objects_path,
+                objects=train_objects,
+                number_of_trials=args.n_property_samples_test,
+            )
+            generate_object_parameters(test_samegeo_args)
 
     num_processes = 2 if not args.gui else 1 
     # num_processes = 1
@@ -230,7 +234,7 @@ def main(args):
         with open(path, "wb") as handle:
             pickle.dump(results, handle)
     
-    if not os.path.exists(os.path.join(data_root_path, "samegeo_test_dataset.pkl")):
+    if not args.no_samegeo and not os.path.exists(os.path.join(data_root_path, "samegeo_test_dataset.pkl")):
         object_data_list = []
         for i in range(args.n_property_samples_test * len(train_objects)):
             path = os.path.join(test_samegeo_objects_path, f"{i}.pkl")
@@ -284,6 +288,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-property-samples-test", type=int, default=1)
     parser.add_argument("--n-pushes-per-object", type=int,default=3)
     parser.add_argument("--gui", action='store_true', default=False)
+    parser.add_argument("--no-samegeo", action='store_true', default=False, help="Skip generating samegeo test dataset")
     # parser.add_argument('--n-points-per-object', type=int, required=True)
     # parser.add_argument('--n-fit-grasps', type=int, required=True)
     # parser.add_argument('--grasp-noise', type=float, required=True)

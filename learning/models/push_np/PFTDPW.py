@@ -201,94 +201,29 @@ class PFTDPW:
             
             return batch_results, dists
 
-    def update_old(self, b, a, obs=None): 
-        probs = b[0] 
-        observation = b[1] 
-        total = np.zeros(4)
+    def calculate_table_boundary_loss(self, state):
+        """
+        Calculate a simple loss term that penalizes going off the table.
+        Returns 1 if off table, 0 if on table.
         
-        # Only process particles with significant probabilities for prediction
-        active_mask = np.array(probs) >= 1e-9
-        if np.sum(active_mask) == 0:
-            max_idx = np.argmax(probs)
-            active_mask[max_idx] = True
-
-        for i in range(self.num_particles):
-            if active_mask[i]:
-                com = self.particles[i] 
-                result = np.array(self.do_singular_action(com, a, self.transform_coordinates(observation[3], 'output_angle')[0])[0])
-                total += result * probs[i]
-
-        debug = False
-        if (obs is not None):
-            total = obs
-            debug = True
-
-        # Prevent division by zero in log computation
-        probs = np.clip(probs, 1e-300, 1.0)  # Clip to small positive values
-        log_probs = np.log(probs)
-        new_probs = np.array(log_probs)
-        
-        # Convert to real-world coordinates before adding
-        # First convert the current observation to real-world coordinates
-        real_obs_x = observation[0]
-        real_obs_y = observation[1]
-        real_obs_z = observation[2]
-        real_obs_angle = observation[3]
-        
-        # Convert the total (action effect) to real-world coordinates
-        real_total_x = self.inverse_transform_coordinates(total[0], 'final_position_x')
-        real_total_y = self.inverse_transform_coordinates(total[1], 'final_position_y')
-        real_total_z = self.inverse_transform_coordinates(total[2], 'final_position_z')
-        real_total_angle = self.inverse_transform_coordinates(total[3], 'output_angle')
-        
-        # Add x and y in real-world coordinates
-        real_new_x = real_obs_x + real_total_x
-        real_new_y = real_obs_y + real_total_y
-        
-        # For z and angle, use the new values directly instead of adding
-        real_new_z = real_total_z
-        real_new_angle = real_total_angle
-        
-        # Convert back to model's normalized space
-        new_x = self.transform_coordinates(real_new_x, 'final_position_x')
-        new_y = self.transform_coordinates(real_new_y, 'final_position_y')
-        new_z = self.transform_coordinates(real_new_z, 'final_position_z')
-        new_angle = self.transform_coordinates(real_new_angle, 'output_angle')
-        
-        # Create the new observation in the model's normalized space
-        new_observation = np.array([new_x, new_y, new_z, new_angle.item()])
-        
-        # Update all particles' probabilities using distributions
-        for i in range(self.num_particles): 
-            com = self.particles[i] 
-            distribution = self.do_singular_action(com, a, observation[3])[1] 
+        Args:
+            state: The current state (x, y, z, theta)
             
-            # Convert observation to tensor and validate/normalize
-            obs_tensor = torch.from_numpy(total).cuda().float()
+        Returns:
+            float: 1 if off table, 0 if on table
+        """
+        if self.vis_table is None:
+            self.initialize_visualization_table()
             
-            # Get distribution parameters
-            mean = distribution.mean
-            std = distribution.stddev
-            
-            log_prob = distribution.log_prob(obs_tensor).sum().item()
-            
-            new_probs[i] = log_prob + np.log(probs[i])
-
-        # Normalize probabilities to ensure they sum to 1
-        new_probs = np.exp(new_probs - logsumexp(new_probs))
-
-        # Convert to tuple for hashability
-        new_probs = tuple(new_probs)
+        # Use the position directly from state
+        pos = np.array([state[0], state[1]])
         
-        # Use the real-world goal location directly (no need to transform)
-        real_goal = np.array([self.goal_loc[0], self.goal_loc[1]])
+        # Use the table's is_on_table_fn to determine if we're on the table
+        # The function returns a positive value when on table, negative when off
+        table_value = self.vis_table.is_on_table_fn(pos)
         
-        # Calculate reward as negative L2 distance in real-world coordinates
-        reward = -np.linalg.norm(np.array([real_new_x, real_new_y]) - real_goal)
-        
-        # Return both model space observation and corresponding real-world coordinates
-        # This allows downstream methods to use whichever representation they need
-        return (new_probs, (real_new_x, real_new_y, real_new_z, real_new_angle.item())), reward
+        # Return 1 if off table, 0 if on table
+        return 1.0 if table_value < 0 else 0.0
 
     def update(self, b, a, obs=None):
         """
@@ -394,9 +329,15 @@ class PFTDPW:
         
         # Calculate reward as negative L2 distance to goal
         real_goal = np.array([self.goal_loc[0], self.goal_loc[1]])
-        reward = -np.linalg.norm(np.array([real_new_x, real_new_y]) - real_goal)
-        # print(real_new_x, real_new_y, real_goal)
-        # print(real_new_x, real_new_y)
+        distance_reward = -np.linalg.norm(np.array([real_new_x, real_new_y]) - real_goal)
+        
+        # Calculate table boundary loss
+        table_loss = self.calculate_table_boundary_loss([real_new_x, real_new_y, real_new_z, real_new_angle])
+        
+        # Combine rewards with a large penalty for going off table
+        # The table_loss is already in exponential form, so we multiply by a large negative number
+        # to make it a strong penalty
+        reward = distance_reward - 1000 * table_loss
         
         return (new_probs, (real_new_x, real_new_y, real_new_z, real_new_angle.item())), reward
 
@@ -880,6 +821,7 @@ class PFTDPW:
 
 
 def real_simulate(state, action, dataset): 
+    # print("INPUT",state, action)
     inverse_dict = {
         "com": np.concatenate([state[0:2], [0,]]),
         "angle": action 
@@ -896,6 +838,7 @@ def real_simulate(state, action, dataset):
     transformation, contact_points, initial, _ = run_sim(urdf, angle, state[5], 0.1, 0, gui=False)  
     translation = transformation[:3, 3]
     rotation = R.from_matrix(transformation[:3, :3]).as_euler('xyz', degrees=False) 
+    # print("OUTCOME", translation, rotation)
     return np.concatenate([translation, np.array([(rotation[-1] + 2 * np.pi) % (2 * np.pi)])], axis=0)
 
 def main(args): 

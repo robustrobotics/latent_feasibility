@@ -48,11 +48,10 @@ def train(model, args, train_dataloader, val_dataloader):
             obj_data = torch.cat((obj_data, data["com"]), dim=1)
 
             max_context_pushes = data["angle"].shape[1]
-            n_context_pushes = torch.randint(1, max_context_pushes, (1,)).item()            
+            n_context_pushes = torch.randint(0, max_context_pushes, (1,)).item()            
             perm = torch.randperm(max_context_pushes)[:n_context_pushes]
 
             target_xs = torch.stack((data["angle"], data["push_velocities"], data["initials"]), dim=2)
-            # print(data['angle'])
             target_xs = torch.cat((
                     target_xs,
                     data["contact_points"],
@@ -60,11 +59,14 @@ def train(model, args, train_dataloader, val_dataloader):
                 ), dim=2,)
 
             target_ys = torch.cat([data["final_position"], data["final_z_rotation"].unsqueeze(2)], dim=2) 
-            # print("Target xs", target_xs[0]) 
-            # print("obj data", obj_data) 
 
-            context_xs = target_xs[:, perm] 
-            context_ys = target_ys[:, perm] 
+            if n_context_pushes == 0:
+                # Use zero context when n_context_pushes is 0
+                context_xs = torch.zeros_like(target_xs[:, :1])
+                context_ys = torch.zeros_like(target_ys[:, :1])
+            else:
+                context_xs = target_xs[:, perm] 
+                context_ys = target_ys[:, perm] 
 
             if torch.cuda.is_available():
                 context_xs = context_xs.cuda().float()
@@ -93,7 +95,7 @@ def train(model, args, train_dataloader, val_dataloader):
                 obj_data = torch.cat((obj_data, data["com"]), dim=1)
 
                 max_context_pushes = data["angle"].shape[1]
-                n_context_pushes = torch.randint(1, max_context_pushes, (1,)).item()            
+                n_context_pushes = torch.randint(0, max_context_pushes, (1,)).item()            
                 perm = torch.randperm(max_context_pushes)[:n_context_pushes]
 
                 target_xs = torch.stack((data["angle"], data["push_velocities"], data["initials"]), dim=2)
@@ -106,8 +108,13 @@ def train(model, args, train_dataloader, val_dataloader):
 
                 target_ys = torch.cat([data["final_position"], data["final_z_rotation"].unsqueeze(2)], dim=2) 
 
-                context_xs = target_xs[:, perm] 
-                context_ys = target_ys[:, perm] 
+                if n_context_pushes == 0:
+                    # Use zero context when n_context_pushes is 0
+                    context_xs = torch.zeros_like(target_xs[:, :1])
+                    context_ys = torch.zeros_like(target_ys[:, :1])
+                else:
+                    context_xs = target_xs[:, perm] 
+                    context_ys = target_ys[:, perm] 
 
                 if torch.cuda.is_available():
                     context_xs = context_xs.cuda().float()
@@ -158,6 +165,7 @@ def train(model, args, train_dataloader, val_dataloader):
         if val_loss < best_val_loss: 
             best_val_loss = val_loss 
             torch.save(model.state_dict(), os.path.join('learning', 'data', 'pushing', args.dataset, args.instance, 'best_model.pth')) 
+    return model
 
 
 
@@ -226,6 +234,7 @@ if __name__ == '__main__':
     parser.add_argument('--use-regression-model', action='store_true') 
     parser.add_argument('--regression-model', type=str, default="")
     parser.add_argument('--no-pointnet', action='store_true', help='Turn off PointNetRegressor')
+    # parser.add_argument('--no-contact', action='store_true')
     
     args = parser.parse_args() 
     args.point_cloud = False
