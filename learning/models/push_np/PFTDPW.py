@@ -820,15 +820,24 @@ class PFTDPW:
         return self.vis_table
 
 
-def real_simulate(state, action, dataset): 
+def real_simulate(state, action, dataset, real=False):
     # print("INPUT",state, action)
-    inverse_dict = {
-        "com": np.concatenate([state[0:2], [0,]]),
-        "angle": action 
-    }
-    inversed = dataset.inverse_transform(inverse_dict)
-    com = inversed["com"] 
-    angle = inversed["angle"]
+    if not real:
+        inverse_dict = {
+            "com": np.concatenate([state[0:2], [0,]]),
+            "angle": action 
+        }
+        inversed = dataset.inverse_transform(inverse_dict)
+        com = inversed["com"] 
+        angle = inversed["angle"]
+    else: 
+        inverse_dict = {
+            "com": np.concatenate([state[0:2], [0,]]),
+        }
+        inversed = dataset.inverse_transform(inverse_dict)
+        com = inversed["com"] 
+        angle = action[0]
+
 
     body = GraspableBody("Primitive::Box_Test", com, 0.2, 0.07) 
     sim_client = GraspSimulationClient(body, False) 
@@ -838,7 +847,7 @@ def real_simulate(state, action, dataset):
     transformation, contact_points, initial, _ = run_sim(urdf, angle, state[5], 0.1, 0, gui=False)  
     translation = transformation[:3, 3]
     rotation = R.from_matrix(transformation[:3, :3]).as_euler('xyz', degrees=False) 
-    # print("OUTCOME", translation, rotation)
+    # print("OUTCOME", translation, rotation)    
     return np.concatenate([translation, np.array([(rotation[-1] + 2 * np.pi) % (2 * np.pi)])], axis=0)
 
 def main(args): 

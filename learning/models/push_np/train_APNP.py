@@ -52,11 +52,12 @@ def train(model, args, train_dataloader, val_dataloader):
             perm = torch.randperm(max_context_pushes)[:n_context_pushes]
 
             target_xs = torch.stack((data["angle"], data["push_velocities"], data["initials"]), dim=2)
-            target_xs = torch.cat((
-                    target_xs,
-                    data["contact_points"],
-                    data["normal_vector"],
-                ), dim=2,)
+            if not args.no_contact:
+                target_xs = torch.cat((
+                        target_xs,
+                        data["contact_points"],
+                        data["normal_vector"],
+                    ), dim=2,)
 
             target_ys = torch.cat([data["final_position"], data["final_z_rotation"].unsqueeze(2)], dim=2) 
 
@@ -100,11 +101,12 @@ def train(model, args, train_dataloader, val_dataloader):
 
                 target_xs = torch.stack((data["angle"], data["push_velocities"], data["initials"]), dim=2)
 
-                target_xs = torch.cat((
-                        target_xs,
-                        data["contact_points"],
-                        data["normal_vector"],
-                    ), dim=2,)
+                if not args.no_contact:
+                    target_xs = torch.cat((
+                            target_xs,
+                            data["contact_points"],
+                            data["normal_vector"],
+                        ), dim=2,)
 
                 target_ys = torch.cat([data["final_position"], data["final_z_rotation"].unsqueeze(2)], dim=2) 
 

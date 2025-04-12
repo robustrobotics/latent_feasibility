@@ -16,7 +16,7 @@ from learning.models.push_np.train_APNP import train  # Import the training func
 from learning.models.push_np.PFTDPW import real_simulate  # Import real_simulate function for physics simulation
 
 class NPTDPW:
-    def __init__(self, model, dataset, true_com, search_depth=3, goal_loc=(100, 100, 0, 0), discount_factor=0.8, alpha=0.6, beta=0.5, const=2.0, args=None):
+    def __init__(self, model, dataset, true_com, search_depth=1, goal_loc=(10, 10, 0, 0), discount_factor=0.8, alpha=0.6, beta=0.5, const=2.0, args=None):
         self.c = {} # child
         self.q = {} # value
         self.n = {} # number of visits
@@ -74,6 +74,7 @@ class NPTDPW:
             # Create a hashable key for dictionary operations
             hash_key = b_key + action_hash
             value = self.q[hash_key] 
+            # print(f"Action: {action}, Value: {value}, n: {self.n[b_key + action_hash]}")
             if value > best_value: 
                 best_value = value
                 best_action = action
@@ -94,10 +95,12 @@ class NPTDPW:
         Returns:
             Updated belief state and reward in real-world coordinates
         """
+        # print("WTF", a)
         # Convert current state to tensor
         if not isinstance(a, tuple):
             a = (a,)
         current_state_real = b['states'][-1] if b['states'] else np.zeros(4)
+        # print("CURRENT STATE REAL", current_state_real)
         
         # Transform the current state to model's normalized space - collect each component separately to avoid mixed types
         pos_x = self.transform_coordinates(current_state_real[0], 'final_position_x')
@@ -110,22 +113,23 @@ class NPTDPW:
         
         # Transform the action angle to normalized space
         # The input action is in real-world coordinates and needs to be transformed
-        transformed_action = self.transform_coordinates(a[0], 'angle')
-        # Extract scalar value if it's in an array
-        if hasattr(transformed_action, '__len__') and len(transformed_action) == 1:
-            transformed_action = transformed_action[0]
+        # transformed_action = self.transform_coordinates(a[0], 'angle')
+        # # Extract scalar value if it's in an array
+        # if hasattr(transformed_action, '__len__') and len(transformed_action) == 1:
+        #     transformed_action = transformed_action[0]
         
         # Prepare input tensors for the model (in normalized space)
-        angle = torch.tensor([[transformed_action]]).float().unsqueeze(0)
+        angle = torch.tensor([self.transform_coordinates(a[0], 'angle')]).float().unsqueeze(0)
         push_velocities = torch.tensor([[1.0]]).float().unsqueeze(0)  # shape [1, 1, 1]
-        initials = torch.tensor([[current_state_transformed[:3].tolist()]]).float()  # shape [1, 1, 3]
+        initials = torch.tensor([[current_state_transformed[3].tolist()]]).float()  # shape [1, 1, 3]
+        # print(a, angle)
         
         # Stack tensors for current action
         current_target_xs = torch.cat([
             angle,  # [1, 1, 1]
             push_velocities,  # [1, 1, 1]
-            initials  # [1, 1, 3]
-        ], dim=2)  # shape [1, 1, 5]
+            initials.unsqueeze(0)  # [1, 1, 1]
+        ], dim=2)  # shape [1, 1, 3]
         
         # Handle past actions and observations if they exist (all in normalized space)
         if b['actions'] and b['outcomes']:
@@ -133,11 +137,9 @@ class NPTDPW:
             past_states_normalized = []
             for state in b['states'][:-1]:  # Skip the current state
                 # Process each component separately to avoid mixed types
-                x = self.transform_coordinates(state[0], 'final_position_x')
-                y = self.transform_coordinates(state[1], 'final_position_y')
-                z = self.transform_coordinates(state[2], 'final_position_z')
+                angle = self.transform_coordinates(state[3], 'output_angle')
                 # Only need position components for past states
-                past_states_normalized.append([float(x), float(y), float(z)])  
+                past_states_normalized.append([float(angle)])  
                 
             # Get past outcomes and transform them to normalized space
             past_outcomes_normalized = []
@@ -167,7 +169,7 @@ class NPTDPW:
             # Convert to tensors with explicit float type
             past_angles = torch.tensor(past_angles_normalized).float().unsqueeze(0).unsqueeze(2)  # shape [1, N, 1]
             past_velocities = torch.ones_like(past_angles)  # shape [1, N, 1]
-            past_initials = torch.tensor(past_states_normalized).float().unsqueeze(0)  # shape [1, N, 3]
+            past_initials = torch.tensor(past_states_normalized).float().unsqueeze(0)
             past_finals = torch.tensor(past_outcomes_normalized).float().unsqueeze(0)  # shape [1, N, 3]
             past_rotations = torch.tensor(past_rotations_normalized).float().unsqueeze(0).unsqueeze(2)  # shape [1, N, 1]
             
@@ -175,15 +177,14 @@ class NPTDPW:
             context_xs = torch.cat([
                 past_angles,  # [1, N, 1]
                 past_velocities,  # [1, N, 1]
-                past_initials  # [1, N, 3]
-            ], dim=2)  # shape [1, N, 5]
+                past_initials,  # [1, N, 1]
+            ], dim=2)  # shape [1, N, 3]
             context_ys = torch.cat((past_finals, past_rotations), dim=2)  # shape [1, N, 4]
             
-            # Combine past actions and current action for target_xs
-            target_xs = torch.cat((context_xs, current_target_xs), dim=1)  # shape [1, N+1, 5]
+            target_xs = current_target_xs
         else:
             # No past actions, use zero tensors for context and current action for target
-            context_xs = torch.zeros(1, 1, 5)  # Empty context with just angle, velocity, and position
+            context_xs = torch.zeros(1, 1, 3)  # Empty context with just angle, velocity, and position
             context_ys = torch.zeros(1, 1, 4)  # Empty context outputs
             target_xs = current_target_xs  # Just use the current action as target
         
@@ -194,6 +195,7 @@ class NPTDPW:
         
         # Get prediction from neural process
         with torch.no_grad():
+            # print("MODEL INPUT SHAPE", context_xs.shape, context_ys.shape, target_xs.shape)
             total_loss, bce_loss, kl_loss, mu, sigma, distance, entropy = self.model(
                 context_xs, context_ys, target_xs, None, None, None, mode="test"
             )
@@ -209,6 +211,7 @@ class NPTDPW:
             self.inverse_transform_coordinates(next_state_normalized[2], 'final_position_z'),
             self.inverse_transform_coordinates(next_state_normalized[3], 'output_angle')
         ])
+        
         
         # Extract the current state from belief history
         if len(b['states']) > 0:
@@ -240,6 +243,7 @@ class NPTDPW:
         
         # Calculate reward as negative L2 distance to goal in real-world coordinates
         distance_reward = -np.linalg.norm(next_state_real[:2] - self.goal_loc[:2])
+        print(self.goal_loc, next_state_real)
         
         # Calculate table boundary loss if visualization is enabled
         table_loss = 0.0
@@ -641,36 +645,36 @@ class NPTDPW:
         # Create visualization
         self.vis_table.visualize(show=show, min_x=min_x, max_x=max_x, min_y=min_y, max_y=max_y, res=res)
         
-        # If we have actions, add push direction arrows to the visualization
-        if history is not None and 'states' in history and 'actions' in history and len(history['actions']) > 0:
-            # Draw arrows for each push action
-            for i, (state, action) in enumerate(zip(history['states'][:-1], history['actions'])):
-                # The action should be in radians
-                if isinstance(action, (float, int)):
-                    # Calculate arrow endpoint using trigonometry
-                    arrow_length = 0.3  # visual length of arrow
-                    dx = arrow_length * np.cos(action)
-                    dy = arrow_length * np.sin(action)
+        # # If we have actions, add push direction arrows to the visualization
+        # if history is not None and 'states' in history and 'actions' in history and len(history['actions']) > 0:
+        #     # Draw arrows for each push action
+        #     for i, (state, action) in enumerate(zip(history['states'][:-1], history['actions'])):
+        #         # The action should be in radians
+        #         if isinstance(action, (float, int)):
+        #             # Calculate arrow endpoint using trigonometry
+        #             arrow_length = 0.3  # visual length of arrow
+        #             dx = arrow_length * np.cos(action)
+        #             dy = arrow_length * np.sin(action)
                     
-                    # Draw arrow from state position
-                    ax.arrow(state[0], state[1], dx, dy, head_width=0.1, head_length=0.1, 
-                             fc='blue', ec='blue', alpha=0.7)
+        #             # Draw arrow from state position
+        #             ax.arrow(state[0], state[1], dx, dy, head_width=0.1, head_length=0.1, 
+        #                      fc='blue', ec='blue', alpha=0.7)
                     
-                    # Add step number label
-                    ax.text(state[0], state[1], f"{i+1}", fontsize=10, ha='center', va='center',
-                            bbox=dict(facecolor='white', alpha=0.7, boxstyle='circle'))
+        #             # Add step number label
+        #             ax.text(state[0], state[1], f"{i+1}", fontsize=10, ha='center', va='center',
+        #                     bbox=dict(facecolor='white', alpha=0.7, boxstyle='circle'))
         
-        # Add title with information about the planning sequence
-        if history is not None:
-            num_steps = len(history['actions'])
-            plt.title(f"Planning Trajectory: {num_steps} steps", fontsize=14)
+        # # Add title with information about the planning sequence
+        # if history is not None:
+        #     num_steps = len(history['actions'])
+        #     plt.title(f"Planning Trajectory: {num_steps} steps", fontsize=14)
         
-        # Save the figure
+        # # Save the figure
         plt.savefig(save_path, dpi=300)
         print(f"Visualization saved to {save_path}")
         
-        if not show:
-            plt.close()
+        # if not show:
+        #     plt.close()
                 
         return self.vis_table
         
@@ -753,7 +757,9 @@ class NPTDPW:
             sim_state = np.concatenate([np.array(self.true_com[0:2]), current_state_real], axis=0)
             
             # Execute action using real physics simulation to get real-world next state
-            sim_result = real_simulate(sim_state, action, self.dataset)
+            # print(action)
+            sim_result = real_simulate(sim_state, action, self.dataset, real=True)
+            # print(sim_result)
             sim_result = np.array(sim_result)
             
             # Update the current state using the world-frame results from real simulation
@@ -768,8 +774,26 @@ class NPTDPW:
             # In NPTDPW we don't pass observations to update, unlike PFTDPW
             new_belief, reward = self.update(belief, action)
             
-            # Calculate the exact state delta for tracking and visualization
-            # For rotation, we need to handle the fact that sim_result[3] is absolute rotation
+            # Convert from world coordinates to object-local coordinates for visualization
+            current_ori = current_state_real[3]
+            world_to_object_rotation = np.array([
+                [np.cos(current_ori), np.sin(current_ori)],
+                [-np.sin(current_ori), np.cos(current_ori)]
+            ])
+            
+            # Convert world-frame translation to object-frame translation
+            translation_local = world_to_object_rotation @ sim_result[:2]
+            
+            # Create the adjusted transformation with object-local coordinates for visualization
+            adjusted_sim_result = np.zeros_like(sim_result)
+            adjusted_sim_result[:2] = translation_local
+            adjusted_sim_result[2] = sim_result[2]  # Z-translation unchanged
+            adjusted_sim_result[3] = sim_result[3] - current_ori  # Relative rotation
+            
+            # Store both the local-frame transformation for visualization
+            history['transformations'].append(adjusted_sim_result.copy())
+            
+            # Calculate the world-frame state delta for tracking and reference
             state_delta = np.array([
                 sim_result[0],  # x delta from simulation
                 sim_result[1],  # y delta from simulation
@@ -777,10 +801,9 @@ class NPTDPW:
                 sim_result[3] - current_state_real[3]  # orientation delta (absolute rotation minus current)
             ])
             
-            # Store the state transformation for visualization and analysis
-            history['transformations'].append(state_delta.copy())
-            history['outcomes'].append(next_state_real.copy())  # Store the full outcome state
-            history['states'].append(next_state_real.copy())    # Update states history with cumulative effect
+            # Store the outcome state and update states history with cumulative effect
+            history['outcomes'].append(next_state_real.copy())
+            history['states'].append(next_state_real.copy())
             
             # Update our accumulated state - this is crucial for composing multiple pushes
             current_state_real = next_state_real.copy()
@@ -857,8 +880,8 @@ def main(args):
         true_com=[0.5, 0.5, 0.3],
         alpha=0.5,
         const=0.1,
-        search_depth=3,
-        goal_loc=[10, 10, 0.0, 0.0],
+        search_depth=2,
+        goal_loc=[4, 4, 0.0, 0.0],
         args=args
     )
 
@@ -892,7 +915,7 @@ def main(args):
     example_plan = nptdpw.execute_planning_loop(
         initial_state=(1.0, 1.0, 0.0, 0.0),
         max_steps=args.max_steps,
-        planning_time=1.0,
+        planning_time=3.0,
         success_threshold=0.05,
         visualize=visualize,
         show_visualization=show_visualization,
