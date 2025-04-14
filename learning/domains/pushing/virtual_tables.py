@@ -9,7 +9,6 @@ import copy
 from matplotlib.collections import PatchCollection
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
-import matplotlib as mpl
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 import numpy as np
@@ -49,7 +48,7 @@ class SimulatedTable(object):
 
         self.fallen = False
 
-    def apply_push_trajectory(self, pose_traj: List[np.ndarray], number_interp_points=10) -> bool:
+    def apply_push_trajectory(self, pose_traj: List[np.ndarray], number_interp_points=1) -> bool:
         """
             traj (List[np.ndarray]): a timestepped sequence of object centroid _not_ COM, relative to the starting pose
                                     of the block. Pose is represnted by 3x3 SE(2) matrices.
@@ -64,8 +63,8 @@ class SimulatedTable(object):
             Returns (bool): Whether or not the block had fallen over the course of the trajectory.
         """
 
-        if self.fallen:
-            return True
+        # if self.fallen:
+        #     return True
 
         # first, compute what would be the trajectory of the block
         sim_pose_traj = np.array([self.pose @ _Tp for _Tp in pose_traj])
@@ -144,6 +143,7 @@ class SimulatedTable(object):
                     colors=['w', 'gray', 'gray'], zorder=-1)
 
         # plot the full trajectory taken by the block
+        block_plots = []
         if len(self.full_traj) > 0:
             _full_traj = np.array(self.full_traj)
 
@@ -153,7 +153,6 @@ class SimulatedTable(object):
             ax.scatter(coms[:, 0], coms[:, 1], color='black', s=8, zorder=1)
 
             # plot block
-            block_plots = []
 
             for _Tp in _full_traj:
                 _pos, _ang = self.se2_to_xytheta(_Tp)
@@ -180,7 +179,6 @@ class SimulatedTable(object):
                                           self.block_com[1], 1.0])
             ax.scatter(coms[:, 0], coms[:, 1], color='red', s=5, zorder=1)
 
-            block_plots = []
             for _Tp in _rest_poses:
                 _pos, _ang = self.se2_to_xytheta(_Tp)
                 _ang = np.rad2deg(_ang)
@@ -193,18 +191,50 @@ class SimulatedTable(object):
                 block_plots.append(_patch)
 
         n_rest = len(self.rest_poses)
-        cmap = mpl.colormaps['viridis'].resampled(n_rest)
-        norm = mpl.colors.BoundaryNorm(boundaries=[_i for _i in range(n_rest + 1)],
-                                       ncolors=256)
-        ecs = [cmap(norm(_np + 1)) for _np in range(n_rest)]
+        print("n_rest", n_rest)
+        # print("block_plots length", len(block_plots))
+        
+        # Use a more distinct colormap with clear separation between colors
+        cmap = plt.cm.get_cmap('viridis', n_rest)
+        
+        # Directly map each patch to a specific color index in the colormap
+        # This ensures maximum color difference between consecutive patches
+        for i, patch in enumerate(block_plots):
+            # Calculate normalized color position to spread colors across the colormap
+            color_pos = i / (n_rest - 1) if n_rest > 1 else 0.5
+            color = cmap(color_pos)
+            
+            # Make edge color more visible
+            patch.set_edgecolor(color)
+            patch.set_linewidth(2.0)  # Thicker lines for better visibility
+            ax.add_patch(patch)
+        
+        # Create a colormap for the colorbar with evenly distributed colors
+        # Use a ListedColormap to ensure even spacing
+        colors = [cmap(i/(n_rest-1)) for i in range(n_rest)] if n_rest > 1 else [cmap(0.5)]
+        custom_cmap = plt.cm.colors.ListedColormap(colors)
+        
+        # Create a properly normalized colormap
+        # Ensure we have at least 2 boundaries for BoundaryNorm
+        if n_rest > 0:
+            bounds = np.arange(0.5, n_rest+1.5)
+        else:
+            bounds = np.array([0, 1])  # Provide default bounds when n_rest is 0
+            
+        # Ensure n_colors is at least 1 for the norm
+        n_colors = max(1, n_rest)
+        norm = plt.cm.colors.BoundaryNorm(bounds, n_colors)
+        
+        # Create a scalar mappable with the custom colormap
+        sm = plt.cm.ScalarMappable(cmap=custom_cmap, norm=norm)
+        sm.set_array([])
+        
+        # Add goal marker
+        ax.scatter([self.goal_pos[0]], [self.goal_pos[1]], color='g', marker='*', s=100, zorder=2)
 
-        ax.add_collection(
-            PatchCollection(block_plots, fc='none', ec=ecs, zorder=1)
-        )
-        ax.scatter([self.goal_pos[0]], [self.goal_pos[1]], color='g', zorder=1)
-
-        fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap),
-                     ax=ax, orientation='vertical', label='# pushes')
+        # Create a colorbar with evenly distributed discrete steps
+        cbar = fig.colorbar(sm, ax=ax, ticks=np.arange(1, n_rest+1), orientation='vertical', label='Push Step Number')
+        cbar.set_ticklabels(range(1, n_rest+1))
         ax.set_aspect('equal', adjustable='box')
 
         if show:
@@ -242,7 +272,7 @@ class BoxTable(SimulatedTable):
                  table_width=2.5
                  ):
         table_center = np.array([table_length / 2, table_width / 2])
-        start_pos = np.array([1, 1])
+        start_pos = np.array([0.2*table_length, 0.2*table_width])
         goal_pos = np.array([goal_loc_x, goal_loc_y])
 
         # Store table dimensions as class attributes

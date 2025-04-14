@@ -206,9 +206,9 @@ def main(args):
     pos_min = np.concatenate([validation_dataset.data["final_position_min"][: all_mu.shape[-1] - 1], test_array], axis=0)
 
     print("POS ", pos_max, pos_min) 
-    # all_mu = (pos_max - pos_min) * all_mu + pos_min  
-    # all_sigma = all_sigma * (pos_max - pos_min) ** 2
-    # all_final_positions = all_final_positions * (pos_max - pos_min) + pos_min
+    all_mu = (pos_max - pos_min) * all_mu + pos_min  
+    all_sigma = all_sigma * (pos_max - pos_min) ** 2
+    all_final_positions = all_final_positions * (pos_max - pos_min) + pos_min
 # 
     perm = np.random.permutation(len(all_mu))[:num_points]
     all_mu = all_mu[perm]

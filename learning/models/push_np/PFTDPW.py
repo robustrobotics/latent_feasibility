@@ -15,7 +15,7 @@ from pb_robot.planners.antipodalGraspPlanner import (
     GraspSimulationClient,
     GraspableBody,
 )
-from learning.domains.pushing.virtual_tables import BoxTable
+from learning.domains.pushing.virtual_tables import BoxTable, RingTable, BeamTable
 
 from scipy.spatial.transform import Rotation as R 
 from scipy.special import logsumexp 
@@ -25,7 +25,7 @@ from tqdm import tqdm
 
 
 class PFTDPW:
-    def __init__(self, model, dataset, true_com, search_depth=3, num_particles=20, goal_loc=(100, 100, 0, 0), discount_factor=0.8, alpha=0.6, beta=0.5, const=2.0, args=None): 
+    def __init__(self, model, dataset, true_com, search_depth=3, num_particles=20, goal_loc=(100, 100, 0, 0), discount_factor=0.8, alpha=0.6, beta=0.5, const=2.0, args=None, table_type='box', success_threshold=0.2): 
         self.c = {} # child
         self.q = {} # value
         self.n = {} # number of visits
@@ -43,11 +43,49 @@ class PFTDPW:
         self.const = const 
         self.true_com = true_com
         self.args = args  # Store args as an instance variable
+        self.table_type = table_type  # Store table type ('box', 'ring', or 'beam')
+        self.success_threshold = success_threshold  # Threshold to determine successful goal reaching
 
         self.particles = np.random.rand(num_particles, 2).tolist()  # Assuming 2D particles 
         
         # Initialize visualization table as None, will be created when needed
-        self.vis_table = None
+        self.vis_table = self.initialize_visualization_table() 
+        
+        # Initialize statistics tracking
+        self.stats = {
+            # Planning statistics
+            'planning_times': [],          # Time spent planning at each step
+            'action_counts': {},           # Frequency of actions chosen
+            'visits_per_step': [],         # Number of nodes visited in each planning step
+            'depth_reached': [],           # Maximum depth reached in planning
+            
+            # Execution statistics
+            'step_durations': [],          # Time taken for each step (planning + execution)
+            'distances_to_goal': [],       # Distance to goal at each step
+            'state_trajectory': [],        # Complete state trajectory
+            'action_trajectory': [],       # Complete action trajectory
+            'cumulative_translation': 0.0, # Total distance traveled
+            'cumulative_rotation': 0.0,    # Total rotation performed
+            
+            # Particle filter statistics
+            'particle_variance': [],       # Variance of particles at each step
+            'effective_particles': [],     # Effective number of particles at each step
+            'resampling_events': 0,        # Number of times resampling occurred
+            
+            # Success metrics
+            'final_distance': None,        # Final distance to goal
+            'success': False,              # Whether goal was reached
+            'success_step': None,          # Step at which goal was reached
+            'total_steps': 0,              # Total steps executed
+            'total_planning_time': 0.0,    # Total time spent in planning
+            'total_execution_time': 0.0,   # Total time spent in execution
+            'fell_off_table': False,       # Whether block fell off the table
+            'total_reward': 0.0,           # Cumulative reward during planning
+            
+            # Prediction accuracy metrics
+            'prediction_errors': [],       # Differences between predicted and actual outcomes
+            'model_confidence': []         # Model's reported confidence in predictions
+        }
 
     def plan(self, b=None, total_time=10.0):
         if b is None: 
@@ -76,56 +114,11 @@ class PFTDPW:
             # print(f"action: {action}, value: {value}, n: {self.n[b + (action,)]}")
         # print(self.n.values())
         
-        print(f"Total searches performed: {search_count}")
+        # Total searches performed (silenced)
         
-        return best_action 
+        return best_action, best_value 
 
     
-    def do_singular_action_old(self, state, action, angle): 
-        with torch.no_grad(): 
-            # Validate inputs
-            if np.isnan(angle) or np.isinf(angle):
-                angle = 0.0
-            if np.isnan(action) or np.isinf(action):
-                action = 0.0
-
-            # Prepare inputs for the model
-            if not isinstance(action, tuple):
-                action = (action,) 
-            state_tensor = torch.tensor(state).cuda().float()
-            action_tensor = torch.from_numpy(np.array([action])).float().cuda()
-
-            body_params = torch.cat((
-                state_tensor[0:2],
-                torch.zeros(1).cuda(),
-                torch.tensor([0.2, 0.07]).cuda()
-            )).cuda().float()
-            
-            # Ensure all tensors are 1D before concatenation
-            # Fix tensor construction warning by using clone().detach()
-            sim_params = torch.cat([
-                action_tensor[0].clone().detach().cuda(),  # Flatten to 1D
-                torch.tensor([0.1]).cuda(),
-                torch.tensor([angle]).cuda()
-            ]).cuda().float()
-            
-            # Shape correctly for the model: [B, N, D] where B=batch size, N=num samples, D=dimension
-            body_params = body_params.unsqueeze(0).unsqueeze(0)  # [1, 1, 5]
-            sim_params = sim_params.unsqueeze(0).unsqueeze(0)    # [1, 1, 3]
-
-            # Add validation checks
-            if torch.isnan(body_params).any() or torch.isinf(body_params).any():
-                return np.zeros(4), None
-            if torch.isnan(sim_params).any() or torch.isinf(sim_params).any():
-                return np.zeros(4), None
-
-            distributions = self.model(sim_params, None, None, None, body_params)[0]
-            sample = distributions[0][0].sample()
-            translation = sample[:3].cpu().numpy()  # Convert to numpy immediately
-            rotation = sample[3].cpu().numpy()
-
-            return np.concatenate([translation, [rotation]]), distributions[0][0]
-        
     def do_batch_actions(self, batch_particles, batch_actions, batch_angles):
         """
         Performs a batch of actions on a batch of particles.
@@ -145,6 +138,7 @@ class PFTDPW:
             batch_particles = torch.tensor(batch_particles).float().cuda()
             batch_actions = torch.tensor(batch_actions).float().cuda()
             batch_angles = torch.tensor(batch_angles).float().cuda()
+            # print(batch_actions[0], batch_angles[0])
             # print(batch_particles.shape, batch_actions.shape, batch_angles.shape)
             if batch_actions.ndim == 1:
                 batch_actions = batch_actions.unsqueeze(1)
@@ -213,7 +207,12 @@ class PFTDPW:
             float: 1 if off table, 0 if on table
         """
         if self.vis_table is None:
-            self.initialize_visualization_table()
+            self.initialize_visualization_table(
+                block_width=0.07,
+                block_length=0.2,
+                table_length=2.5,
+                table_width=2.5
+            )
             
         # Use the position directly from state
         pos = np.array([state[0], state[1]])
@@ -259,6 +258,7 @@ class PFTDPW:
         batch_angles = [transformed_angle] * len(active_indices)
         
         # Run batch inference using real batched operations
+        # print(active_particles[0], batch_actions[0], batch_angles[0])
         batch_results, batch_distributions = self.do_batch_actions(
             active_particles, 
             batch_actions, 
@@ -327,17 +327,23 @@ class PFTDPW:
         # Convert to tuple for hashability
         new_probs = tuple(new_probs)
         
-        # Calculate reward as negative L2 distance to goal
+        # Calculate reward as negative distance scaled by a factor
         real_goal = np.array([self.goal_loc[0], self.goal_loc[1]])
-        distance_reward = -np.linalg.norm(np.array([real_new_x, real_new_y]) - real_goal)
+        current_distance = np.linalg.norm(np.array([real_new_x, real_new_y]) - real_goal)
+        distance_reward = -current_distance * 10  # Scale distance by factor of 10
+        
+        # Add a success bonus if the block is within a threshold distance from the goal
+        # Using the success_threshold from the class instance
+        success_threshold = 0.2 if not hasattr(self, 'success_threshold') else self.success_threshold
+        if current_distance < success_threshold:
+            # Add large positive bonus for being close to the goal
+            distance_reward += 100000.0  # Strong positive reward for success
         
         # Calculate table boundary loss
         table_loss = self.calculate_table_boundary_loss([real_new_x, real_new_y, real_new_z, real_new_angle])
         
-        # Combine rewards with a large penalty for going off table
-        # The table_loss is already in exponential form, so we multiply by a large negative number
-        # to make it a strong penalty
-        reward = distance_reward - 1000 * table_loss
+        # Apply a large penalty for going off the table
+        reward = distance_reward - 100.0 * table_loss
         
         return (new_probs, (real_new_x, real_new_y, real_new_z, real_new_angle.item())), reward
 
@@ -390,18 +396,16 @@ class PFTDPW:
             self.c[b].append(a) 
             return a 
         else: 
-            values = [self.q[b + (c, )] + self.const * 
-                     np.sqrt(np.log(self.n[b]) / self.n[b + (c, )]) 
+            values = [self.q.get(b + (c, ), 0) + self.const * 
+                     np.sqrt(np.log(self.n[b]) / max(self.n.get(b + (c, ), 1), 1)) 
                      for c in self.c[b]] 
-            for c in self.c[b]: 
-                if (self.n[b + (c, )] == 0): 
-                    exit(0) 
             return self.c[b][np.argmax(values)] 
 
-    def execute_planning_loop(self, initial_state=None, max_steps=50, planning_time=1.0, success_threshold=0.05, visualize=False, show_visualization=False, save_visualization_path=None):
+    def execute_planning_loop(self, initial_state=None, max_steps=50, planning_time=1.0, success_threshold=0.2, visualize=False, show_visualization=False, save_visualization_path=None):
         """
         Execute the complete planning and execution loop using real physics simulation.
         
+        # ... (rest of the code remains the same)
         Args:
             initial_state: Initial state of the system (x, y, theta, phi). If None, use (0,0,0,0)
             max_steps: Maximum number of planning steps
@@ -412,39 +416,163 @@ class PFTDPW:
             save_visualization_path: Path to save the visualization image (if None, uses timestamp)
             
         Returns:
-            list: History of states and actions
+            dict: History of states, actions, and comprehensive statistics
         """
-        # Ensure starting pose is (0,0,0,0) if not specified
-        if initial_state is None:
+        # Reset statistics for a new planning session
+        self.stats = {
+            # Planning statistics
+            'planning_times': [],          # Time spent planning at each step
+            'action_counts': {},           # Frequency of actions chosen
+            'visits_per_step': [],         # Number of nodes visited in each planning step
+            'depth_reached': [],           # Maximum depth reached in planning
+            
+            # Execution statistics
+            'step_durations': [],          # Time taken for each step (planning + execution)
+            'distances_to_goal': [],       # Distance to goal at each step
+            'state_trajectory': [],        # Complete state trajectory
+            'action_trajectory': [],       # Complete action trajectory
+            'cumulative_translation': 0.0, # Total distance traveled
+            'cumulative_rotation': 0.0,    # Total rotation performed
+            
+            # Particle filter statistics
+            'particle_variance': [],       # Variance of particles at each step
+            'effective_particles': [],     # Effective number of particles at each step
+            'resampling_events': 0,        # Number of times resampling occurred
+            
+            # Success metrics
+            'final_distance': None,        # Final distance to goal
+            'success': False,              # Whether goal was reached
+            'success_step': None,          # Step at which goal was reached
+            'total_steps': 0,              # Total steps executed
+            'total_planning_time': 0.0,    # Total time spent in planning
+            'total_execution_time': 0.0,   # Total time spent in execution
+            'fell_off_table': False,       # Whether block fell off the table
+            'total_reward': 0.0,           # Cumulative reward during planning
+            
+            # Prediction accuracy metrics
+            'prediction_errors': [],       # Differences between predicted and actual outcomes
+            'model_confidence': []         # Model's reported confidence in predictions
+        }
+        
+        # Track overall execution time
+        execution_start_time = time.time()
+        
+        # Initialize visualization table if needed and not already initialized
+        if visualize and not hasattr(self, 'vis_table'):
+            self.initialize_visualization_table(
+                block_width=0.07, 
+                block_length=0.2,
+                table_length=2.5,
+                table_width=2.5
+            )
+            
+        # Use table's start position if available and no initial state is provided
+        if self.vis_table is not None:
+            if hasattr(self.vis_table, 'start_pos'):
+                # Get the start position directly from the table object
+                start_position = self.vis_table.start_pos  # This is defined in SimulatedTable
+                start_angle = 0.0  # Default orientation
+                initial_state = (start_position[0], start_position[1], 0.0, start_angle)
+                # print(f"Using table's start position: {initial_state}")
+            elif hasattr(self.vis_table, 'init_pose'):
+                # Extract from the initial pose matrix (SE2 transformation)
+                start_position = self.vis_table.init_pose[:2, 2]  # Get x, y from translation part
+                start_angle = 0.0  # Default orientation
+                initial_state = (start_position[0], start_position[1], 0.0, start_angle)
+                # print(f"Using table's initial pose: {initial_state}")
+            else:
+                # Fallback to default position if no start position is available
+                initial_state = (0.0, 0.0, 0.0, 0.0)
+        elif initial_state is None:
+            # Fallback to default position if no table is available
             initial_state = (0.0, 0.0, 0.0, 0.0)
             
+        # print(f"Initial state: {initial_state}")
         # Initialize states in both real-world and transformed coordinates
         current_state_real = np.array(initial_state)
         current_state_transformed = np.array(initial_state)
         
         # Print initial position
-        print(f"Initial position: ({current_state_real[0]:.4f}, {current_state_real[1]:.4f}), orientation: {current_state_real[3]:.4f}")
+        # Initial position info (silenced)
         
         # Keep track of history in real-world coordinates for visualization
         history = {'states': [current_state_real.copy()], 'actions': [], 'transformations': []}
         
+        # Store initial state in statistics
+        self.stats['state_trajectory'].append(current_state_real.copy())
+        
+        # Calculate initial distance to goal
+        initial_dist = np.linalg.norm(current_state_real[:2] - self.goal_loc[:2])
+        self.stats['distances_to_goal'].append(initial_dist)
+        
         # Initialize belief state
         belief = (tuple([1 / self.num_particles for _ in range(self.num_particles)]), (initial_state[0], initial_state[1],initial_state[2], initial_state[3])) 
         
-        # Initialize visualization table if needed and not already initialized
-        if visualize and self.vis_table is None:
-            self.initialize_visualization_table()
+        # Calculate initial particle variance
+        particle_weights = belief[0]
+        weighted_particles = np.array([np.array(p) * w for p, w in zip(self.particles, particle_weights)])
+        if len(weighted_particles) > 0:
+            particle_var = np.var(weighted_particles, axis=0)
+            self.stats['particle_variance'].append(np.mean(particle_var))  # Average variance across dimensions
+            
+            # Calculate effective number of particles
+            squared_weights = np.array([w**2 for w in particle_weights])
+            if np.sum(squared_weights) > 0:
+                n_eff = 1.0 / np.sum(squared_weights)
+                self.stats['effective_particles'].append(n_eff)
+        
+        # Initialize variables for tracking the best action across steps
+        best_action = None
+        best_action_value = float('-inf')
+        
+        # Ensure visualization is setup
+        if visualize and not hasattr(self.vis_table, 'plot_trajectory'):
+            # Re-initialize if the visualization methods aren't available
+            self.initialize_visualization_table(
+                0.07,
+                0.2,
+                2.5,
+                2.5
+            )
         
         for step in range(max_steps):
+            step_start_time = time.time()
+            
             # Check if goal is reached using real-world coordinates
             dist_to_goal = np.linalg.norm(current_state_real[:2] - self.goal_loc[:2])
+            self.stats['distances_to_goal'].append(dist_to_goal)
+            
             if dist_to_goal < success_threshold:
-                print(f"Goal reached at step {step}! Final position: ({current_state_real[0]:.4f}, {current_state_real[1]:.4f})")
-                print(f"Distance to goal: {dist_to_goal:.4f}")
+                # Goal reached - print clear success message
+                # print(f"\nSUCCESS! Goal reached at step {step+1} with distance {dist_to_goal:.3f} < threshold {success_threshold}")
+                # print(f"Final position: x={current_state_real[0]:.3f}, y={current_state_real[1]:.3f}")
+                
+                # Record success metrics
+                self.stats['success'] = True
+                self.stats['success_step'] = step
                 break
                 
             # Plan next action using the belief state
-            action = self.plan(belief, total_time=planning_time)
+            planning_start = time.time()
+            
+            # Special handling for beam table to avoid falling off at the beginning
+            action, best_value = self.plan(belief, total_time=planning_time)
+                
+            planning_end = time.time()
+            planning_duration = planning_end - planning_start
+            
+            # Record planning statistics
+            self.stats['planning_times'].append(planning_duration)
+            self.stats['total_planning_time'] += planning_duration
+            
+            # Record tree search statistics
+            self.stats['visits_per_step'].append(len(self.n))  # Number of nodes visited
+            
+            # Record action counts
+            if action in self.stats['action_counts']:
+                self.stats['action_counts'][action] += 1
+            else:
+                self.stats['action_counts'][action] = 1
             
             # Convert action to radians using inverse_transform, then to degrees for display
             inverse_dict = {"angle": action}
@@ -453,15 +581,30 @@ class PFTDPW:
             
             # Extract scalar value from the array for printing and storage
             angle_degrees_scalar = float(np.degrees(angle_radians))
+            self.stats['action_trajectory'].append(angle_degrees_scalar)
+            
+            # Print information about the best action chosen
+            action_display = f"[{angle_degrees_scalar:.8f}]"
+            best_q = best_value  # Use the actual best value from plan method instead of trying to look it up
+            best_n = self.n.get(belief + (action,), 0)
             
             # Execute action using real physics simulation to get real-world next state
-            # The state parameter for real_simulate combines the true COM and the current state
+            execution_start = time.time()
             sim_result = real_simulate(
                 np.concatenate([np.array(self.true_com[0:2]), current_state_real], axis=0), 
                 action, 
                 self.dataset
             )
+            execution_end = time.time()
+            execution_duration = execution_end - execution_start
+            self.stats['total_execution_time'] += execution_duration
+            
             sim_result = np.array(sim_result)
+            
+            # Now that we have the simulation result, print the predicted next position
+            next_x = current_state_real[0] + sim_result[0]
+            next_y = current_state_real[1] + sim_result[1]
+            # print(f"Action: {action_display}, Value: {best_q}, n: {best_n}, Next: [{next_x:.3f}, {next_y:.3f}]")
             
             # Convert from world coordinates to object-local coordinates for visualization
             current_ori = current_state_real[3]
@@ -490,8 +633,40 @@ class PFTDPW:
                 sim_result[3]                          # Use the new absolute rotation
             ])
             
+            # Print next state real before checking boundary
+            # print("NEXT STATE REAL", next_state_real)
+            
+            # Ensure vis_table is initialized
+            if not hasattr(self, 'vis_table') or self.vis_table is None:
+                self.initialize_visualization_table(
+                    block_width=0.07,
+                    block_length=0.2,
+                    table_length=2.5,
+                    table_width=2.5
+                )
+                
+            # Check if block position is outside table boundaries
+            if self.vis_table.is_on_table_fn(next_state_real[:2]) < 0.0:
+                # Block fell off table
+                self.stats['fell_off_table'] = True
+                # print("FELL")
+                break  # End planning loop if block falls off table
+            
+            # Calculate translation and rotation for statistics
+            translation_distance = np.linalg.norm(sim_result[:2])  # Euclidean distance traveled in this step
+            rotation_amount = abs(sim_result[3] - current_state_real[3])  # Absolute rotation amount
+            
+            # Update cumulative statistics
+            self.stats['cumulative_translation'] += translation_distance
+            self.stats['cumulative_rotation'] += rotation_amount
+            
+            # Calculate reward for this step (negative distance to goal)
+            current_dist = np.linalg.norm(next_state_real[:2] - self.goal_loc[:2])
+            reward = -current_dist  # Negative distance as reward
+            self.stats['total_reward'] += reward
+            
             # Print the push action and resulting position
-            print(f"Step {step+1}: Push at {angle_degrees_scalar:.2f}° → Position: ({next_state_real[0]:.4f}, {next_state_real[1]:.4f}), orientation: {next_state_real[3]:.4f}")
+            # Step info (silenced)
             
             # Transform the simulation result for the model
             transformed_position = self.transform_coordinates(sim_result[:3], 'final_position')
@@ -510,25 +685,83 @@ class PFTDPW:
             
             difference = np.concatenate([pos_diff, angle_diff])
             
+            # Update belief state using the transformed difference
+            updated_state, model_output = self.update(belief, action, difference)
+            
+            # Record model confidence/uncertainty
+            if hasattr(model_output, 'scale_tril'):
+                # For multivariate normal, use determinant of covariance as uncertainty measure
+                cov = torch.matmul(model_output.scale_tril, torch.transpose(model_output.scale_tril, -1, -2))
+                uncertainty = torch.det(cov).item() if hasattr(cov, 'det') else 0.0
+                self.stats['model_confidence'].append(1.0 / (1.0 + uncertainty))
+            
             # Update the current states
-            current_state_real = next_state_real
+            current_state_real = next_state_real.copy()
+            
+            # Print current location and distance to goal after each push
+            dist_to_goal = np.linalg.norm(current_state_real[:2] - self.goal_loc[:2])
+            # print(f"Step {step+1} location: x={current_state_real[0]:.3f}, y={current_state_real[1]:.3f}, θ={np.degrees(current_state_real[3]):.1f}°")
+            # print(f"Distance to goal: {dist_to_goal:.3f} units | Goal: ({self.goal_loc[0]:.3f}, {self.goal_loc[1]:.3f})")
+            
+            # Update tracking of best action for final summary
+            if step == 0 or best_q > best_action_value:
+                best_action = action_display
+                best_action_value = best_q
             current_state_transformed = next_state_transformed
             
             # Store history in real-world coordinates
             history['states'].append(current_state_real.copy())
             history['actions'].append(angle_degrees_scalar)
+            self.stats['state_trajectory'].append(current_state_real.copy())
             
-            # Update belief state using the transformed difference
-            updated_state, _ = self.update(belief, action, difference)
             # Just use the first two components for the belief update
             belief = updated_state
-
-            # print(f"belief: {belief[0]}")
+            
+            # Calculate particle statistics after update
+            particle_weights = belief[0]
+            weighted_particles = np.array([np.array(p) * w for p, w in zip(self.particles, particle_weights)])
+            if len(weighted_particles) > 0:
+                particle_var = np.var(weighted_particles, axis=0)
+                self.stats['particle_variance'].append(np.mean(particle_var))
+                
+                # Calculate effective number of particles
+                squared_weights = np.array([w**2 for w in particle_weights])
+                if np.sum(squared_weights) > 0:
+                    n_eff = 1.0 / np.sum(squared_weights)
+                    self.stats['effective_particles'].append(n_eff)
+            
+            # Calculate step duration and store it
+            step_duration = time.time() - step_start_time
+            self.stats['step_durations'].append(step_duration)
+            
+            # Increment total steps counter
+            self.stats['total_steps'] += 1
+        
+        # Record final statistics
+        execution_end_time = time.time()
+        self.stats['total_execution_time'] = execution_end_time - execution_start_time
+        
+        # Final distance to goal
+        final_dist = np.linalg.norm(current_state_real[:2] - self.goal_loc[:2])
+        self.stats['final_distance'] = final_dist
+        
+        # Print a summary of the planning session
+        # print("\nPlanning Summary for PFTDPW:")
+        if best_action is not None:
+            # print(f"Best action: {best_action}, Value: {best_action_value:.2f}")
+            pass
+        
+        # Print the number of remaining steps
+        n_rest = max_steps - min(max_steps, step+1 if step < max_steps else step)
+        # print(f"n_rest {n_rest}")
+        pass
+        if 'states' in history:
+            # print(f"block_plots length {len(history['states'])}")
+            pass
         
         # If we didn't reach the goal, print the final position
-        if np.linalg.norm(current_state_real[:2] - self.goal_loc[:2]) >= success_threshold:
-            print(f"Planning ended. Final position: ({current_state_real[0]:.4f}, {current_state_real[1]:.4f})")
-            print(f"Distance to goal: {np.linalg.norm(current_state_real[:2] - self.goal_loc[:2]):.4f}")
+        if final_dist >= success_threshold:
+            pass  # Planning ended message (silenced)
             
         # Automatically visualize the planning results if requested
         if visualize:
@@ -537,6 +770,9 @@ class PFTDPW:
                 history=history,
                 show=show_visualization,
                 save_path=save_visualization_path)
+        
+        # Add statistics to history for return
+        history['stats'] = self.stats
         
         return history
 
@@ -714,9 +950,10 @@ class PFTDPW:
             # No transformation for this field
             return coordinates
             
-    def initialize_visualization_table(self, block_width=0.2, block_length=0.2, table_length=10.0, table_width=10.0):
+    def initialize_visualization_table(self, block_width=0.07, block_length=0.2, table_length=3.0, table_width=3.0):
         """
-        Initialize a BoxTable for visualization purposes.
+        Initialize a table for visualization purposes based on the table_type.
+        Supports BoxTable, RingTable, and BeamTable types.
         
         Args:
             block_width: Width of the block
@@ -725,32 +962,54 @@ class PFTDPW:
             table_width: Width of the table
             
         Returns:
-            The initialized BoxTable instance
+            The initialized table instance
         """
-        # Use goal location to determine table size, making the table just large enough to contain the goal
-        # Add some margin to ensure the goal is well within the table
-        if hasattr(self, 'goal_loc') and self.goal_loc is not None:
-            # Make sure the table is at least as large as the goal location plus some margin
-            table_length = max(self.goal_loc[0] * 1.5, 5.0)  
-            table_width = max(self.goal_loc[1] * 1.5, 5.0)
-        
-        # Create a BoxTable with the updated constructor
+        # Get goal location for table setup
         goal_x = self.goal_loc[0] if hasattr(self, 'goal_loc') and self.goal_loc is not None else 3.0
         goal_y = self.goal_loc[1] if hasattr(self, 'goal_loc') and self.goal_loc is not None else 3.0
         
-        self.vis_table = BoxTable(
-            block_width=block_width,
-            block_length=block_length,
-            block_com_relative_to_centroid=np.array([0, 0]),
-            goal_loc_x=goal_x,
-            goal_loc_y=goal_y,
-            table_length=table_length,
-            table_width=table_width
-        )
+        # Create table based on type with proportional dimensions
+        if self.table_type == 'ring':
+            self.vis_table = RingTable(
+                block_width=block_width,
+                block_length=block_length,
+                block_com_relative_to_centroid=np.array([0, 0]),
+                ring_center=np.array([table_length, table_width]),  # Center of the ring
+                inner_rad=table_width/3,     # Inner radius - matched with NPTDPW
+                outer_rad=table_width/1.25,  # Outer radius - matched with NPTDPW
+                platform_rad=table_width/4   # Platform radius - matched with NPTDPW
+            )
+            # Update goal location from the table if available
+            if hasattr(self.vis_table, 'goal_pos'):
+                self.goal_loc = np.append(self.vis_table.goal_pos, [0.0, 0.0])  # Add z and angle components
+        elif self.table_type == 'beam':
+            self.vis_table = BeamTable(
+                block_width=block_width,
+                block_length=block_length,
+                block_com_relative_to_centroid=np.array([0, 0]),
+                table_length=table_length,      # Length of the beam
+                narrow_width=table_width/2.5,   # Width of the beam - matched with NPTDPW
+                platform_rad=table_width/2.5    # Size of end platforms - matched with NPTDPW
+            )
+            # Update goal location from the table if available
+            if hasattr(self.vis_table, 'goal_pos'):
+                self.goal_loc = np.append(self.vis_table.goal_pos, [0.0, 0.0])  # Add z and angle components
+        else:  # Default to box table
+            self.vis_table = BoxTable(
+                block_width=block_width,  # Use the physical model's width
+                block_length=block_length, # Use the physical model's length
+                block_com_relative_to_centroid=np.array([0, 0]),
+                goal_loc_x=table_length * 0.8,
+                goal_loc_y=table_width * 0.8,
+                table_length=table_length,
+                table_width=table_width
+            )
+            if hasattr(self.vis_table, 'goal_pos'):
+                self.goal_loc = np.append(self.vis_table.goal_pos, [0.0, 0.0])  # Add z and angle components
         
         return self.vis_table
     
-    def visualize_planning(self, history=None, show=False, save_path=None, min_x=0.0, max_x=10.0, min_y=0.0, max_y=10.0, res=0.01):
+    def visualize_planning(self, history=None, show=False, save_path=None, min_x=0.0, max_x=4.0, min_y=0.0, max_y=4.0, res=0.01):
         """
         Visualize the planning and execution process using the BoxTable visualization.
         
@@ -766,7 +1025,12 @@ class PFTDPW:
         """
         # Initialize the visualization table if not already done
         if self.vis_table is None:
-            self.initialize_visualization_table()
+            self.initialize_visualization_table(
+                block_width=0.07,
+                block_length=0.2,
+                table_length=2.5,
+                table_width=2.5
+            )
             
         # Reset the table to clear any previous trajectories
         self.vis_table.reset()
@@ -838,7 +1102,7 @@ def real_simulate(state, action, dataset, real=False):
         com = inversed["com"] 
         angle = action[0]
 
-
+    assert(0 <= angle <= 2 * np.pi)
     body = GraspableBody("Primitive::Box_Test", com, 0.2, 0.07) 
     sim_client = GraspSimulationClient(body, False) 
     urdf = sim_client._get_object_urdf(body) 
@@ -870,7 +1134,29 @@ def main(args):
         validation_dataset = pickle.load(f) 
 
     # Create PFTDPW instance with appropriate parameters
-    pftdpw = PFTDPW(model, validation_dataset, [0.5, 0.5, 0.3], num_particles=20, alpha=0.5, const=0.1, search_depth=3, goal_loc=[10, 10,  0.0, 0.0], args=args)
+    # Using a smaller success_threshold (0.1) for tighter goal achievement and better reward bonuses
+    success_threshold = 0.2
+    
+    # Get table type from command line arguments, default to 'box' if not specified
+    table_type = 'box'
+    if hasattr(args, 'table_type'):
+        table_type = args.table_type
+    
+    pftdpw = PFTDPW(
+        model=model, 
+        dataset=validation_dataset, 
+        true_com=[0.5, 0.5, 0.3], 
+        num_particles=20, 
+        alpha=0.5, 
+        const=1, 
+        search_depth=3, 
+        # Use a default goal location, which will be overridden by the table's goal position
+        goal_loc=(10, 10, 0, 0), 
+        args=args,
+        table_type=table_type,         # Pass the table type from command line args
+        success_threshold=success_threshold, # Pass the success threshold for reward bonuses
+        discount_factor=0.5
+    )
     
     # Determine visualization settings from command-line arguments
     visualize = not hasattr(args, 'no_visualization') or not args.no_visualization
@@ -891,7 +1177,9 @@ def main(args):
         # Initialize the visualization table using goal location to determine size
         pftdpw.initialize_visualization_table(
             block_width=0.07,
-            block_length=0.2
+            block_length=0.2,
+            table_length=2.5,  # Table length matched to NPTDPW
+            table_width=2.5    # Table width matched to NPTDPW
         )
     
     # Set the path for saving the visualization
@@ -901,10 +1189,10 @@ def main(args):
     
     # Execute planning with visualization settings
     example_plan = pftdpw.execute_planning_loop(
-        initial_state=(1.0, 1.0, 0.0, 0.0),
-        max_steps=args.max_steps,
-        planning_time=1.0,
-        success_threshold=0.05,
+        initial_state=None,  # Set to None to use the table's start position
+        max_steps=args.max_steps if hasattr(args, 'max_steps') else 50,
+        planning_time=5.0,
+        success_threshold=success_threshold,  # Use the same success threshold for consistency
         visualize=visualize,
         show_visualization=show_visualization,
         save_visualization_path=save_visualization_path
@@ -934,6 +1222,8 @@ if __name__ == "__main__":
     parser.add_argument('--vis-output-dir', type=str, default=None)
     parser.add_argument('--additional-visualization', action='store_true')
     parser.add_argument('--max-steps', type=int, default=20)
+    parser.add_argument('--table-type', type=str, choices=['box', 'ring', 'beam'], default='box',
+                        help='Type of table to use for planning (box, ring, or beam)')
 
     args = parser.parse_args() 
     args.no_deterministic = True
@@ -942,5 +1232,6 @@ if __name__ == "__main__":
     args.latent_samp = -1
     args.point_cloud = True
     args.no_contact = True 
+    args.no_pointnet = True 
 
     main(args)

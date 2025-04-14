@@ -58,13 +58,13 @@ def process_single_object(obj_data, args):
                 # transformation, contact_points, initial = run_sim(urdf, push_angle, object_angle, push_velocity, offset, gui=True) 
                 break
             push_angle = np.random.uniform(0, 2 * math.pi) 
-            object_angle = np.random.uniform(0, 2 * math.pi) 
+            # object_angle = np.random.uniform(0, 2 * math.pi) 
             # offset = np.random.normal(loc=0, scale=OFFSET_STD_DEV)
             # push_velocity = np.random.uniform(*PUSH_VELOCITY_RANGE) 
             # print("DEBUG MODE")
             # if _ == 0:
             # push_angle = 0
-            # object_angle = 0 
+            object_angle = 0 
             offset = 0 
             push_velocity = 0.1 
 

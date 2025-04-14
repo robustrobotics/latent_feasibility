@@ -107,6 +107,8 @@ def train(model, args, train_dataloader, val_dataloader):
                             data["contact_points"],
                             data["normal_vector"],
                         ), dim=2,)
+                # print(target_xs)
+                # print(obj_data)
 
                 target_ys = torch.cat([data["final_position"], data["final_z_rotation"].unsqueeze(2)], dim=2) 
 

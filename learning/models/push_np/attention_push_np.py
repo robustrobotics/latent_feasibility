@@ -152,7 +152,8 @@ class AttentionPushNP(nn.Module):
             entropy = qz.entropy().mean()
             total_loss = bce_loss
 
-        return total_loss, bce_loss, kl_loss, mu, sigma, distance, (entropy if mode != "train" else None)
+        # print("DIST: ", dist)
+        return total_loss, bce_loss, kl_loss, mu, sigma, distance, (entropy if mode == "validate" else dist)
 
     def guess_obj_data(self, y, obj):
         obj = obj.unsqueeze(1)
